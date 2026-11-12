@@ -19,7 +19,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install requests psycopg2-binary
+          pip install requests psycopg2-binary matplotlib
 
       - name: Execute Monitor Script
         env:
