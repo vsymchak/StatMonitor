@@ -94,37 +94,46 @@ def send_telegram_photo(photo_buf, caption):
 
 def build_odds_chart(cur, event_id, match_name, outcome, target_bm):
     cur.execute("""
-        SELECT bookmaker, odds_value, recorded_at
+        SELECT odds_value, recorded_at
         FROM odds_history
-        WHERE event_id = %s AND outcome = %s
+        WHERE event_id = %s AND outcome = %s AND bookmaker = %s
         ORDER BY recorded_at ASC;
-    """, (event_id, outcome))
+    """, (event_id, outcome, target_bm))
     rows = cur.fetchall()
     if len(rows) < 2:
         return None
 
-    series = {}
-    for bm, val, rec_at in rows:
-        dt_kyiv = rec_at.astimezone(KYIV_TZ)
-        series.setdefault(bm, ([], []))
-        series[bm][0].append(dt_kyiv)
-        series[bm][1].append(float(val))
+    times = []
+    vals = []
+    for val, rec_at in rows:
+        if rec_at.tzinfo is None:
+            rec_at = rec_at.replace(tzinfo=timezone.utc)
+        times.append(rec_at.astimezone(KYIV_TZ))
+        vals.append(float(val))
 
-    fig, ax = plt.subplots(figsize=(8, 4.2), dpi=130)
-    for bm, (times, vals) in series.items():
-        if bm == target_bm:
-            ax.plot(times, vals, marker="o", linewidth=2.5, markersize=6, label=f"{bm} (target)", zorder=5)
-            for t, v in zip(times, vals):
-                ax.annotate(f"{v:.2f}", (t, v), textcoords="offset points", xytext=(0, 6), ha="center", fontsize=8, fontweight="bold")
-        else:
-            ax.plot(times, vals, marker=".", linewidth=1, alpha=0.45, label=bm)
+    fig, ax = plt.subplots(figsize=(7.5, 3.8), dpi=130)
+    color = "#d9534f" if vals[-1] < vals[0] else "#2ca02c"
+    ax.plot(times, vals, marker="o", color=color, linewidth=2.5, markersize=6)
 
-    ax.set_title(f"{match_name}\nOutcome: {outcome}", fontsize=11, fontweight="bold")
+    for i, (t, v) in enumerate(zip(times, vals)):
+        if i == 0 or i == len(vals) - 1 or v != vals[i - 1]:
+            ax.annotate(
+                f"{v:.2f}",
+                (t, v),
+                textcoords="offset points",
+                xytext=(0, 8),
+                ha="center",
+                fontsize=9,
+                fontweight="bold",
+                color="#222222"
+            )
+
+    ax.set_title(f"{match_name}\nOutcome: {outcome} | БК: {target_bm}", fontsize=11, fontweight="bold", pad=10)
     ax.set_ylabel("Odds")
-    ax.grid(True, linestyle="--", alpha=0.4)
+    ax.margins(x=0.08, y=0.22)
+    ax.grid(True, linestyle="--", alpha=0.45)
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%d.%m %H:%M", tz=KYIV_TZ))
     fig.autofmt_xdate()
-    ax.legend(loc="best", fontsize=7, ncol=2)
     plt.tight_layout()
 
     buf = io.BytesIO()
