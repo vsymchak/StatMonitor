@@ -84,9 +84,51 @@ def get_sport_icon(sport_key):
         return "\U0001f3be"
     return "\u26bd"
 
+def format_point(pt):
+    if pt is None:
+        return ""
+    val = float(pt)
+    return f"{val:g}"
+
+def format_signed_point(pt):
+    if pt is None:
+        return ""
+    val = float(pt)
+    if val > 0:
+        return f"+{val:g}"
+    return f"{val:g}"
+
+def encode_outcome_key(market_key, outcome):
+    name = outcome.get("name", "")
+    point = outcome.get("point")
+    if market_key == "totals" and point is not None:
+        return f"Total {name} {format_point(point)}"
+    if market_key == "spreads" and point is not None:
+        return f"Spread {name} ({format_signed_point(point)})"
+    return name
+
 def format_outcome_label(match_name, outcome, sport_key=""):
-    market_name = "Переможець (1-2)" if ("basketball" in sport_key or "tennis" in sport_key) else "Основний час (1X2)"
     parts = match_name.split(" - ", 1)
+
+    if outcome.startswith("Total Over "):
+        line = outcome.replace("Total Over ", "", 1)
+        return "Тотал (ТБ/ТМ)", f"ТБ {line}"
+    if outcome.startswith("Total Under "):
+        line = outcome.replace("Total Under ", "", 1)
+        return "Тотал (ТБ/ТМ)", f"ТМ {line}"
+
+    if outcome.startswith("Spread "):
+        raw = outcome.replace("Spread ", "", 1)
+        if len(parts) == 2:
+            if raw.startswith(parts[0].strip() + " "):
+                hcap = raw[len(parts[0].strip()):].strip()
+                return "Фора (гандикап)", f"Ф1 {hcap} ({parts[0].strip()})"
+            if raw.startswith(parts[1].strip() + " "):
+                hcap = raw[len(parts[1].strip()):].strip()
+                return "Фора (гандикап)", f"Ф2 {hcap} ({parts[1].strip()})"
+        return "Фора (гандикап)", raw
+
+    market_name = "Переможець (1-2)" if ("basketball" in sport_key or "tennis" in sport_key) else "Основний час (1X2)"
     if outcome.lower() == "draw":
         pick = "Х (Нічия)"
     elif len(parts) == 2 and outcome.strip() == parts[0].strip():
@@ -189,11 +231,11 @@ def fetch_and_save_odds(sports_titles_map):
         params = {
             "apiKey": API_KEY,
             "regions": "eu",
-            "markets": "h2h",
+            "markets": "h2h,totals,spreads",
             "commenceTimeTo": commence_to_str
         }
         try:
-            resp = requests.get(url, params=params, timeout=10)
+            resp = requests.get(url, params=params, timeout=12)
             remaining_credits = resp.headers.get("x-requests-remaining", remaining_credits)
             if resp.status_code != 200:
                 print(f"API {sport}: {resp.status_code}")
@@ -207,9 +249,11 @@ def fetch_and_save_odds(sports_titles_map):
                 events_batch.append((ev_id, sport, ev["home_team"], ev["away_team"], commence_str))
                 for bm in ev.get("bookmakers", []):
                     for market in bm.get("markets", []):
-                        if market["key"] == "h2h":
+                        m_key = market["key"]
+                        if m_key in ("h2h", "totals", "spreads"):
                             for outcome in market.get("outcomes", []):
-                                odds_batch.append((ev_id, bm["key"], outcome["name"], outcome["price"]))
+                                encoded_name = encode_outcome_key(m_key, outcome)
+                                odds_batch.append((ev_id, bm["key"], encoded_name, outcome["price"]))
         except Exception as e:
             print(f"Помилка запиту {sport}: {e}")
 
@@ -298,13 +342,13 @@ def check_alerts_and_notify(sports_titles_map):
     cur.execute("SELECT sport, match_name, commence_time, p1_side, p2_side, profit_percent, stake_p1_pct, stake_p2_pct FROM v_arbitrage_2way LIMIT 5;")
     arb_2way = cur.fetchall()
     if arb_2way:
-        msg = "\u26a1 <b>2-way Вилка (&gt;5%) | Ринок: Переможець (1-2)</b>\n\n"
+        msg = "\u26a1 <b>2-way Вилка (&gt;5%)</b>\n\n"
         for arb in arb_2way:
             sport, match, c_time, p1, p2, profit, s1, s2 = arb
             s_icon = get_sport_icon(sport)
             sport_title = sports_titles_map.get(sport) or SPORT_TITLES_UA.get(sport, sport)
             c_str = format_kyiv_time(c_time)
-            msg += f"{s_icon} <b>{match}</b> [{sport_title}] ({c_str}) | +<b>{profit}%</b>\n\u2022 П1: {p1} ({s1}%)\n\u2022 П2: {p2} ({s2}%)\n\n"
+            msg += f"{s_icon} <b>{match}</b> [{sport_title}] ({c_str}) | +<b>{profit}%</b>\n\u2022 Плече 1: {p1} ({s1}%)\n\u2022 Плече 2: {p2} ({s2}%)\n\n"
         send_telegram_alert(msg)
 
     cur.close()
