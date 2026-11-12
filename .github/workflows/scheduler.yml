@@ -2,12 +2,13 @@ name: StatMonitor Auto Scheduler
 
 on:
   schedule:
-    - cron: '0 */4 * * *'
+    - cron: '0 */6 * * *'
   workflow_dispatch:
 
 jobs:
   run-monitor:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -18,8 +19,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: |
-          pip install requests psycopg2-binary matplotlib
+        run: pip install requests psycopg2-binary matplotlib
 
       - name: Execute Monitor Script
         env:
@@ -27,4 +27,4 @@ jobs:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-        run: python main.py
+        run: python -u main.py
