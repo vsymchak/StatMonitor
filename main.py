@@ -33,6 +33,7 @@ def fetch_and_save_odds():
     now_utc = datetime.now(timezone.utc)
     max_date_utc = now_utc + timedelta(days=5)
     commence_to_str = max_date_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+    print(f"1. Збір котирувань до {commence_to_str} (вікно 5 днів)...")
 
     events_batch = []
     odds_batch = []
@@ -48,6 +49,7 @@ def fetch_and_save_odds():
         try:
             resp = requests.get(url, params=params, timeout=15)
             if resp.status_code != 200:
+                print(f"Помилка API ({sport}): {resp.status_code}")
                 continue
             for ev in resp.json():
                 ev_id = ev["id"]
@@ -64,26 +66,28 @@ def fetch_and_save_odds():
         except Exception as e:
             print(f"Помилка запиту для {sport}: {e}")
 
-    if not events_batch:
-        return False
-
     conn = psycopg2.connect(DB_URL)
     cur = conn.cursor()
     try:
-        execute_values(
-            cur,
-            "INSERT INTO events (id, sport, home_team, away_team, commence_time) VALUES %s ON CONFLICT (id) DO UPDATE SET commence_time = EXCLUDED.commence_time;",
-            events_batch
-        )
-        execute_values(
-            cur,
-            "INSERT INTO odds_history (event_id, bookmaker, outcome, odds_value) VALUES %s;",
-            odds_batch
-        )
-        cur.execute("DELETE FROM events WHERE commence_time < NOW() - INTERVAL '1 day';")
+        if events_batch:
+            execute_values(
+                cur,
+                "INSERT INTO events (id, sport, home_team, away_team, commence_time) VALUES %s ON CONFLICT (id) DO UPDATE SET commence_time = EXCLUDED.commence_time;",
+                events_batch
+            )
+            execute_values(
+                cur,
+                "INSERT INTO odds_history (event_id, bookmaker, outcome, odds_value) VALUES %s;",
+                odds_batch
+            )
+
+        # Залишаємо події за останню добу та на 5 днів уперед
+        cur.execute("DELETE FROM events WHERE commence_time < NOW() - INTERVAL '1 day' OR commence_time > NOW() + INTERVAL '5 days';")
         conn.commit()
+        print(f"Збережено подій: {len(events_batch)}, котирувань: {len(odds_batch)}")
         return True
     except Exception as e:
+        print(f"Помилка запису в БД: {e}")
         conn.rollback()
         return False
     finally:
@@ -91,6 +95,7 @@ def fetch_and_save_odds():
         conn.close()
 
 def check_alerts_and_notify():
+    print("2. Формування звіту та перевірка алертів...")
     kyiv_now = datetime.now(ZoneInfo("Europe/Kyiv"))
     status_line = f"\u2705 \u043a\u043e\u0435\u0444. {kyiv_now.strftime('%d.%m.%Y')} \u043e\u043d\u043e\u0432\u043b\u0435\u043d\u043e \u0432 {kyiv_now.strftime('%H:%M')}"
     send_telegram_alert(status_line)
