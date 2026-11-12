@@ -298,6 +298,8 @@ def check_alerts_and_notify(sports_titles_map):
     cur.execute("""
         SELECT event_id, sport, match_name, commence_time, bookmaker, outcome, initial_odds, initial_time, current_odds, current_time, pct_change 
         FROM v_odds_alerts 
+        WHERE pct_change < 0
+        ORDER BY pct_change ASC
         LIMIT 8;
     """)
     odds_alerts = cur.fetchall()
@@ -319,7 +321,7 @@ def check_alerts_and_notify(sports_titles_map):
             f"\U0001f4c5 Початок: {c_str}\n"
             f"\U0001f3af Ринок: {market_name} | <b>{pick_label}</b>\n"
             f"\U0001f4ca БК: <b>{bm}</b>\n"
-            f"{t_icon} <code>{init_k}</code> ({t1_str}) \u2794 <code>{curr_k}</code> ({t2_str}) (<b>{pct}%</b>)"
+            f"🔻 <b>Просідання:</b> <code>{init_k}</code> ({t1_str}) \u2794 <code>{curr_k}</code> ({t2_str}) (<b>{pct}%</b>)"
         )
 
         chart = build_odds_chart(cur, ev_id, match, outcome, bm, pick_label, sport_title)
