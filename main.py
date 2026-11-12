@@ -53,6 +53,13 @@ def get_active_sports():
     extra = sorted([s for s in active_set if s not in ordered])
     return ordered + extra
 
+def format_kyiv_time(val):
+    if hasattr(val, "astimezone"):
+        if val.tzinfo is None:
+            val = val.replace(tzinfo=timezone.utc)
+        return val.astimezone(KYIV_TZ).strftime("%d.%m %H:%M")
+    return val.strftime("%H:%M")
+
 def get_sport_icon(sport_key):
     if "basketball" in sport_key:
         return "\U0001f3c0"
@@ -216,9 +223,9 @@ def check_alerts_and_notify():
         ev_id, sport, match, c_time, bm, outcome, init_k, init_t, curr_k, curr_t, pct = a
         s_icon = get_sport_icon(sport)
         t_icon = "\U0001f53b" if pct < 0 else "\U0001f53a"
-        c_str = c_time.astimezone(KYIV_TZ).strftime("%d.%m %H:%M")
-        t1_str = init_t.astimezone(KYIV_TZ).strftime("%d.%m %H:%M")
-        t2_str = curr_t.astimezone(KYIV_TZ).strftime("%d.%m %H:%M")
+        c_str = format_kyiv_time(c_time)
+        t1_str = format_kyiv_time(init_t)
+        t2_str = format_kyiv_time(curr_t)
 
         caption = (
             f"{s_icon} <b>{match}</b> ({sport})\n"
@@ -239,7 +246,7 @@ def check_alerts_and_notify():
         msg = "\u26a1 <b>\u0424\u0443\u0442\u0431\u043e\u043b\u044c\u043d\u0438\u0439 \u0430\u0440\u0431\u0456\u0442\u0440\u0430\u0436 (&gt;5%)</b>\n\n"
         for arb in arb_3way:
             sport, match, c_time, p1, draw, p2, profit, s1, s_x, s2 = arb
-            c_str = c_time.astimezone(KYIV_TZ).strftime("%d.%m %H:%M")
+            c_str = format_kyiv_time(c_time)
             msg += f"\u26bd <b>{match}</b> ({c_str}) | +<b>{profit}%</b>\n\u2022 1: {p1} ({s1}%)\n\u2022 X: {draw} ({s_x}%)\n\u2022 2: {p2} ({s2}%)\n\n"
         send_telegram_alert(msg)
 
@@ -250,7 +257,7 @@ def check_alerts_and_notify():
         for arb in arb_2way:
             sport, match, c_time, p1, p2, profit, s1, s2 = arb
             s_icon = get_sport_icon(sport)
-            c_str = c_time.astimezone(KYIV_TZ).strftime("%d.%m %H:%M")
+            c_str = format_kyiv_time(c_time)
             msg += f"{s_icon} <b>{match}</b> ({c_str}) | +<b>{profit}%</b>\n\u2022 1: {p1} ({s1}%)\n\u2022 2: {p2} ({s2}%)\n\n"
         send_telegram_alert(msg)
 
