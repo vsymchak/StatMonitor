@@ -28,13 +28,27 @@ TARGET_SPORTS = [
     "basketball_nba"
 ]
 
+SPORT_TITLES_UA = {
+    "soccer_epl": "Англія. Прем'єр-ліга (EPL)",
+    "soccer_spain_la_liga": "Іспанія. Ла Ліга",
+    "soccer_italy_serie_a": "Італія. Серія А",
+    "soccer_germany_bundesliga": "Німеччина. Бундесліга",
+    "soccer_france_ligue_one": "Франція. Ліга 1",
+    "soccer_poland_ekstraklasa": "Польща. Екстракляса",
+    "soccer_ukraine_premier_league": "Україна. УПЛ",
+    "soccer_uefa_champs_league": "Ліга чемпіонів УЄФА",
+    "soccer_uefa_nations_league": "Ліга націй УЄФА",
+    "basketball_nba": "Баскетбол. NBA",
+    "tennis_wta_finals": "Теніс. Підсумковий турнір WTA"
+}
+
 KYIV_TZ = ZoneInfo("Europe/Kyiv")
 
 def get_db_connection():
     return psycopg2.connect(DB_URL, connect_timeout=10, options="-c statement_timeout=20000")
 
 def get_active_sports():
-    active_set = set()
+    active_map = {}
     try:
         resp = requests.get(f"https://api.the-odds-api.com/v4/sports/?apiKey={API_KEY}", timeout=10)
         if resp.status_code == 200:
@@ -42,16 +56,19 @@ def get_active_sports():
                 key = item.get("key", "")
                 if item.get("active"):
                     if key in TARGET_SPORTS or key.startswith(("tennis_atp_", "tennis_wta_", "soccer_uefa_nations", "soccer_fifa_world_cup", "soccer_international")):
-                        active_set.add(key)
+                        title = SPORT_TITLES_UA.get(key) or item.get("title", key)
+                        active_map[key] = title
         else:
-            return list(TARGET_SPORTS)
+            return {k: SPORT_TITLES_UA.get(k, k) for k in TARGET_SPORTS}
     except Exception as e:
         print(f"Помилка перевірки списку турнірів: {e}")
-        return list(TARGET_SPORTS)
+        return {k: SPORT_TITLES_UA.get(k, k) for k in TARGET_SPORTS}
 
-    ordered = [s for s in TARGET_SPORTS if s in active_set]
-    extra = sorted([s for s in active_set if s not in ordered])
-    return ordered + extra
+    ordered = {k: active_map[k] for k in TARGET_SPORTS if k in active_map}
+    for k in sorted(active_map.keys()):
+        if k not in ordered:
+            ordered[k] = active_map[k]
+    return ordered
 
 def format_kyiv_time(val):
     if hasattr(val, "astimezone"):
@@ -66,6 +83,19 @@ def get_sport_icon(sport_key):
     if "tennis" in sport_key:
         return "\U0001f3be"
     return "\u26bd"
+
+def format_outcome_label(match_name, outcome, sport_key=""):
+    market_name = "Переможець (1-2)" if ("basketball" in sport_key or "tennis" in sport_key) else "Основний час (1X2)"
+    parts = match_name.split(" - ", 1)
+    if outcome.lower() == "draw":
+        pick = "Х (Нічия)"
+    elif len(parts) == 2 and outcome.strip() == parts[0].strip():
+        pick = f"П1 ({outcome})"
+    elif len(parts) == 2 and outcome.strip() == parts[1].strip():
+        pick = f"П2 ({outcome})"
+    else:
+        pick = outcome
+    return market_name, pick
 
 def send_telegram_alert(text):
     if not TG_BOT_TOKEN or not TG_CHAT_ID:
@@ -92,7 +122,7 @@ def send_telegram_photo(photo_buf, caption):
     except Exception as e:
         print(f"Помилка відправки фото: {e}")
 
-def build_odds_chart(cur, event_id, match_name, outcome, target_bm):
+def build_odds_chart(cur, event_id, match_name, outcome, target_bm, pick_label, sport_title):
     cur.execute("""
         SELECT odds_value, recorded_at
         FROM odds_history
@@ -128,8 +158,8 @@ def build_odds_chart(cur, event_id, match_name, outcome, target_bm):
                 color="#222222"
             )
 
-    ax.set_title(f"{match_name}\nOutcome: {outcome} | БК: {target_bm}", fontsize=11, fontweight="bold", pad=10)
-    ax.set_ylabel("Odds")
+    ax.set_title(f"{match_name} ({sport_title})\nСтавка: {pick_label} | БК: {target_bm}", fontsize=10.5, fontweight="bold", pad=10)
+    ax.set_ylabel("Коефіцієнт")
     ax.margins(x=0.08, y=0.22)
     ax.grid(True, linestyle="--", alpha=0.45)
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%d.%m %H:%M", tz=KYIV_TZ))
@@ -142,12 +172,12 @@ def build_odds_chart(cur, event_id, match_name, outcome, target_bm):
     buf.seek(0)
     return buf
 
-def fetch_and_save_odds():
+def fetch_and_save_odds(sports_titles_map):
     now_utc = datetime.now(timezone.utc)
     max_date_utc = now_utc + timedelta(days=5)
     commence_to_str = max_date_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
     
-    sports_to_scan = get_active_sports()
+    sports_to_scan = list(sports_titles_map.keys())
     print(f"1. Активні турніри ({len(sports_to_scan)}): {sports_to_scan}")
 
     events_batch = []
@@ -212,7 +242,7 @@ def fetch_and_save_odds():
         cur.close()
         conn.close()
 
-def check_alerts_and_notify():
+def check_alerts_and_notify(sports_titles_map):
     print("4. Перевірка алертів та відправка в Telegram...")
     kyiv_now = datetime.now(KYIV_TZ)
     status_line = f"\u2705 \u043a\u043e\u0435\u0444. {kyiv_now.strftime('%d.%m.%Y')} \u043e\u043d\u043e\u0432\u043b\u0435\u043d\u043e \u0432 {kyiv_now.strftime('%H:%M')}"
@@ -232,18 +262,23 @@ def check_alerts_and_notify():
         ev_id, sport, match, c_time, bm, outcome, init_k, init_t, curr_k, curr_t, pct = a
         s_icon = get_sport_icon(sport)
         t_icon = "\U0001f53b" if pct < 0 else "\U0001f53a"
+        sport_title = sports_titles_map.get(sport) or SPORT_TITLES_UA.get(sport, sport)
+        market_name, pick_label = format_outcome_label(match, outcome, sport)
+
         c_str = format_kyiv_time(c_time)
         t1_str = format_kyiv_time(init_t)
         t2_str = format_kyiv_time(curr_t)
 
         caption = (
-            f"{s_icon} <b>{match}</b> ({sport})\n"
-            f"\U0001f4c5 \u041f\u043e\u0447\u0430\u0442\u043e\u043a: {c_str}\n"
-            f"\U0001f4ca \u0411\u041a: {bm} | \u0420\u0435\u0437\u0443\u043b\u044c\u0442\u0430\u0442: <b>{outcome}</b>\n"
+            f"{s_icon} <b>{match}</b>\n"
+            f"\U0001f3c6 <b>{sport_title}</b>\n"
+            f"\U0001f4c5 Початок: {c_str}\n"
+            f"\U0001f3af Ринок: {market_name} | <b>{pick_label}</b>\n"
+            f"\U0001f4ca БК: <b>{bm}</b>\n"
             f"{t_icon} <code>{init_k}</code> ({t1_str}) \u2794 <code>{curr_k}</code> ({t2_str}) (<b>{pct}%</b>)"
         )
 
-        chart = build_odds_chart(cur, ev_id, match, outcome, bm)
+        chart = build_odds_chart(cur, ev_id, match, outcome, bm, pick_label, sport_title)
         if chart:
             send_telegram_photo(chart, caption)
         else:
@@ -252,22 +287,24 @@ def check_alerts_and_notify():
     cur.execute("SELECT sport, match_name, commence_time, p1_side, draw_side, p2_side, profit_percent, stake_p1_pct, stake_draw_pct, stake_p2_pct FROM v_arbitrage_3way LIMIT 5;")
     arb_3way = cur.fetchall()
     if arb_3way:
-        msg = "\u26a1 <b>\u0424\u0443\u0442\u0431\u043e\u043b\u044c\u043d\u0438\u0439 \u0430\u0440\u0431\u0456\u0442\u0440\u0430\u0436 (&gt;5%)</b>\n\n"
+        msg = "\u26a1 <b>Футбольний арбітраж (&gt;5%) | Ринок: Основний час (1X2)</b>\n\n"
         for arb in arb_3way:
             sport, match, c_time, p1, draw, p2, profit, s1, s_x, s2 = arb
+            sport_title = sports_titles_map.get(sport) or SPORT_TITLES_UA.get(sport, sport)
             c_str = format_kyiv_time(c_time)
-            msg += f"\u26bd <b>{match}</b> ({c_str}) | +<b>{profit}%</b>\n\u2022 1: {p1} ({s1}%)\n\u2022 X: {draw} ({s_x}%)\n\u2022 2: {p2} ({s2}%)\n\n"
+            msg += f"\u26bd <b>{match}</b> [{sport_title}] ({c_str}) | +<b>{profit}%</b>\n\u2022 П1: {p1} ({s1}%)\n\u2022 Х: {draw} ({s_x}%)\n\u2022 П2: {p2} ({s2}%)\n\n"
         send_telegram_alert(msg)
 
     cur.execute("SELECT sport, match_name, commence_time, p1_side, p2_side, profit_percent, stake_p1_pct, stake_p2_pct FROM v_arbitrage_2way LIMIT 5;")
     arb_2way = cur.fetchall()
     if arb_2way:
-        msg = "\u26a1 <b>2-way \u0412\u0438\u043b\u043a\u0430 (&gt;5%)</b>\n\n"
+        msg = "\u26a1 <b>2-way Вилка (&gt;5%) | Ринок: Переможець (1-2)</b>\n\n"
         for arb in arb_2way:
             sport, match, c_time, p1, p2, profit, s1, s2 = arb
             s_icon = get_sport_icon(sport)
+            sport_title = sports_titles_map.get(sport) or SPORT_TITLES_UA.get(sport, sport)
             c_str = format_kyiv_time(c_time)
-            msg += f"{s_icon} <b>{match}</b> ({c_str}) | +<b>{profit}%</b>\n\u2022 1: {p1} ({s1}%)\n\u2022 2: {p2} ({s2}%)\n\n"
+            msg += f"{s_icon} <b>{match}</b> [{sport_title}] ({c_str}) | +<b>{profit}%</b>\n\u2022 П1: {p1} ({s1}%)\n\u2022 П2: {p2} ({s2}%)\n\n"
         send_telegram_alert(msg)
 
     cur.close()
@@ -275,5 +312,6 @@ def check_alerts_and_notify():
     print("5. Готово!")
 
 if __name__ == "__main__":
-    if fetch_and_save_odds():
-        check_alerts_and_notify()
+    active_sports_map = get_active_sports()
+    if fetch_and_save_odds(active_sports_map):
+        check_alerts_and_notify(active_sports_map)
