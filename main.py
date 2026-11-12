@@ -300,32 +300,58 @@ def check_alerts_and_notify(sports_titles_map):
         FROM v_odds_alerts 
         WHERE pct_change < 0
         ORDER BY pct_change ASC
-        LIMIT 8;
+        LIMIT 25;
     """)
     odds_alerts = cur.fetchall()
 
+    grouped_alerts = {}
     for a in odds_alerts:
-        ev_id, sport, match, c_time, bm, outcome, init_k, init_t, curr_k, curr_t, pct = a
+        ev_id = a[0]
+        if ev_id not in grouped_alerts:
+            if len(grouped_alerts) >= 8:
+                continue
+            grouped_alerts[ev_id] = []
+        grouped_alerts[ev_id].append(a)
+
+    for ev_id, alerts_list in grouped_alerts.items():
+        first = alerts_list[0]
+        _, sport, match, c_time, top_bm, top_outcome, _, _, _, _, _ = first
         s_icon = get_sport_icon(sport)
-        t_icon = "\U0001f53b" if pct < 0 else "\U0001f53a"
         sport_title = sports_titles_map.get(sport) or SPORT_TITLES_UA.get(sport, sport)
-        market_name, pick_label = format_outcome_label(match, outcome, sport)
-
         c_str = format_kyiv_time(c_time)
-        t1_str = format_kyiv_time(init_t)
-        t2_str = format_kyiv_time(curr_t)
+        _, top_pick_label = format_outcome_label(match, top_outcome, sport)
 
-        caption = (
+        header = (
             f"{s_icon} <b>{match}</b>\n"
             f"\U0001f3c6 <b>{sport_title}</b>\n"
             f"\U0001f4c5 Початок: {c_str}\n"
-            f"\U0001f3af Ринок: {market_name} | <b>{pick_label}</b>\n"
-            f"\U0001f4ca БК: <b>{bm}</b>\n"
-            f"🔻 <b>Просідання:</b> <code>{init_k}</code> ({t1_str}) \u2794 <code>{curr_k}</code> ({t2_str}) (<b>{pct}%</b>)"
         )
 
-        chart = build_odds_chart(cur, ev_id, match, outcome, bm, pick_label, sport_title)
-        if chart:
+        lines = []
+        for item in alerts_list:
+            _, _, _, _, bm, outcome, init_k, init_t, curr_k, curr_t, pct = item
+            market_name, pick_label = format_outcome_label(match, outcome, sport)
+            t1_str = format_kyiv_time(init_t)
+            t2_str = format_kyiv_time(curr_t)
+            if len(alerts_list) == 1:
+                lines.append(
+                    f"\U0001f3af Ринок: {market_name} | <b>{pick_label}</b>\n"
+                    f"\U0001f4ca БК: <b>{bm}</b>\n"
+                    f"\U0001f53b <b>Просідання:</b> <code>{init_k}</code> ({t1_str}) \u2794 <code>{curr_k}</code> ({t2_str}) (<b>{pct}%</b>)"
+                )
+            else:
+                lines.append(
+                    f"\u2022 <b>{pick_label}</b> [{market_name}] | БК: <b>{bm}</b>\n"
+                    f"  \U0001f53b <code>{init_k}</code> ({t1_str}) \u2794 <code>{curr_k}</code> ({t2_str}) (<b>{pct}%</b>)"
+                )
+
+        if len(alerts_list) > 1:
+            header += f"\n\U0001f4c9 <b>Виявлено просідань по матчу: {len(alerts_list)}</b>\n"
+
+        caption = header + "\n".join(lines)
+        chart = build_odds_chart(cur, ev_id, match, top_outcome, top_bm, top_pick_label, sport_title)
+
+        if chart and len(caption) <= 1024:
             send_telegram_photo(chart, caption)
         else:
             send_telegram_alert(caption)
