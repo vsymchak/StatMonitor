@@ -1,24 +1,67 @@
+import io
 import os
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 import requests
 import psycopg2
 from psycopg2.extras import execute_values
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 
 DB_URL = os.environ.get("SUPABASE_DB_URL")
 API_KEY = os.environ.get("ODDS_API_KEY")
 TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN")
 TG_CHAT_ID = os.environ.get("TG_CHAT_ID")
 
-SPORTS = [
+TARGET_SPORTS = [
     "soccer_epl",
+    "soccer_spain_la_liga",
+    "soccer_italy_serie_a",
+    "soccer_germany_bundesliga",
+    "soccer_france_ligue_one",
+    "soccer_poland_ekstraklasa",
+    "soccer_ukraine_premier_league",
     "soccer_uefa_champs_league",
+    "soccer_uefa_nations_league",
     "basketball_nba"
 ]
 
+KYIV_TZ = ZoneInfo("Europe/Kyiv")
+
+def get_db_connection():
+    return psycopg2.connect(DB_URL, connect_timeout=10, options="-c statement_timeout=20000")
+
+def get_active_sports():
+    active_set = set()
+    try:
+        resp = requests.get(f"https://api.the-odds-api.com/v4/sports/?apiKey={API_KEY}", timeout=10)
+        if resp.status_code == 200:
+            for item in resp.json():
+                key = item.get("key", "")
+                if item.get("active"):
+                    if key in TARGET_SPORTS or key.startswith(("tennis_atp_", "tennis_wta_", "soccer_uefa_nations", "soccer_fifa_world_cup", "soccer_international")):
+                        active_set.add(key)
+        else:
+            return list(TARGET_SPORTS)
+    except Exception as e:
+        print(f"Помилка перевірки списку турнірів: {e}")
+        return list(TARGET_SPORTS)
+
+    ordered = [s for s in TARGET_SPORTS if s in active_set]
+    extra = sorted([s for s in active_set if s not in ordered])
+    return ordered + extra
+
+def get_sport_icon(sport_key):
+    if "basketball" in sport_key:
+        return "\U0001f3c0"
+    if "tennis" in sport_key:
+        return "\U0001f3be"
+    return "\u26bd"
+
 def send_telegram_alert(text):
     if not TG_BOT_TOKEN or not TG_CHAT_ID:
-        print("TG_BOT_TOKEN або TG_CHAT_ID порожні!")
         return
     url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage"
     payload = {"chat_id": TG_CHAT_ID, "text": text, "parse_mode": "HTML"}
@@ -27,18 +70,75 @@ def send_telegram_alert(text):
         if resp.status_code != 200:
             print(f"Помилка Telegram API ({resp.status_code}): {resp.text}")
     except Exception as e:
-        print(f"Мережева помилка відправки Telegram: {e}")
+        print(f"Мережева помилка Telegram: {e}")
+
+def send_telegram_photo(photo_buf, caption):
+    if not TG_BOT_TOKEN or not TG_CHAT_ID:
+        return
+    url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendPhoto"
+    files = {"photo": ("chart.png", photo_buf, "image/png")}
+    data = {"chat_id": TG_CHAT_ID, "caption": caption, "parse_mode": "HTML"}
+    try:
+        resp = requests.post(url, files=files, data=data, timeout=15)
+        if resp.status_code != 200:
+            print(f"Помилка відправки фото ({resp.status_code}): {resp.text}")
+    except Exception as e:
+        print(f"Помилка відправки фото: {e}")
+
+def build_odds_chart(cur, event_id, match_name, outcome, target_bm):
+    cur.execute("""
+        SELECT bookmaker, odds_value, recorded_at
+        FROM odds_history
+        WHERE event_id = %s AND outcome = %s
+        ORDER BY recorded_at ASC;
+    """, (event_id, outcome))
+    rows = cur.fetchall()
+    if len(rows) < 2:
+        return None
+
+    series = {}
+    for bm, val, rec_at in rows:
+        dt_kyiv = rec_at.astimezone(KYIV_TZ)
+        series.setdefault(bm, ([], []))
+        series[bm][0].append(dt_kyiv)
+        series[bm][1].append(float(val))
+
+    fig, ax = plt.subplots(figsize=(8, 4.2), dpi=130)
+    for bm, (times, vals) in series.items():
+        if bm == target_bm:
+            ax.plot(times, vals, marker="o", linewidth=2.5, markersize=6, label=f"{bm} (target)", zorder=5)
+            for t, v in zip(times, vals):
+                ax.annotate(f"{v:.2f}", (t, v), textcoords="offset points", xytext=(0, 6), ha="center", fontsize=8, fontweight="bold")
+        else:
+            ax.plot(times, vals, marker=".", linewidth=1, alpha=0.45, label=bm)
+
+    ax.set_title(f"{match_name}\nOutcome: {outcome}", fontsize=11, fontweight="bold")
+    ax.set_ylabel("Odds")
+    ax.grid(True, linestyle="--", alpha=0.4)
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%d.%m %H:%M", tz=KYIV_TZ))
+    fig.autofmt_xdate()
+    ax.legend(loc="best", fontsize=7, ncol=2)
+    plt.tight_layout()
+
+    buf = io.BytesIO()
+    plt.savefig(buf, format="png")
+    plt.close(fig)
+    buf.seek(0)
+    return buf
 
 def fetch_and_save_odds():
     now_utc = datetime.now(timezone.utc)
     max_date_utc = now_utc + timedelta(days=5)
     commence_to_str = max_date_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
-    print(f"1. Збір котирувань до {commence_to_str} (вікно 5 днів)...")
+    
+    sports_to_scan = get_active_sports()
+    print(f"1. Активні турніри ({len(sports_to_scan)}): {sports_to_scan}")
 
     events_batch = []
     odds_batch = []
+    remaining_credits = "?"
 
-    for sport in SPORTS:
+    for sport in sports_to_scan:
         url = f"https://api.the-odds-api.com/v4/sports/{sport}/odds/"
         params = {
             "apiKey": API_KEY,
@@ -47,9 +147,10 @@ def fetch_and_save_odds():
             "commenceTimeTo": commence_to_str
         }
         try:
-            resp = requests.get(url, params=params, timeout=15)
+            resp = requests.get(url, params=params, timeout=10)
+            remaining_credits = resp.headers.get("x-requests-remaining", remaining_credits)
             if resp.status_code != 200:
-                print(f"Помилка API ({sport}): {resp.status_code}")
+                print(f"API {sport}: {resp.status_code}")
                 continue
             for ev in resp.json():
                 ev_id = ev["id"]
@@ -64,9 +165,11 @@ def fetch_and_save_odds():
                             for outcome in market.get("outcomes", []):
                                 odds_batch.append((ev_id, bm["key"], outcome["name"], outcome["price"]))
         except Exception as e:
-            print(f"Помилка запиту для {sport}: {e}")
+            print(f"Помилка запиту {sport}: {e}")
 
-    conn = psycopg2.connect(DB_URL)
+    print(f"2. Залишок кредитів API: {remaining_credits}. Запис у БД...")
+
+    conn = get_db_connection()
     cur = conn.cursor()
     try:
         if events_batch:
@@ -81,13 +184,12 @@ def fetch_and_save_odds():
                 odds_batch
             )
 
-        # Залишаємо події за останню добу та на 5 днів уперед
         cur.execute("DELETE FROM events WHERE commence_time < NOW() - INTERVAL '1 day' OR commence_time > NOW() + INTERVAL '5 days';")
         conn.commit()
-        print(f"Збережено подій: {len(events_batch)}, котирувань: {len(odds_batch)}")
+        print(f"3. Успішно збережено подій: {len(events_batch)}, котирувань: {len(odds_batch)}")
         return True
     except Exception as e:
-        print(f"Помилка запису в БД: {e}")
+        print(f"Помилка БД: {e}")
         conn.rollback()
         return False
     finally:
@@ -95,43 +197,66 @@ def fetch_and_save_odds():
         conn.close()
 
 def check_alerts_and_notify():
-    print("2. Формування звіту та перевірка алертів...")
-    kyiv_now = datetime.now(ZoneInfo("Europe/Kyiv"))
+    print("4. Перевірка алертів та відправка в Telegram...")
+    kyiv_now = datetime.now(KYIV_TZ)
     status_line = f"\u2705 \u043a\u043e\u0435\u0444. {kyiv_now.strftime('%d.%m.%Y')} \u043e\u043d\u043e\u0432\u043b\u0435\u043d\u043e \u0432 {kyiv_now.strftime('%H:%M')}"
     send_telegram_alert(status_line)
 
-    conn = psycopg2.connect(DB_URL)
+    conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("SELECT sport, match_name, commence_time, bookmaker, outcome, initial_odds, current_odds, pct_change FROM v_odds_alerts LIMIT 10;")
+
+    cur.execute("""
+        SELECT event_id, sport, match_name, commence_time, bookmaker, outcome, initial_odds, initial_time, current_odds, current_time, pct_change 
+        FROM v_odds_alerts 
+        LIMIT 8;
+    """)
     odds_alerts = cur.fetchall()
+
+    for a in odds_alerts:
+        ev_id, sport, match, c_time, bm, outcome, init_k, init_t, curr_k, curr_t, pct = a
+        s_icon = get_sport_icon(sport)
+        t_icon = "\U0001f53b" if pct < 0 else "\U0001f53a"
+        c_str = c_time.astimezone(KYIV_TZ).strftime("%d.%m %H:%M")
+        t1_str = init_t.astimezone(KYIV_TZ).strftime("%d.%m %H:%M")
+        t2_str = curr_t.astimezone(KYIV_TZ).strftime("%d.%m %H:%M")
+
+        caption = (
+            f"{s_icon} <b>{match}</b> ({sport})\n"
+            f"\U0001f4c5 \u041f\u043e\u0447\u0430\u0442\u043e\u043a: {c_str}\n"
+            f"\U0001f4ca \u0411\u041a: {bm} | \u0420\u0435\u0437\u0443\u043b\u044c\u0442\u0430\u0442: <b>{outcome}</b>\n"
+            f"{t_icon} <code>{init_k}</code> ({t1_str}) \u2794 <code>{curr_k}</code> ({t2_str}) (<b>{pct}%</b>)"
+        )
+
+        chart = build_odds_chart(cur, ev_id, match, outcome, bm)
+        if chart:
+            send_telegram_photo(chart, caption)
+        else:
+            send_telegram_alert(caption)
+
     cur.execute("SELECT sport, match_name, commence_time, p1_side, draw_side, p2_side, profit_percent, stake_p1_pct, stake_draw_pct, stake_p2_pct FROM v_arbitrage_3way LIMIT 5;")
     arb_3way = cur.fetchall()
-    cur.execute("SELECT sport, match_name, commence_time, p1_side, p2_side, profit_percent, stake_p1_pct, stake_p2_pct FROM v_arbitrage_2way LIMIT 5;")
-    arb_2way = cur.fetchall()
-    cur.close()
-    conn.close()
-
-    if odds_alerts:
-        msg = "\U0001f4c9 <b>\u041f\u0440\u043e\u0441\u0456\u0434\u0430\u043d\u043d\u044f/\u0440\u0443\u0445 \u043a\u043e\u0435\u0444\u0456\u0446\u0456\u0454\u043d\u0442\u0456\u0432 (&gt;8%)</b>\n\n"
-        for a in odds_alerts:
-            sport, match, c_time, bm, outcome, init_k, curr_k, pct = a
-            icon = "\U0001f53b" if pct < 0 else "\U0001f53a"
-            msg += f"\u26bd <b>{match}</b> ({sport})\n\U0001f4c5 {c_time.strftime('%d.%m %H:%M')} | \u0411\u041a: {bm} | <b>{outcome}</b>\n{icon} <code>{init_k}</code> \u2794 <code>{curr_k}</code> (<b>{pct}%</b>)\n\n"
-        send_telegram_alert(msg)
-
     if arb_3way:
         msg = "\u26a1 <b>\u0424\u0443\u0442\u0431\u043e\u043b\u044c\u043d\u0438\u0439 \u0430\u0440\u0431\u0456\u0442\u0440\u0430\u0436 (&gt;5%)</b>\n\n"
         for arb in arb_3way:
             sport, match, c_time, p1, draw, p2, profit, s1, s_x, s2 = arb
-            msg += f"\U0001f3c6 <b>{match}</b> (+<b>{profit}%</b>)\n\u2022 1: {p1} ({s1}%)\n\u2022 X: {draw} ({s_x}%)\n\u2022 2: {p2} ({s2}%)\n\n"
+            c_str = c_time.astimezone(KYIV_TZ).strftime("%d.%m %H:%M")
+            msg += f"\u26bd <b>{match}</b> ({c_str}) | +<b>{profit}%</b>\n\u2022 1: {p1} ({s1}%)\n\u2022 X: {draw} ({s_x}%)\n\u2022 2: {p2} ({s2}%)\n\n"
         send_telegram_alert(msg)
 
+    cur.execute("SELECT sport, match_name, commence_time, p1_side, p2_side, profit_percent, stake_p1_pct, stake_p2_pct FROM v_arbitrage_2way LIMIT 5;")
+    arb_2way = cur.fetchall()
     if arb_2way:
         msg = "\u26a1 <b>2-way \u0412\u0438\u043b\u043a\u0430 (&gt;5%)</b>\n\n"
         for arb in arb_2way:
             sport, match, c_time, p1, p2, profit, s1, s2 = arb
-            msg += f"\U0001f3c0 <b>{match}</b> (+<b>{profit}%</b>)\n\u2022 1: {p1} ({s1}%)\n\u2022 2: {p2} ({s2}%)\n\n"
+            s_icon = get_sport_icon(sport)
+            c_str = c_time.astimezone(KYIV_TZ).strftime("%d.%m %H:%M")
+            msg += f"{s_icon} <b>{match}</b> ({c_str}) | +<b>{profit}%</b>\n\u2022 1: {p1} ({s1}%)\n\u2022 2: {p2} ({s2}%)\n\n"
         send_telegram_alert(msg)
+
+    cur.close()
+    conn.close()
+    print("5. Готово!")
 
 if __name__ == "__main__":
     if fetch_and_save_odds():
