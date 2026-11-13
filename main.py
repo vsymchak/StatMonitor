@@ -155,7 +155,10 @@ def analyze_match_with_gemini(match_name, sport_title, commence_str, drops_summa
     if not GEMINI_API_KEY:
         return None
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+    models_to_try = [
+        ("gemini-3.8-flash", True),
+        ("gemini-2.5-flash", False)
+    ]
     prompt = (
         f"Ти спортивний аналітик. Проаналізуй матч перед ставкою:\n"
         f"Матч: {match_name}\n"
@@ -168,29 +171,32 @@ def analyze_match_with_gemini(match_name, sport_title, commence_str, drops_summa
         f"3. Вердикт: (конкретна рекомендована ставка або порада пропустити матч)"
     )
 
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "tools": [{"google_search": {}}],
-        "generationConfig": {
-            "temperature": 0.3,
-            "maxOutputTokens": 600
+    for model_name, use_search in models_to_try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "temperature": 0.3,
+                "maxOutputTokens": 600
+            }
         }
-    }
+        if use_search:
+            payload["tools"] = [{"google_search": {}}]
 
-    try:
-        resp = requests.post(url, json=payload, timeout=25)
-        if resp.status_code == 200:
-            data = resp.json()
-            candidates = data.get("candidates", [])
-            if candidates:
-                parts = candidates[0].get("content", {}).get("parts", [])
-                answer = "".join(p.get("text", "") for p in parts)
-                if answer.strip():
-                    return sanitize_html_for_tg(answer)
-        else:
-            print(f"Помилка Gemini API ({resp.status_code}): {resp.text[:200]}")
-    except Exception as e:
-        print(f"Помилка запиту до Gemini: {e}")
+        try:
+            resp = requests.post(url, json=payload, timeout=25)
+            if resp.status_code == 200:
+                data = resp.json()
+                candidates = data.get("candidates", [])
+                if candidates:
+                    parts = candidates[0].get("content", {}).get("parts", [])
+                    answer = "".join(p.get("text", "") for p in parts)
+                    if answer.strip():
+                        return sanitize_html_for_tg(answer)
+            else:
+                print(f"Gemini {model_name} ({resp.status_code}): {resp.text[:160]}")
+        except Exception as e:
+            print(f"Помилка запиту до Gemini ({model_name}): {e}")
     return None
 
 def send_telegram_alert(text):
@@ -358,7 +364,7 @@ def check_alerts_and_notify(sports_titles_map):
           AND initial_odds <= 4.00
           AND current_odds <= 4.00
         ORDER BY pct_change ASC
-        LIMIT 25;
+        LIMIT 50;
     """)
     odds_alerts = cur.fetchall()
 
@@ -366,7 +372,7 @@ def check_alerts_and_notify(sports_titles_map):
     for a in odds_alerts:
         ev_id = a[0]
         if ev_id not in grouped_alerts:
-            if len(grouped_alerts) >= 6:
+            if len(grouped_alerts) >= 15:
                 continue
             grouped_alerts[ev_id] = []
         grouped_alerts[ev_id].append(a)
