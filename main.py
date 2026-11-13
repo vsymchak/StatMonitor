@@ -156,32 +156,31 @@ def analyze_match_with_gemini(match_name, sport_title, commence_str, drops_summa
         return None
 
     models_to_try = [
-        ("gemini-3.8-flash", True),
-        ("gemini-2.5-flash", False)
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash"
     ]
     prompt = (
-        f"Ти спортивний аналітик. Проаналізуй матч перед ставкою:\n"
+        f"Ти професійний спортивний аналітик. Оціни матч перед ставкою:\n"
         f"Матч: {match_name}\n"
         f"Турнір: {sport_title}\n"
         f"Дата та час початку (Київ): {commence_str}\n"
         f"Виявлені різкі просідання коефіцієнтів:\n{drops_summary}\n\n"
-        f"Знайди через пошук актуальні останні новини по цих командах/гравцях (травми, дискваліфікації, ротація, останні 3-5 матчів, турнірна мотивація) та дай стислу структуровану відповідь українською мовою (до 650 символів) у форматі:\n"
-        f"1. Причини та контекст: (ключові новини, форма, кадрові втрати)\n"
-        f"2. Оцінка прогрузу: (чи виправдане падіння коефіцієнтів інсайдом/формою)\n"
+        f"Дай стислу структуровану відповідь українською мовою (до 600 символів) у форматі:\n"
+        f"1. Контекст матчу: (рівень суперників, фактор поля, турнірна значущість)\n"
+        f"2. Оцінка прогрузу: (чи виглядає падіння коефіцієнтів як впевнений рух грошей, чи ринок ще нестабільний)\n"
         f"3. Вердикт: (конкретна рекомендована ставка або порада пропустити матч)"
     )
 
-    for model_name, use_search in models_to_try:
+    for model_name in models_to_try:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {
                 "temperature": 0.3,
-                "maxOutputTokens": 600
+                "maxOutputTokens": 550
             }
         }
-        if use_search:
-            payload["tools"] = [{"google_search": {}}]
 
         try:
             resp = requests.post(url, json=payload, timeout=25)
@@ -192,9 +191,13 @@ def analyze_match_with_gemini(match_name, sport_title, commence_str, drops_summa
                     parts = candidates[0].get("content", {}).get("parts", [])
                     answer = "".join(p.get("text", "") for p in parts)
                     if answer.strip():
+                        print(f"OK Gemini ({model_name}) для {match_name}")
+                        time.sleep(6)
                         return sanitize_html_for_tg(answer)
             else:
-                print(f"Gemini {model_name} ({resp.status_code}): {resp.text[:160]}")
+                err_msg = resp.json().get("error", {}).get("message", resp.text)
+                print(f"Gemini {model_name} ({resp.status_code}): {err_msg}")
+                time.sleep(2)
         except Exception as e:
             print(f"Помилка запиту до Gemini ({model_name}): {e}")
     return None
