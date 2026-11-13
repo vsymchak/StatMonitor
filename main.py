@@ -20,6 +20,7 @@ TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN")
 TG_CHAT_ID = os.environ.get("TG_CHAT_ID")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 INITIAL_BANKROLL = 10000.00
+INITIAL_BANKROLL = 10000.00
 
 TARGET_SPORTS = [
     "soccer_epl",
@@ -371,6 +372,8 @@ def fetch_and_save_odds(sports_titles_map):
     cur = conn.cursor()
     settle_finished_paper_bets(cur, conn)
     send_daily_bankroll_report(cur, conn)
+    settle_finished_paper_bets(cur, conn)
+    send_daily_bankroll_report(cur, conn)
     try:
         if events_batch:
             execute_values(
@@ -599,6 +602,176 @@ def send_daily_bankroll_report(cur, conn):
     cur.execute("INSERT INTO paper_daily_reports (report_date) VALUES (%s) ON CONFLICT DO NOTHING;", (today_date,))
     conn.commit()
 
+def get_bankroll_state(cur):
+    cur.execute("""
+        SELECT
+            COALESCE(SUM(profit_uah), 0) AS realized_profit,
+            COALESCE(SUM(CASE WHEN status = 'PENDING' THEN stake_uah ELSE 0 END), 0) AS locked_stakes
+        FROM paper_bets;
+    """)
+    realized_profit, locked_stakes = cur.fetchone()
+    total_bank = round(INITIAL_BANKROLL + float(realized_profit), 2)
+    available_bank = round(max(0.0, total_bank - float(locked_stakes)), 2)
+    return total_bank, available_bank
+
+def calculate_smart_stake(available_bank, odds):
+    if available_bank < 50.0:
+        return 0.0
+    k = float(odds)
+    if k <= 1.75:
+        pct = 0.04   # Низький ризик: 4% від банку
+    elif k <= 2.35:
+        pct = 0.03   # Середній ризик: 3% від банку
+    else:
+        pct = 0.02   # Підвищений ризик: 2% від банку
+    stake = round(available_bank * pct, 2)
+    return min(stake, available_bank)
+
+def place_paper_bet(cur, conn, event_id, sport, match_name, commence_time, pick_label, odds):
+    if "пропустити" in pick_label.lower() or "утриматися" in pick_label.lower():
+        return None
+    cur.execute("SELECT id FROM paper_bets WHERE event_id = %s;", (event_id,))
+    if cur.fetchone():
+        return None
+
+    _, available_bank = get_bankroll_state(cur)
+    stake = calculate_smart_stake(available_bank, odds)
+    if stake <= 0:
+        return None
+
+    cur.execute("""
+        INSERT INTO paper_bets (event_id, sport, match_name, commence_time, pick_label, odds, stake_uah, status)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, 'PENDING')
+        ON CONFLICT (event_id) DO NOTHING;
+    """, (event_id, sport, match_name, commence_time, pick_label, float(odds), stake))
+    conn.commit()
+    print(f"💰 Paper Bet: {match_name} | {pick_label} @ {odds} | Ставка: {stake:.2f} грн")
+    return stake
+
+def settle_finished_paper_bets(cur, conn):
+    if not GEMINI_API_KEY:
+        return
+    cur.execute("""
+        SELECT id, sport, match_name, commence_time, pick_label, odds, stake_uah
+        FROM paper_bets
+        WHERE status = 'PENDING'
+          AND commence_time < NOW() - INTERVAL '2 hours 45 minutes'
+        ORDER BY commence_time ASC
+        LIMIT 15;
+    """)
+    pending = cur.fetchall()
+    if not pending:
+        return
+
+    items_desc = []
+    for bet_id, sport, m_name, c_time, pick, odds, stake in pending:
+        c_str = format_kyiv_time(c_time)
+        items_desc.append(f"ID={bet_id} | Матч: {m_name} | Початок: {c_str} | Ставка: {pick} | Коеф: {odds}")
+
+    prompt = (
+        "Ти спортивний статистик. Перевір реальні фінальні рахунки завершених матчів і розрахуй результат кожної ставки.\n"
+        "Список ставок для перевірки:\n" + "\n".join(items_desc) + "\n\n"
+        "Поверни відповідь СТРОГО у форматі JSON-масиву об'єктів без markdown-обгорток (без ```json):\n"
+        '[{"id": 1, "score": "2:1", "status": "WON"}]\n'
+        "Правила для поля status:\n"
+        "- WON: ставка виграла повністю\n"
+        "- LOST: ставка програла\n"
+        "- VOID: повернення ставки (наприклад, фора 0 при нічиїй, фора -1 при перемозі рівно в 1 м'яч, тотал більше 2 при рівно 2 голах)\n"
+        "- UNKNOWN: якщо матч ще не завершився, перенесений або точний рахунок невідомий\n"
+        "Враховуй азійські/європейські фори (Ф1/Ф2) та тотали (ТБ/ТМ) строго за фінальним рахунком основного часу (для баскетболу/тенісу — з урахуванням овертайму/сетів)."
+    )
+
+    models_to_try = ["gemini-2.5-flash", "gemini-3.5-flash-lite", "gemini-3.8-flash"]
+    for model_name in models_to_try:
+        if model_name in EXHAUSTED_MODELS:
+            continue
+        url = f"[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/){model_name}:generateContent?key={GEMINI_API_KEY}"
+        gen_config = {"temperature": 0.1, "maxOutputTokens": 1200}
+        if "2.5" in model_name:
+            gen_config["thinkingConfig"] = {"thinkingBudget": 0}
+        payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": gen_config}
+
+        try:
+            resp = requests.post(url, json=payload, timeout=35)
+            if resp.status_code == 200:
+                parts = resp.json().get("candidates", [{}])[0].get("content", {}).get("parts", [])
+                raw = "".join(p.get("text", "") for p in parts if not p.get("thought")).strip()
+                raw = re.sub(r"^```(?:json)?|```$", "", raw, flags=re.MULTILINE).strip()
+                results = json.loads(raw)
+                bet_map = {b[0]: b for b in pending}
+                settled_count = 0
+
+                for res in results:
+                    b_id = int(res.get("id", 0))
+                    st = str(res.get("status", "")).upper()
+                    score = str(res.get("score", ""))
+                    if b_id not in bet_map or st not in ("WON", "LOST", "VOID"):
+                        continue
+
+                    _, _, m_name, _, pick, odds, stake = bet_map[b_id]
+                    stake_f = float(stake)
+                    odds_f = float(odds)
+                    if st == "WON":
+                        profit = round(stake_f * (odds_f - 1.0), 2)
+                    elif st == "LOST":
+                        profit = round(-stake_f, 2)
+                    else:
+                        profit = 0.0
+
+                    cur.execute("""
+                        UPDATE paper_bets
+                        SET status = %s, match_score = %s, profit_uah = %s, settled_at = NOW()
+                        WHERE id = %s AND status = 'PENDING';
+                    """, (st, score, profit, b_id))
+                    settled_count += 1
+                    print(f"📊 Розраховано ставку #{b_id} ({m_name}): {score} -> {st} ({profit:+.2f} грн)")
+
+                conn.commit()
+                if settled_count > 0:
+                    time.sleep(3)
+                return
+            elif resp.status_code == 429:
+                EXHAUSTED_MODELS.add(model_name)
+        except Exception as e:
+            print(f"Помилка розрахунку paper_bets ({model_name}): {e}")
+
+def send_daily_bankroll_report(cur, conn):
+    kyiv_now = datetime.now(KYIV_TZ)
+    if kyiv_now.hour < 8:
+        return
+    today_date = kyiv_now.date()
+    cur.execute("SELECT 1 FROM paper_daily_reports WHERE report_date = %s;", (today_date,))
+    if cur.fetchone():
+        return
+
+    cur.execute("""
+        SELECT
+            COUNT(*) AS total_bets,
+            COUNT(*) FILTER (WHERE status = 'WON') AS won_bets,
+            COUNT(*) FILTER (WHERE status = 'LOST') AS lost_bets,
+            COUNT(*) FILTER (WHERE status = 'VOID') AS void_bets,
+            COUNT(*) FILTER (WHERE status = 'PENDING') AS pending_bets,
+            COALESCE(SUM(stake_uah) FILTER (WHERE status IN ('WON', 'LOST', 'VOID')), 0) AS settled_turnover,
+            COALESCE(SUM(profit_uah) FILTER (WHERE status IN ('WON', 'LOST', 'VOID')), 0) AS net_profit
+        FROM paper_bets;
+    """)
+    total_b, won_b, lost_b, void_b, pend_b, turnover, net_profit = cur.fetchone()
+    final_bank = round(INITIAL_BANKROLL + float(net_profit), 2)
+    roi = round((float(net_profit) / float(turnover)) * 100, 2) if float(turnover) > 0 else 0.0
+    bank_diff = round(final_bank - INITIAL_BANKROLL, 2)
+
+    report_msg = (
+        f"💼 <b>ЩОДЕННИЙ ЗВІТ PAPER BANK ({kyiv_now.strftime('%d.%m.%Y')})</b>\n\n"
+        f"🏦 Початковий банк: <code>{INITIAL_BANKROLL:,.2f} грн</code>\n"
+        f"💰 Кінцевий банк: <b><code>{final_bank:,.2f} грн</code></b> (<code>{bank_diff:+.2f} грн</code>)\n"
+        f"📈 ROI (по розрахованих): <b><code>{roi:+.2f}%</code></b>\n\n"
+        f"📊 Всього ставок: <b>{total_b}</b> (в грі: {pend_b})\n"
+        f"✅ Виграшні: <b>{won_b}</b> | ❌ Програшні: <b>{lost_b}</b> | 🔄 Повернення: <b>{void_b}</b>"
+    )
+    send_telegram_alert(report_msg)
+    cur.execute("INSERT INTO paper_daily_reports (report_date) VALUES (%s) ON CONFLICT DO NOTHING;", (today_date,))
+    conn.commit()
+
 def check_alerts_and_notify(sports_titles_map):
     print("4. Перевірка алертів, AI-аналіз та відправка в Telegram...")
     kyiv_now = datetime.now(KYIV_TZ)
@@ -607,6 +780,8 @@ def check_alerts_and_notify(sports_titles_map):
 
     conn = get_db_connection()
     cur = conn.cursor()
+    settle_finished_paper_bets(cur, conn)
+    send_daily_bankroll_report(cur, conn)
     settle_finished_paper_bets(cur, conn)
     send_daily_bankroll_report(cur, conn)
 
