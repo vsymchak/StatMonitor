@@ -398,8 +398,12 @@ def extract_short_pick(ai_verdict, fallback_pick):
             if ":" in clean:
                 rec = clean.split(":", 1)[1].strip()
                 if "пропустити" in rec.lower() or "утриматися" in rec.lower():
-                    return "⏭ Пропустити"
-                return rec[:45].rstrip(".,; ")
+                    return "⏭ Пропустити матч"
+                # Відсікаємо дублювання коефіцієнта в тексті, бо він виводиться окремо
+                rec = re.split(r"\s+(?:з коефіцієнтом|по коефіцієнту|за коефіцієнтом|за|@)\s+[~0-9]", rec, maxsplit=1, flags=re.IGNORECASE)[0]
+                rec = rec.split(".")[0].strip(" ,;-")
+                if rec:
+                    return rec
     return fallback_pick
 
 def check_alerts_and_notify(sports_titles_map):
@@ -484,7 +488,9 @@ def check_alerts_and_notify(sports_titles_map):
             send_telegram_alert(ai_msg)
 
             short_pick = extract_short_pick(ai_verdict, top_pick_label)
+            sort_dt = c_time if getattr(c_time, "tzinfo", None) else c_time.replace(tzinfo=timezone.utc)
             summary_table_rows.append({
+                "dt": sort_dt,
                 "time": c_str,
                 "match": match,
                 "championship": sport_title,
@@ -493,11 +499,13 @@ def check_alerts_and_notify(sports_titles_map):
             })
 
     if summary_table_rows:
-        lines_out = ["\U0001f4cb <b>ЗВЕДЕННЯ СТАВОК (AI-ВЕРДИКТ)</b>\n"]
+        summary_table_rows.sort(key=lambda x: x["dt"])
+        lines_out = ["📋 <b>ЗВЕДЕННЯ СТАВОК (AI-ВЕРДИКТ)</b>"]
         for idx, r in enumerate(summary_table_rows, 1):
             lines_out.append(
-                f"{idx}. <code>{r['time']}</code> | <b>{r['match']}</b> <i>({r['championship']})</i>\n"
-                f"   \U0001f3af <b>{r['pick']}</b> | Коеф: <code>{r['odds']}</code>"
+                f"<b>{idx}. {r['match']}</b>\n"
+                f"   🕒 <code>{r['time']}</code> | <i>{r['championship']}</i>\n"
+                f"   🎯 <b>{r['pick']}</b> — Коеф: <code>{r['odds']}</code>"
             )
         send_telegram_alert("\n\n".join(lines_out))
 
