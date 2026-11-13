@@ -159,20 +159,20 @@ def analyze_match_with_gemini(match_name, sport_title, commence_str, drops_summa
         return None
 
     models_to_try = [
-        "gemini-2.5-flash-lite",
+        "gemini-3.5-flash-lite",
         "gemini-2.5-flash",
         "gemini-3.8-flash"
     ]
     prompt = (
-        f"Ти професійний спортивний аналітик. Оціни матч перед ставкою:\n"
+        f"Ти професійний спортивний аналітик і гандикапер. Оціни матч на основі просідання коефіцієнтів:\n"
         f"Матч: {match_name}\n"
         f"Турнір: {sport_title}\n"
-        f"Дата та час початку (Київ): {commence_str}\n"
-        f"Виявлені різкі просідання коефіцієнтів:\n{drops_summary}\n\n"
-        f"Дай стислу структуровану відповідь українською мовою (до 600 символів) у форматі:\n"
-        f"1. Контекст матчу: (рівень суперників, фактор поля, турнірна значущість)\n"
-        f"2. Оцінка прогрузу: (чи виглядає падіння коефіцієнтів як впевнений рух грошей, чи ринок ще нестабільний)\n"
-        f"3. Вердикт: (конкретна рекомендована ставка або порада пропустити матч)"
+        f"Початок (Київ): {commence_str}\n"
+        f"Просідання лінії:\n{drops_summary}\n\n"
+        f"Напиши завершений аналіз українською мовою (400-700 символів) СТРОГО за такою структурою:\n"
+        f"🎯 **Рекомендована ставка:** (чітко вкажи: яку саме ставку брати з коефіцієнтом або чому краще пропустити)\n"
+        f"📉 **Суть прогрузу:** (що означає цей рух коефіцієнтів у вказаних БК, особливо якщо там є гострі БК типу Pinnacle)\n"
+        f"⚽ **Ігровий контекст:** (співвідношення сил, мотивація команд у турнірі, логіка вибраної фори/тоталу/результату)"
     )
 
     for model_name in models_to_try:
@@ -180,12 +180,16 @@ def analyze_match_with_gemini(match_name, sport_title, commence_str, drops_summa
             continue
 
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
+        gen_config = {
+            "temperature": 0.3,
+            "maxOutputTokens": 1500
+        }
+        if "2.5" in model_name:
+            gen_config["thinkingConfig"] = {"thinkingBudget": 0}
+
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "temperature": 0.3,
-                "maxOutputTokens": 550
-            }
+            "generationConfig": gen_config
         }
 
         for attempt in range(2):
@@ -196,11 +200,15 @@ def analyze_match_with_gemini(match_name, sport_title, commence_str, drops_summa
                     candidates = data.get("candidates", [])
                     if candidates:
                         parts = candidates[0].get("content", {}).get("parts", [])
-                        answer = "".join(p.get("text", "") for p in parts)
-                        if answer.strip():
-                            print(f"OK Gemini ({model_name}) для {match_name}")
-                            time.sleep(5)
+                        answer = "".join(p.get("text", "") for p in parts if not p.get("thought"))
+                        if len(answer.strip()) > 80:
+                            print(f"OK Gemini ({model_name}) для {match_name} ({len(answer)} симв.)")
+                            time.sleep(4)
                             return sanitize_html_for_tg(answer)
+                    break
+                elif resp.status_code == 404:
+                    print(f"Gemini {model_name} (404): модель недоступна, пропускаю надалі")
+                    EXHAUSTED_MODELS.add(model_name)
                     break
                 elif resp.status_code == 429:
                     err_msg = resp.json().get("error", {}).get("message", "")
