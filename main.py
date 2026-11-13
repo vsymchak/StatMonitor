@@ -394,7 +394,6 @@ def fetch_and_save_odds(sports_titles_map):
 
 def extract_short_pick(ai_verdict, fallback_pick):
     lines = ai_verdict.splitlines()
-    # Спочатку шукаємо новий чистий тег "Коротка ставка"
     for line in lines:
         if "Коротка ставка" in line:
             clean = re.sub(r"<[^>]+>", "", line)
@@ -405,7 +404,6 @@ def extract_short_pick(ai_verdict, fallback_pick):
                 if rec:
                     return rec
 
-    # Фолбек для вже збережених у кеші відповідей
     for line in lines:
         if "Рекомендована ставка" in line:
             clean = re.sub(r"<[^>]+>", "", line)
@@ -413,7 +411,6 @@ def extract_short_pick(ai_verdict, fallback_pick):
                 rec = clean.split(":", 1)[1].strip()
                 if "пропустити" in rec.lower() or "утриматися" in rec.lower():
                     return "⏭ Пропустити матч"
-                # Відсікаємо будь-які згадки коефіцієнта ("з поточним коефіцієнтом близько 1.65", "за 1.87" тощо)
                 rec = re.split(
                     r"\s*(?:,|\()?\s*(?:з|по|за|у|в)?\s*(?:поточн\w+|орієнтовн\w+|середн\w+)?\s*(?:коефіцієнт\w*|кеф\w*|@)\s*(?:близько|біля|в районі|у діапазоні|від|до)?\s*[~0-9].*$",
                     rec,
@@ -421,7 +418,6 @@ def extract_short_pick(ai_verdict, fallback_pick):
                     flags=re.IGNORECASE
                 )[0]
                 rec = re.split(r"\s+(?:за|@)\s+[~0-9].*$", rec, maxsplit=1, flags=re.IGNORECASE)[0]
-                # Ріжемо речення ТІЛЬКИ по крапці з пробілом/кінцем рядка, щоб не ламати 2.5 або +1.5
                 rec = re.split(r"\.(?:\s|$)", rec, maxsplit=1)[0].strip(" ,;-")
                 if rec.count("(") > rec.count(")"):
                     rec += ")" * (rec.count("(") - rec.count(")"))
