@@ -1,14 +1,14 @@
-name: StatMonitor Auto Scheduler
+name: StatMonitor Auto Check
 
 on:
   schedule:
-    - cron: '0 */6 * * *'
+    - cron: '0 8-22/2 * * *'
+    - cron: '0 3 * * *'
   workflow_dispatch:
 
 jobs:
   run-monitor:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -16,12 +16,14 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.10'
 
       - name: Install dependencies
-        run: pip install requests psycopg2-binary matplotlib
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests psycopg2-binary matplotlib
 
-      - name: Execute Monitor Script
+      - name: Run StatMonitor script
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
@@ -29,4 +31,5 @@ jobs:
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: python -u main.py
+        run: |
+          python -u main.py
