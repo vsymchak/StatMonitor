@@ -2,8 +2,10 @@ name: StatMonitor Auto Check
 
 on:
   schedule:
-    - cron: '0 8-22/2 * * *'
-    - cron: '0 3 * * *'
+    # 08:00 - 22:00 за Києвом (UTC+2) кожні 2 години
+    - cron: '17 6,8,10,12,14,16,18,20 * * *'
+    # 03:00 за Києвом (UTC+2) один раз вночі
+    - cron: '17 1 * * *'
   workflow_dispatch:
 
 jobs:
