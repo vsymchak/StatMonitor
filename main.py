@@ -391,6 +391,17 @@ def fetch_and_save_odds(sports_titles_map):
         cur.close()
         conn.close()
 
+def extract_short_pick(ai_verdict, fallback_pick):
+    for line in ai_verdict.splitlines():
+        if "Рекомендована ставка" in line:
+            clean = re.sub(r"<[^>]+>", "", line)
+            if ":" in clean:
+                rec = clean.split(":", 1)[1].strip()
+                if "пропустити" in rec.lower() or "утриматися" in rec.lower():
+                    return "⏭ Пропустити"
+                return rec[:45].rstrip(".,; ")
+    return fallback_pick
+
 def check_alerts_and_notify(sports_titles_map):
     print("4. Перевірка алертів, AI-аналіз та відправка в Telegram...")
     kyiv_now = datetime.now(KYIV_TZ)
@@ -423,7 +434,7 @@ def check_alerts_and_notify(sports_titles_map):
     summary_table_rows = []
     for ev_id, alerts_list in grouped_alerts.items():
         first = alerts_list[0]
-        _, sport, match, c_time, top_bm, top_outcome, _, _, _, _, _ = first
+        _, sport, match, c_time, top_bm, top_outcome, _, _, top_curr_k, _, _ = first
         s_icon = get_sport_icon(sport)
         sport_title = sports_titles_map.get(sport) or SPORT_TITLES_UA.get(sport, sport)
         c_str = format_kyiv_time(c_time)
@@ -472,26 +483,23 @@ def check_alerts_and_notify(sports_titles_map):
             ai_msg = f"\U0001f9e0 <b>AI-аналіз: {match}</b>\n\n{ai_verdict}"
             send_telegram_alert(ai_msg)
 
-            # Витягуємо орієнтовний коефіцієнт з вердикту або беремо поточний коефіцієнт просідання
-            curr_k_val = top_odds_val if "top_odds_val" in locals() else curr_k
+            short_pick = extract_short_pick(ai_verdict, top_pick_label)
             summary_table_rows.append({
                 "time": c_str,
                 "match": match,
                 "championship": sport_title,
-                "odds": str(curr_k)
+                "pick": short_pick,
+                "odds": f"{float(top_curr_k):.2f}"
             })
 
     if summary_table_rows:
-        table_msg = "\U0001f4cb <b>ЗВЕДЕНИЙ AI-АНАЛІЗ МАТЧІВ</b>\n\n"
-        table_msg += "<code>Час   | Матч (Турнір)             | Коеф.</code>\n"
-        table_msg += "<code>-----------------------------------------</code>\n"
-        for r in summary_table_rows:
-            t_short = r["time"][-5:]
-            m_info = f"{r['match']} ({r['championship']})"
-            if len(m_info) > 25:
-                m_info = m_info[:22] + "..."
-            table_msg += f"<code>{t_short} | {m_info:<25} | {r['odds']:<5}</code>\n"
-        send_telegram_alert(table_msg)
+        lines_out = ["\U0001f4cb <b>ЗВЕДЕННЯ СТАВОК (AI-ВЕРДИКТ)</b>\n"]
+        for idx, r in enumerate(summary_table_rows, 1):
+            lines_out.append(
+                f"{idx}. <code>{r['time']}</code> | <b>{r['match']}</b> <i>({r['championship']})</i>\n"
+                f"   \U0001f3af <b>{r['pick']}</b> | Коеф: <code>{r['odds']}</code>"
+            )
+        send_telegram_alert("\n\n".join(lines_out))
 
     cur.execute("SELECT sport, match_name, commence_time, p1_side, draw_side, p2_side, profit_percent, stake_p1_pct, stake_draw_pct, stake_p2_pct FROM v_arbitrage_3way LIMIT 5;")
     arb_3way = cur.fetchall()
