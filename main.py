@@ -171,6 +171,7 @@ def analyze_match_with_gemini(match_name, sport_title, commence_str, drops_summa
         f"Початок (Київ): {commence_str}\n"
         f"Просідання лінії:\n{drops_summary}\n\n"
         f"Напиши завершений аналіз українською мовою (400-700 символів) СТРОГО за такою структурою:\n"
+        f"📌 **Коротка ставка:** (тільки лаконічний маркет без слів про коефіцієнт, наприклад: П1, Ф2 (+1.5), ТМ 2.5, або Пропустити)\n"
         f"🎯 **Рекомендована ставка:** (чітко вкажи: яку саме ставку брати з коефіцієнтом або чому краще пропустити)\n"
         f"📉 **Суть прогрузу:** (що означає цей рух коефіцієнтів у вказаних БК, особливо якщо там є гострі БК типу Pinnacle)\n"
         f"⚽ **Ігровий контекст:** (співвідношення сил, мотивація команд у турнірі, логіка вибраної фори/тоталу/результату)"
@@ -392,16 +393,38 @@ def fetch_and_save_odds(sports_titles_map):
         conn.close()
 
 def extract_short_pick(ai_verdict, fallback_pick):
-    for line in ai_verdict.splitlines():
+    lines = ai_verdict.splitlines()
+    # Спочатку шукаємо новий чистий тег "Коротка ставка"
+    for line in lines:
+        if "Коротка ставка" in line:
+            clean = re.sub(r"<[^>]+>", "", line)
+            if ":" in clean:
+                rec = clean.split(":", 1)[1].strip(" .,-;")
+                if "пропустити" in rec.lower() or "утриматися" in rec.lower():
+                    return "⏭ Пропустити матч"
+                if rec:
+                    return rec
+
+    # Фолбек для вже збережених у кеші відповідей
+    for line in lines:
         if "Рекомендована ставка" in line:
             clean = re.sub(r"<[^>]+>", "", line)
             if ":" in clean:
                 rec = clean.split(":", 1)[1].strip()
                 if "пропустити" in rec.lower() or "утриматися" in rec.lower():
                     return "⏭ Пропустити матч"
-                # Відсікаємо дублювання коефіцієнта в тексті, бо він виводиться окремо
-                rec = re.split(r"\s+(?:з коефіцієнтом|по коефіцієнту|за коефіцієнтом|за|@)\s+[~0-9]", rec, maxsplit=1, flags=re.IGNORECASE)[0]
-                rec = rec.split(".")[0].strip(" ,;-")
+                # Відсікаємо будь-які згадки коефіцієнта ("з поточним коефіцієнтом близько 1.65", "за 1.87" тощо)
+                rec = re.split(
+                    r"\s*(?:,|\()?\s*(?:з|по|за|у|в)?\s*(?:поточн\w+|орієнтовн\w+|середн\w+)?\s*(?:коефіцієнт\w*|кеф\w*|@)\s*(?:близько|біля|в районі|у діапазоні|від|до)?\s*[~0-9].*$",
+                    rec,
+                    maxsplit=1,
+                    flags=re.IGNORECASE
+                )[0]
+                rec = re.split(r"\s+(?:за|@)\s+[~0-9].*$", rec, maxsplit=1, flags=re.IGNORECASE)[0]
+                # Ріжемо речення ТІЛЬКИ по крапці з пробілом/кінцем рядка, щоб не ламати 2.5 або +1.5
+                rec = re.split(r"\.(?:\s|$)", rec, maxsplit=1)[0].strip(" ,;-")
+                if rec.count("(") > rec.count(")"):
+                    rec += ")" * (rec.count("(") - rec.count(")"))
                 if rec:
                     return rec
     return fallback_pick
