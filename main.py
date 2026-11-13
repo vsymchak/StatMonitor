@@ -1,6 +1,7 @@
 import io
 import os
 import re
+import time
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 import requests
@@ -157,8 +158,7 @@ def analyze_match_with_gemini(match_name, sport_title, commence_str, drops_summa
 
     models_to_try = [
         "gemini-2.5-flash",
-        "gemini-2.0-flash",
-        "gemini-1.5-flash"
+        "gemini-3.8-flash"
     ]
     prompt = (
         f"Ти професійний спортивний аналітик. Оціни матч перед ставкою:\n"
