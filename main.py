@@ -98,6 +98,11 @@ def format_signed_point(pt):
         return f"+{val:g}"
     return f"{val:g}"
 
+def is_standard_handicap(point):
+    if point is None:
+        return True
+    return round(abs(float(point)) * 100) % 50 == 0
+
 def encode_outcome_key(market_key, outcome):
     name = outcome.get("name", "")
     point = outcome.get("point")
@@ -252,6 +257,8 @@ def fetch_and_save_odds(sports_titles_map):
                         m_key = market["key"]
                         if m_key in ("h2h", "totals", "spreads"):
                             for outcome in market.get("outcomes", []):
+                                if m_key == "spreads" and not is_standard_handicap(outcome.get("point")):
+                                    continue
                                 encoded_name = encode_outcome_key(m_key, outcome)
                                 odds_batch.append((ev_id, bm["key"], encoded_name, outcome["price"]))
         except Exception as e:
@@ -299,6 +306,8 @@ def check_alerts_and_notify(sports_titles_map):
         SELECT event_id, sport, match_name, commence_time, bookmaker, outcome, initial_odds, initial_time, current_odds, current_time, pct_change 
         FROM v_odds_alerts 
         WHERE pct_change < 0
+          AND initial_odds <= 4.00
+          AND current_odds <= 4.00
         ORDER BY pct_change ASC
         LIMIT 25;
     """)
