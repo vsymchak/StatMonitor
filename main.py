@@ -1,5 +1,6 @@
 import io
 import os
+import re
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 import requests
@@ -14,6 +15,7 @@ DB_URL = os.environ.get("SUPABASE_DB_URL")
 API_KEY = os.environ.get("ODDS_API_KEY")
 TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN")
 TG_CHAT_ID = os.environ.get("TG_CHAT_ID")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 TARGET_SPORTS = [
     "soccer_epl",
@@ -143,6 +145,53 @@ def format_outcome_label(match_name, outcome, sport_key=""):
     else:
         pick = outcome
     return market_name, pick
+
+def sanitize_html_for_tg(raw_text):
+    text = raw_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
+    return text.strip()
+
+def analyze_match_with_gemini(match_name, sport_title, commence_str, drops_summary):
+    if not GEMINI_API_KEY:
+        return None
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+    prompt = (
+        f"Ти спортивний аналітик. Проаналізуй матч перед ставкою:\n"
+        f"Матч: {match_name}\n"
+        f"Турнір: {sport_title}\n"
+        f"Дата та час початку (Київ): {commence_str}\n"
+        f"Виявлені різкі просідання коефіцієнтів:\n{drops_summary}\n\n"
+        f"Знайди через пошук актуальні останні новини по цих командах/гравцях (травми, дискваліфікації, ротація, останні 3-5 матчів, турнірна мотивація) та дай стислу структуровану відповідь українською мовою (до 650 символів) у форматі:\n"
+        f"1. Причини та контекст: (ключові новини, форма, кадрові втрати)\n"
+        f"2. Оцінка прогрузу: (чи виправдане падіння коефіцієнтів інсайдом/формою)\n"
+        f"3. Вердикт: (конкретна рекомендована ставка або порада пропустити матч)"
+    )
+
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "tools": [{"google_search": {}}],
+        "generationConfig": {
+            "temperature": 0.3,
+            "maxOutputTokens": 600
+        }
+    }
+
+    try:
+        resp = requests.post(url, json=payload, timeout=25)
+        if resp.status_code == 200:
+            data = resp.json()
+            candidates = data.get("candidates", [])
+            if candidates:
+                parts = candidates[0].get("content", {}).get("parts", [])
+                answer = "".join(p.get("text", "") for p in parts)
+                if answer.strip():
+                    return sanitize_html_for_tg(answer)
+        else:
+            print(f"Помилка Gemini API ({resp.status_code}): {resp.text[:200]}")
+    except Exception as e:
+        print(f"Помилка запиту до Gemini: {e}")
+    return None
 
 def send_telegram_alert(text):
     if not TG_BOT_TOKEN or not TG_CHAT_ID:
@@ -294,7 +343,7 @@ def fetch_and_save_odds(sports_titles_map):
         conn.close()
 
 def check_alerts_and_notify(sports_titles_map):
-    print("4. Перевірка алертів та відправка в Telegram...")
+    print("4. Перевірка алертів, AI-аналіз та відправка в Telegram...")
     kyiv_now = datetime.now(KYIV_TZ)
     status_line = f"\u2705 \u043a\u043e\u0435\u0444. {kyiv_now.strftime('%d.%m.%Y')} \u043e\u043d\u043e\u0432\u043b\u0435\u043d\u043e \u0432 {kyiv_now.strftime('%H:%M')}"
     send_telegram_alert(status_line)
@@ -317,7 +366,7 @@ def check_alerts_and_notify(sports_titles_map):
     for a in odds_alerts:
         ev_id = a[0]
         if ev_id not in grouped_alerts:
-            if len(grouped_alerts) >= 8:
+            if len(grouped_alerts) >= 6:
                 continue
             grouped_alerts[ev_id] = []
         grouped_alerts[ev_id].append(a)
@@ -337,11 +386,14 @@ def check_alerts_and_notify(sports_titles_map):
         )
 
         lines = []
+        plain_drops = []
         for item in alerts_list:
             _, _, _, _, bm, outcome, init_k, init_t, curr_k, curr_t, pct = item
             market_name, pick_label = format_outcome_label(match, outcome, sport)
             t1_str = format_kyiv_time(init_t)
             t2_str = format_kyiv_time(curr_t)
+            plain_drops.append(f"- {pick_label} ({market_name}) у БК {bm}: {init_k} -> {curr_k} ({pct}%)")
+
             if len(alerts_list) == 1:
                 lines.append(
                     f"\U0001f3af Ринок: {market_name} | <b>{pick_label}</b>\n"
@@ -364,6 +416,11 @@ def check_alerts_and_notify(sports_titles_map):
             send_telegram_photo(chart, caption)
         else:
             send_telegram_alert(caption)
+
+        ai_verdict = analyze_match_with_gemini(match, sport_title, c_str, "\n".join(plain_drops))
+        if ai_verdict:
+            ai_msg = f"\U0001f9e0 <b>AI-аналіз: {match}</b>\n\n{ai_verdict}"
+            send_telegram_alert(ai_msg)
 
     cur.execute("SELECT sport, match_name, commence_time, p1_side, draw_side, p2_side, profit_percent, stake_p1_pct, stake_draw_pct, stake_p2_pct FROM v_arbitrage_3way LIMIT 5;")
     arb_3way = cur.fetchall()
