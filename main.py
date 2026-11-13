@@ -483,14 +483,14 @@ def check_alerts_and_notify(sports_titles_map):
 
     if summary_table_rows:
         table_msg = "\U0001f4cb <b>ЗВЕДЕНИЙ AI-АНАЛІЗ МАТЧІВ</b>\n\n"
-        table_msg += "<code> Час   | Матч (Турнір)          | Коеф.</code>\n"
-        table_msg += "<code>---------------------------------------</code>\n"
+        table_msg += "<code>Час   | Матч (Турнір)             | Коеф.</code>\n"
+        table_msg += "<code>-----------------------------------------</code>\n"
         for r in summary_table_rows:
-            t_short = r["time"][-5:] # Час у форматі HH:MM
-            m_info = f"{r[match]} ({r[championship]})"
-            if len(m_info) > 24:
-                m_info = m_info[:21] + "..."
-            table_msg += f"<code> {t_short} | {m_info:<22} | {r[odds]:<5}</code>\n"
+            t_short = r["time"][-5:]
+            m_info = f"{r['match']} ({r['championship']})"
+            if len(m_info) > 25:
+                m_info = m_info[:22] + "..."
+            table_msg += f"<code>{t_short} | {m_info:<25} | {r['odds']:<5}</code>\n"
         send_telegram_alert(table_msg)
 
     cur.execute("SELECT sport, match_name, commence_time, p1_side, draw_side, p2_side, profit_percent, stake_p1_pct, stake_draw_pct, stake_p2_pct FROM v_arbitrage_3way LIMIT 5;")
