@@ -14,6 +14,7 @@ import matplotlib.dates as mdates
 
 DB_URL = os.environ.get("SUPABASE_DB_URL")
 API_KEY = os.environ.get("ODDS_API_KEY")
+API_KEY_RESERVE = os.environ.get("ODDS_API_KEY_RESERVE")
 TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN")
 TG_CHAT_ID = os.environ.get("TG_CHAT_ID")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
@@ -315,11 +316,13 @@ def fetch_and_save_odds(sports_titles_map):
     events_batch = []
     odds_batch = []
     remaining_credits = "?"
+    current_api_key = API_KEY
+    using_reserve = False
 
     for sport in sports_to_scan:
         url = f"https://api.the-odds-api.com/v4/sports/{sport}/odds/"
         params = {
-            "apiKey": API_KEY,
+            "apiKey": current_api_key,
             "regions": "eu",
             "markets": "h2h,totals,spreads",
             "commenceTimeTo": commence_to_str
@@ -327,8 +330,18 @@ def fetch_and_save_odds(sports_titles_map):
         try:
             resp = requests.get(url, params=params, timeout=12)
             remaining_credits = resp.headers.get("x-requests-remaining", remaining_credits)
+            
+            # Перевіряємо, чи не вичерпано ліміт на основному ключі
+            if (resp.status_code == 401 or (remaining_credits != "?" and int(remaining_credits) <= 1)) and not using_reserve and API_KEY_RESERVE:
+                print(f"⚠️ Основний ключ The Odds API вичерпано (лишилось кредитів: {remaining_credits}). Перемикаюся на RESERVE ключ!")
+                current_api_key = API_KEY_RESERVE
+                using_reserve = True
+                params["apiKey"] = current_api_key
+                resp = requests.get(url, params=params, timeout=12)
+                remaining_credits = resp.headers.get("x-requests-remaining", remaining_credits)
+
             if resp.status_code != 200:
-                print(f"API {sport}: {resp.status_code}")
+                print(f"API {sport} (ключ {reserve if using_reserve else main}): {resp.status_code} - {resp.text[:100]}")
                 continue
             for ev in resp.json():
                 ev_id = ev["id"]
