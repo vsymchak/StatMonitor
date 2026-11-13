@@ -152,11 +152,14 @@ def sanitize_html_for_tg(raw_text):
     text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
     return text.strip()
 
+EXHAUSTED_MODELS = set()
+
 def analyze_match_with_gemini(match_name, sport_title, commence_str, drops_summary):
     if not GEMINI_API_KEY:
         return None
 
     models_to_try = [
+        "gemini-2.5-flash-lite",
         "gemini-2.5-flash",
         "gemini-3.8-flash"
     ]
@@ -173,6 +176,9 @@ def analyze_match_with_gemini(match_name, sport_title, commence_str, drops_summa
     )
 
     for model_name in models_to_try:
+        if model_name in EXHAUSTED_MODELS:
+            continue
+
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
@@ -182,24 +188,37 @@ def analyze_match_with_gemini(match_name, sport_title, commence_str, drops_summa
             }
         }
 
-        try:
-            resp = requests.post(url, json=payload, timeout=25)
-            if resp.status_code == 200:
-                data = resp.json()
-                candidates = data.get("candidates", [])
-                if candidates:
-                    parts = candidates[0].get("content", {}).get("parts", [])
-                    answer = "".join(p.get("text", "") for p in parts)
-                    if answer.strip():
-                        print(f"OK Gemini ({model_name}) для {match_name}")
-                        time.sleep(6)
-                        return sanitize_html_for_tg(answer)
-            else:
-                err_msg = resp.json().get("error", {}).get("message", resp.text)
-                print(f"Gemini {model_name} ({resp.status_code}): {err_msg}")
-                time.sleep(2)
-        except Exception as e:
-            print(f"Помилка запиту до Gemini ({model_name}): {e}")
+        for attempt in range(2):
+            try:
+                resp = requests.post(url, json=payload, timeout=35)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    candidates = data.get("candidates", [])
+                    if candidates:
+                        parts = candidates[0].get("content", {}).get("parts", [])
+                        answer = "".join(p.get("text", "") for p in parts)
+                        if answer.strip():
+                            print(f"OK Gemini ({model_name}) для {match_name}")
+                            time.sleep(5)
+                            return sanitize_html_for_tg(answer)
+                    break
+                elif resp.status_code == 429:
+                    err_msg = resp.json().get("error", {}).get("message", "")
+                    print(f"Gemini {model_name} (429): ліміт вичерпано, переключаюсь на резервну модель")
+                    if "per day" in err_msg.lower() or "limit: 20" in err_msg.lower():
+                        EXHAUSTED_MODELS.add(model_name)
+                    break
+                elif resp.status_code == 503 and attempt == 0:
+                    print(f"Gemini {model_name} (503): високе навантаження, повтор через 4с...")
+                    time.sleep(4)
+                    continue
+                else:
+                    err_msg = resp.json().get("error", {}).get("message", resp.text[:160])
+                    print(f"Gemini {model_name} ({resp.status_code}): {err_msg}")
+                    break
+            except Exception as e:
+                print(f"Помилка запиту до Gemini ({model_name}): {e}")
+                break
     return None
 
 def send_telegram_alert(text):
