@@ -98,6 +98,13 @@ def pick_col(cols, candidates, default=None):
     return default
 
 
+def pick_val(row_dict, candidates, default=None):
+    for c in candidates:
+        if c in row_dict and row_dict[c] is not None:
+            return row_dict[c]
+    return default
+
+
 def detect_odds_schema(cur):
     cols = get_table_columns(cur, "odds_history")
     print(f"Колонки odds_history у БД: {sorted(list(cols))}")
@@ -117,6 +124,8 @@ def detect_odds_schema(cur):
 def format_kyiv_time(dt_obj):
     if dt_obj is None:
         return ""
+    if isinstance(dt_obj, str):
+        return dt_obj
     if dt_obj.tzinfo is None:
         dt_obj = dt_obj.replace(tzinfo=timezone.utc)
     return dt_obj.astimezone(KYIV_TZ).strftime("%d.%m %H:%M")
@@ -263,7 +272,6 @@ def fetch_and_save_odds(sports_titles_map):
     ensure_tables_exist(cur, conn)
 
     ev_cols = get_table_columns(cur, "events")
-    print(f"Колонки events у БД: {sorted(list(ev_cols))}")
     if events_batch:
         id_col = pick_col(ev_cols, ("id", "event_id"), "id")
         if "home_team" in ev_cols and "away_team" in ev_cols:
@@ -322,41 +330,45 @@ def fetch_and_save_odds(sports_titles_map):
 
 
 def format_pick_label(market, outcome, point, match_name):
+    out_str = str(outcome).strip()
+    if re.match(r"^(?:П1|П2|Х|Ф1|Ф2|ТБ|ТМ)\b", out_str):
+        return out_str
+
     parts = [p.strip() for p in match_name.split(" - ", 1)]
     home_t = parts[0] if len(parts) == 2 else ""
     away_t = parts[1] if len(parts) == 2 else ""
 
     if market == "h2h":
-        if outcome == home_t:
+        if out_str == home_t:
             return f"П1 ({home_t})"
-        if outcome == away_t:
+        if out_str == away_t:
             return f"П2 ({away_t})"
-        if str(outcome).lower() == "draw":
+        if out_str.lower() == "draw":
             return "Х (Нічия)"
-        return str(outcome)
+        return out_str
 
     if market == "spreads":
         pt_str = f"{float(point):+g}" if point is not None else ""
-        if outcome == home_t:
+        if out_str == home_t:
             return f"Ф1 ({pt_str})"
-        if outcome == away_t:
+        if out_str == away_t:
             return f"Ф2 ({pt_str})"
-        return f"Фора {outcome} ({pt_str})"
+        return f"Фора {out_str} ({pt_str})"
 
     if market == "totals":
         pt_str = f"{float(point):g}" if point is not None else ""
-        if str(outcome).lower() == "over":
+        if out_str.lower() == "over":
             return f"ТБ {pt_str}"
-        if str(outcome).lower() == "under":
+        if out_str.lower() == "under":
             return f"ТМ {pt_str}"
-        return f"{outcome} {pt_str}"
+        return f"{out_str} {pt_str}".strip()
 
     if point is not None:
-        if str(outcome).lower() in ("over", "under"):
-            return format_pick_label("totals", outcome, point, match_name)
-        return format_pick_label("spreads", outcome, point, match_name)
+        if out_str.lower() in ("over", "under"):
+            return format_pick_label("totals", out_str, point, match_name)
+        return format_pick_label("spreads", out_str, point, match_name)
 
-    return format_pick_label("h2h", outcome, None, match_name)
+    return format_pick_label("h2h", out_str, None, match_name)
 
 
 def translate_market_ua(market):
@@ -369,104 +381,114 @@ def translate_market_ua(market):
 
 
 def infer_market_type(outcome_name, point):
+    out_s = str(outcome_name).lower()
+    if out_s.startswith(("тб", "тм", "over", "under")):
+        return "totals"
+    if out_s.startswith(("ф1", "ф2", "фора")):
+        return "spreads"
     if point is not None:
-        if str(outcome_name).lower() in ("over", "under"):
+        if out_s in ("over", "under"):
             return "totals"
         return "spreads"
     return "h2h"
 
 
-def build_odds_chart(cur, event_id, bookmaker, outcome_name, point, match_name, sport_title, pick_label, sc):
-    ev_c = sc["event_id"]
-    bm_c = sc["bookmaker"]
-    out_c = sc["outcome"]
-    pt_c = sc["point"]
-    pr_c = sc["price"]
-    tm_c = sc["time"]
+def build_odds_chart(cur, conn, event_id, bookmaker, outcome_name, point, match_name, sport_title, pick_label, sc):
+    try:
+        ev_c = sc["event_id"]
+        bm_c = sc["bookmaker"]
+        out_c = sc["outcome"]
+        pt_c = sc["point"]
+        pr_c = sc["price"]
+        tm_c = sc["time"]
 
-    if not (out_c and pr_c and tm_c):
-        return None
+        if not (out_c and pr_c and tm_c):
+            return None
 
-    if pt_c and point is not None:
-        cur.execute(
-            f"""
-            SELECT {tm_c}, {pr_c}
-            FROM odds_history
-            WHERE {ev_c} = %s AND {bm_c} = %s AND {out_c} = %s AND {pt_c} = %s
-            ORDER BY {tm_c} ASC;
-            """,
-            (event_id, bookmaker, outcome_name, point),
-        )
-    elif pt_c and point is None:
-        cur.execute(
-            f"""
-            SELECT {tm_c}, {pr_c}
-            FROM odds_history
-            WHERE {ev_c} = %s AND {bm_c} = %s AND {out_c} = %s AND {pt_c} IS NULL
-            ORDER BY {tm_c} ASC;
-            """,
-            (event_id, bookmaker, outcome_name),
-        )
-    else:
-        cur.execute(
-            f"""
-            SELECT {tm_c}, {pr_c}
-            FROM odds_history
-            WHERE {ev_c} = %s AND {bm_c} = %s AND {out_c} = %s
-            ORDER BY {tm_c} ASC;
-            """,
-            (event_id, bookmaker, outcome_name),
-        )
+        if pt_c and point is not None:
+            cur.execute(
+                f"""
+                SELECT {tm_c}, {pr_c}
+                FROM odds_history
+                WHERE {ev_c} = %s AND {bm_c} = %s AND {out_c} = %s AND {pt_c} = %s
+                ORDER BY {tm_c} ASC;
+                """,
+                (event_id, bookmaker, outcome_name, point),
+            )
+        elif pt_c and point is None:
+            cur.execute(
+                f"""
+                SELECT {tm_c}, {pr_c}
+                FROM odds_history
+                WHERE {ev_c} = %s AND {bm_c} = %s AND {out_c} = %s AND {pt_c} IS NULL
+                ORDER BY {tm_c} ASC;
+                """,
+                (event_id, bookmaker, outcome_name),
+            )
+        else:
+            cur.execute(
+                f"""
+                SELECT {tm_c}, {pr_c}
+                FROM odds_history
+                WHERE {ev_c} = %s AND {bm_c} = %s AND {out_c} = %s
+                ORDER BY {tm_c} ASC;
+                """,
+                (event_id, bookmaker, outcome_name),
+            )
 
-    rows = cur.fetchall()
-    if len(rows) < 2:
-        return None
+        rows = cur.fetchall()
+        if len(rows) < 2:
+            return None
 
-    times = []
-    prices = []
-    for rec_at, pr in rows:
-        if rec_at.tzinfo is None:
-            rec_at = rec_at.replace(tzinfo=timezone.utc)
-        times.append(rec_at.astimezone(KYIV_TZ))
-        prices.append(float(pr))
+        times = []
+        prices = []
+        for rec_at, pr in rows:
+            if rec_at.tzinfo is None:
+                rec_at = rec_at.replace(tzinfo=timezone.utc)
+            times.append(rec_at.astimezone(KYIV_TZ))
+            prices.append(float(pr))
 
-    fig, ax = plt.subplots(figsize=(7.5, 3.6), dpi=130)
-    ax.plot(times, prices, marker="o", linewidth=2.2, markersize=5, color="#c0392b")
+        fig, ax = plt.subplots(figsize=(7.5, 3.6), dpi=130)
+        ax.plot(times, prices, marker="o", linewidth=2.2, markersize=5, color="#c0392b")
 
-    for t, p in zip(times, prices):
-        ax.annotate(
-            f"{p:.2f}",
-            (t, p),
-            textcoords="offset points",
-            xytext=(0, 7),
-            ha="center",
-            fontsize=8,
+        for t, p in zip(times, prices):
+            ax.annotate(
+                f"{p:.2f}",
+                (t, p),
+                textcoords="offset points",
+                xytext=(0, 7),
+                ha="center",
+                fontsize=8,
+                fontweight="bold",
+                color="#2c3e50",
+            )
+
+        ax.set_title(
+            f"{match_name} ({sport_title})\nСтавка: {pick_label} | БК: {bookmaker}",
+            fontsize=10,
             fontweight="bold",
-            color="#2c3e50",
+            pad=12,
         )
+        ax.set_ylabel("Коефіцієнт", fontsize=9)
+        ax.grid(True, linestyle="--", alpha=0.45)
 
-    ax.set_title(
-        f"{match_name} ({sport_title})\nСтавка: {pick_label} | БК: {bookmaker}",
-        fontsize=10,
-        fontweight="bold",
-        pad=12,
-    )
-    ax.set_ylabel("Коефіцієнт", fontsize=9)
-    ax.grid(True, linestyle="--", alpha=0.45)
+        p_min, p_max = min(prices), max(prices)
+        margin = max(0.05, (p_max - p_min) * 0.25)
+        ax.set_ylim(p_min - margin, p_max + margin)
 
-    p_min, p_max = min(prices), max(prices)
-    margin = max(0.05, (p_max - p_min) * 0.25)
-    ax.set_ylim(p_min - margin, p_max + margin)
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%d.%m %H:%M", tz=KYIV_TZ))
+        fig.autofmt_xdate(rotation=25)
+        plt.tight_layout()
 
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%d.%m %H:%M", tz=KYIV_TZ))
-    fig.autofmt_xdate(rotation=25)
-    plt.tight_layout()
-
-    buf = io.BytesIO()
-    plt.savefig(buf, format="png")
-    plt.close(fig)
-    buf.seek(0)
-    return buf
+        buf = io.BytesIO()
+        plt.savefig(buf, format="png")
+        plt.close(fig)
+        buf.seek(0)
+        return buf
+    except Exception as e:
+        conn.rollback()
+        print(f"Помилка побудови графіка: {e}")
+        return None
 
 
 def format_ai_html(raw_text):
@@ -841,6 +863,67 @@ def send_daily_bankroll_report(cur, conn):
         print(f"Помилка send_daily_bankroll_report: {e}")
 
 
+def parse_alert_row(row, v_cols):
+    d = dict(zip(v_cols, row))
+    ev_id = pick_val(d, ("event_id", "id", "match_id"), row[0] if len(row) > 0 else "")
+    sport = pick_val(d, ("sport", "sport_key", "league"), row[1] if len(row) > 1 else "")
+    match = pick_val(d, ("match_name", "match", "event_name"), row[2] if len(row) > 2 else "")
+    c_time = pick_val(d, ("commence_time", "match_time", "event_time"), row[3] if len(row) > 3 else None)
+    bm = pick_val(d, ("bookmaker", "bm", "bookie"), row[4] if len(row) > 4 else "")
+    outcome = pick_val(
+        d,
+        ("outcome_name", "outcome", "selection", "team", "side", "bet_name", "name"),
+        row[5] if len(row) > 5 else "",
+    )
+    market = pick_val(d, ("market_key", "market", "market_type", "mkt"), None)
+    point = pick_val(d, ("point", "handicap", "line", "points"), None)
+
+    if market is None and point is None and len(row) > 6:
+        val6 = row[6]
+        if isinstance(val6, str) and val6.lower() in ("h2h", "spreads", "totals"):
+            market = val6.lower()
+        elif isinstance(val6, (int, float)) or (
+            isinstance(val6, str) and re.match(r"^[+-]?\d+(?:\.\d+)?$", val6.strip())
+        ):
+            point = float(val6)
+
+    start_k = pick_val(
+        d,
+        ("start_odds", "initial_odds", "open_odds", "first_odds", "old_odds", "prev_odds", "start_price", "first_price"),
+        row[7] if len(row) > 7 else 0.0,
+    )
+    curr_k = pick_val(
+        d,
+        ("current_odds", "curr_odds", "latest_odds", "last_odds", "new_odds", "odds", "price", "current_price", "last_price"),
+        row[8] if len(row) > 8 else 0.0,
+    )
+    drop_pct = pick_val(
+        d,
+        ("drop_pct", "change_pct", "diff_pct", "pct_change", "drop_percent", "drop"),
+        row[9] if len(row) > 9 else 0.0,
+    )
+    start_t = pick_val(
+        d,
+        ("start_time", "first_time", "initial_time", "open_time", "old_time", "recorded_at"),
+        row[10] if len(row) > 10 else None,
+    )
+
+    return {
+        "event_id": ev_id,
+        "sport": sport,
+        "match": match,
+        "commence_time": c_time,
+        "bookmaker": bm,
+        "outcome": outcome,
+        "market": market,
+        "point": point,
+        "start_odds": float(start_k) if start_k is not None else 0.0,
+        "current_odds": float(curr_k) if curr_k is not None else 0.0,
+        "drop_pct": float(drop_pct) if drop_pct is not None else 0.0,
+        "start_time": start_t,
+    }
+
+
 # --- ОСНОВНИЙ ЦИКЛ ОБРОБКИ АЛЕРТІВ ---
 
 def check_alerts_and_notify(sports_titles_map):
@@ -857,26 +940,31 @@ def check_alerts_and_notify(sports_titles_map):
     status_line = f"✅ коеф. {kyiv_now.strftime('%d.%m.%Y')} оновлено в {kyiv_now.strftime('%H:%M')}"
     send_telegram_alert(status_line)
 
-    cur.execute(
-        """
-        SELECT
-            event_id, sport, match_name, commence_time, bookmaker,
-            outcome_name, point, start_odds, current_odds, drop_pct, start_time
-        FROM v_odds_alerts
-        WHERE current_odds <= 4.00
-          AND (point IS NULL OR ABS(MOD(point * 100, 50)) = 0)
-        ORDER BY drop_pct ASC
-        LIMIT 40;
-        """
-    )
-    raw_alerts = cur.fetchall()
+    cur.execute("SELECT * FROM v_odds_alerts;")
+    v_cols = [desc[0] for desc in cur.description]
+    raw_rows = cur.fetchall()
+    print(f"Колонки v_odds_alerts: {v_cols} (отримано рядків: {len(raw_rows)})")
+
+    filtered_alerts = []
+    for row in raw_rows:
+        item = parse_alert_row(row, v_cols)
+        if item["current_odds"] <= 0 or item["current_odds"] > 4.00:
+            continue
+        if item["point"] is not None and abs((float(item["point"]) * 100) % 50) != 0:
+            continue
+        if re.search(r"\d+\.(?:25|75)\b", str(item["outcome"])):
+            continue
+        filtered_alerts.append(item)
+
+    filtered_alerts.sort(key=lambda x: x["drop_pct"])
+    filtered_alerts = filtered_alerts[:40]
 
     grouped_alerts = {}
-    for row in raw_alerts:
-        ev_id = row[0]
+    for item in filtered_alerts:
+        ev_id = item["event_id"]
         if ev_id not in grouped_alerts:
             grouped_alerts[ev_id] = []
-        grouped_alerts[ev_id].append(row)
+        grouped_alerts[ev_id].append(item)
 
     summary_table_rows = []
     processed_events = 0
@@ -887,44 +975,64 @@ def check_alerts_and_notify(sports_titles_map):
         processed_events += 1
 
         first = alerts_list[0]
-        _, sport, match, c_time, top_bm, top_outcome, top_point, _, top_curr_k, _, _ = first
+        sport = first["sport"]
+        match = first["match"]
+        c_time = first["commence_time"]
+        top_bm = first["bookmaker"]
+        top_outcome = first["outcome"]
+        top_point = first["point"]
+        top_curr_k = first["current_odds"]
+
         sport_title = sports_titles_map.get(sport, sport)
         c_str = format_kyiv_time(c_time)
 
-        top_market = infer_market_type(top_outcome, top_point)
-        if sc["market"] and sc["outcome"] and sc["time"]:
-            cur.execute(
-                f"""
-                SELECT {sc['market']}
-                FROM odds_history
-                WHERE {sc['event_id']} = %s AND {sc['bookmaker']} = %s AND {sc['outcome']} = %s
-                ORDER BY {sc['time']} DESC LIMIT 1;
-                """,
-                (ev_id, top_bm, top_outcome),
-            )
-            m_res = cur.fetchone()
-            if m_res and m_res[0]:
-                top_market = m_res[0]
+        top_market = first["market"] or infer_market_type(top_outcome, top_point)
+        if not first["market"] and sc["market"] and sc["outcome"] and sc["time"]:
+            try:
+                cur.execute(
+                    f"""
+                    SELECT {sc['market']}
+                    FROM odds_history
+                    WHERE {sc['event_id']} = %s AND {sc['bookmaker']} = %s AND {sc['outcome']} = %s
+                    ORDER BY {sc['time']} DESC LIMIT 1;
+                    """,
+                    (ev_id, top_bm, top_outcome),
+                )
+                m_res = cur.fetchone()
+                if m_res and m_res[0]:
+                    top_market = m_res[0]
+            except Exception:
+                conn.rollback()
 
         top_pick_label = format_pick_label(top_market, top_outcome, top_point, match)
 
         plain_drops = []
         html_drops = []
         for al in alerts_list[:4]:
-            _, _, _, _, bm, out_n, pt, s_k, curr_k, d_pct, s_t = al
-            mk = infer_market_type(out_n, pt)
-            if sc["market"] and sc["outcome"] and sc["time"]:
-                cur.execute(
-                    f"""
-                    SELECT {sc['market']} FROM odds_history
-                    WHERE {sc['event_id']} = %s AND {sc['bookmaker']} = %s AND {sc['outcome']} = %s
-                    ORDER BY {sc['time']} DESC LIMIT 1;
-                    """,
-                    (ev_id, bm, out_n),
-                )
-                mk_row = cur.fetchone()
-                if mk_row and mk_row[0]:
-                    mk = mk_row[0]
+            bm = al["bookmaker"]
+            out_n = al["outcome"]
+            pt = al["point"]
+            s_k = al["start_odds"]
+            curr_k = al["current_odds"]
+            d_pct = al["drop_pct"]
+            s_t = al["start_time"]
+
+            mk = al["market"] or infer_market_type(out_n, pt)
+            if not al["market"] and sc["market"] and sc["outcome"] and sc["time"]:
+                try:
+                    cur.execute(
+                        f"""
+                        SELECT {sc['market']} FROM odds_history
+                        WHERE {sc['event_id']} = %s AND {sc['bookmaker']} = %s AND {sc['outcome']} = %s
+                        ORDER BY {sc['time']} DESC LIMIT 1;
+                        """,
+                        (ev_id, bm, out_n),
+                    )
+                    mk_row = cur.fetchone()
+                    if mk_row and mk_row[0]:
+                        mk = mk_row[0]
+                except Exception:
+                    conn.rollback()
 
             p_lbl = format_pick_label(mk, out_n, pt, match)
             s_time_str = format_kyiv_time(s_t)
@@ -944,40 +1052,45 @@ def check_alerts_and_notify(sports_titles_map):
         )
 
         chart_buf = build_odds_chart(
-            cur, ev_id, top_bm, top_outcome, top_point, match, sport_title, top_pick_label, sc
+            cur, conn, ev_id, top_bm, top_outcome, top_point, match, sport_title, top_pick_label, sc
         )
         if chart_buf:
             send_telegram_photo(chart_buf, card_caption)
         else:
             send_telegram_alert(card_caption)
 
-        cur.execute(
-            """
-            SELECT verdict_text FROM ai_match_analysis
-            WHERE verdict_text LIKE '%Коротка ставка%'
-              AND event_id = %s
-              AND created_at > NOW() - INTERVAL '12 hours';
-            """,
-            (ev_id,),
-        )
-        cached = cur.fetchone()
-        if cached:
-            ai_verdict = cached[0]
-        else:
-            ai_verdict = analyze_match_with_gemini(match, sport_title, c_str, "\n".join(plain_drops))
-            if ai_verdict:
-                cur.execute(
-                    """
-                    INSERT INTO ai_match_analysis (event_id, verdict_text, created_at)
-                    VALUES (%s, %s, NOW())
-                    ON CONFLICT (event_id) DO UPDATE SET
-                        verdict_text = EXCLUDED.verdict_text,
-                        created_at = NOW();
-                    """,
-                    (ev_id, ai_verdict),
-                )
-                conn.commit()
-                time.sleep(3)
+        ai_verdict = None
+        try:
+            cur.execute(
+                """
+                SELECT verdict_text FROM ai_match_analysis
+                WHERE verdict_text LIKE '%Коротка ставка%'
+                  AND event_id = %s
+                  AND created_at > NOW() - INTERVAL '12 hours';
+                """,
+                (ev_id,),
+            )
+            cached = cur.fetchone()
+            if cached:
+                ai_verdict = cached[0]
+            else:
+                ai_verdict = analyze_match_with_gemini(match, sport_title, c_str, "\n".join(plain_drops))
+                if ai_verdict:
+                    cur.execute(
+                        """
+                        INSERT INTO ai_match_analysis (event_id, verdict_text, created_at)
+                        VALUES (%s, %s, NOW())
+                        ON CONFLICT (event_id) DO UPDATE SET
+                            verdict_text = EXCLUDED.verdict_text,
+                            created_at = NOW();
+                        """,
+                        (ev_id, ai_verdict),
+                    )
+                    conn.commit()
+                    time.sleep(3)
+        except Exception as e:
+            conn.rollback()
+            print(f"Помилка кешу AI: {e}")
 
         if ai_verdict:
             ai_msg = f"🧠 <b>AI-аналіз: {match}</b>\n\n{ai_verdict}"
@@ -986,7 +1099,11 @@ def check_alerts_and_notify(sports_titles_map):
             short_pick = extract_short_pick(ai_verdict, top_pick_label)
             place_paper_bet(cur, conn, ev_id, sport, match, c_time, short_pick, top_curr_k)
 
-            sort_dt = c_time if getattr(c_time, "tzinfo", None) else c_time.replace(tzinfo=timezone.utc)
+            sort_dt = (
+                c_time
+                if hasattr(c_time, "tzinfo") and c_time.tzinfo
+                else (c_time.replace(tzinfo=timezone.utc) if hasattr(c_time, "replace") else datetime.now(timezone.utc))
+            )
             summary_table_rows.append(
                 {
                     "dt": sort_dt,
