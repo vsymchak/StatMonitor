@@ -91,24 +91,27 @@ def get_table_columns(cur, table_name):
     return {row[0] for row in cur.fetchall()}
 
 
+def pick_col(cols, candidates, default=None):
+    for c in candidates:
+        if c in cols:
+            return c
+    return default
+
+
 def detect_odds_schema(cur):
     cols = get_table_columns(cur, "odds_history")
     print(f"Колонки odds_history у БД: {sorted(list(cols))}")
 
-    mkt_col = None
-    for candidate in ("market_key", "market", "market_type", "mkt"):
-        if candidate in cols:
-            mkt_col = candidate
-            break
-
-    price_col = "price"
-    for candidate in ("price", "odds", "odd", "value"):
-        if candidate in cols:
-            price_col = candidate
-            break
-
-    has_point = "point" in cols
-    return mkt_col, price_col, has_point
+    schema = {
+        "event_id": pick_col(cols, ("event_id", "match_id"), "event_id"),
+        "bookmaker": pick_col(cols, ("bookmaker", "bm", "bookie"), "bookmaker"),
+        "market": pick_col(cols, ("market_key", "market", "market_type", "mkt"), None),
+        "outcome": pick_col(cols, ("outcome_name", "outcome", "selection", "team", "name"), None),
+        "point": pick_col(cols, ("point", "handicap", "line", "points"), None),
+        "price": pick_col(cols, ("price", "odds", "odd", "value", "coeff"), None),
+        "time": pick_col(cols, ("recorded_at", "created_at", "timestamp", "updated_at"), None),
+    }
+    return schema
 
 
 def format_kyiv_time(dt_obj):
@@ -245,10 +248,10 @@ def fetch_and_save_odds(sports_titles_map):
                                         "event_id": ev_id,
                                         "bookmaker": bm_key,
                                         "market": mkt_key,
-                                        "outcome_name": out_name,
+                                        "outcome": out_name,
                                         "point": point,
                                         "price": price,
-                                        "recorded_at": now_utc,
+                                        "time": now_utc,
                                     }
                                 )
         except Exception as e:
@@ -260,14 +263,16 @@ def fetch_and_save_odds(sports_titles_map):
     ensure_tables_exist(cur, conn)
 
     ev_cols = get_table_columns(cur, "events")
+    print(f"Колонки events у БД: {sorted(list(ev_cols))}")
     if events_batch:
+        id_col = pick_col(ev_cols, ("id", "event_id"), "id")
         if "home_team" in ev_cols and "away_team" in ev_cols:
             execute_values(
                 cur,
-                """
-                INSERT INTO events (id, sport, home_team, away_team, commence_time)
+                f"""
+                INSERT INTO events ({id_col}, sport, home_team, away_team, commence_time)
                 VALUES %s
-                ON CONFLICT (id) DO UPDATE SET
+                ON CONFLICT ({id_col}) DO UPDATE SET
                     commence_time = EXCLUDED.commence_time,
                     home_team = EXCLUDED.home_team,
                     away_team = EXCLUDED.away_team;
@@ -278,48 +283,36 @@ def fetch_and_save_odds(sports_titles_map):
             ev_match_batch = [(e[0], e[1], f"{e[2]} - {e[3]}", e[4]) for e in events_batch]
             execute_values(
                 cur,
-                """
-                INSERT INTO events (id, sport, match_name, commence_time)
+                f"""
+                INSERT INTO events ({id_col}, sport, match_name, commence_time)
                 VALUES %s
-                ON CONFLICT (id) DO UPDATE SET
+                ON CONFLICT ({id_col}) DO UPDATE SET
                     commence_time = EXCLUDED.commence_time,
                     match_name = EXCLUDED.match_name;
                 """,
                 ev_match_batch,
             )
 
-    mkt_col, price_col, has_point = detect_odds_schema(cur)
+    sc = detect_odds_schema(cur)
 
-    if odds_raw:
-        insert_cols = ["event_id", "bookmaker"]
-        if mkt_col:
-            insert_cols.append(mkt_col)
-        insert_cols.append("outcome_name")
-        if has_point:
-            insert_cols.append("point")
-        insert_cols.append(price_col)
-        insert_cols.append("recorded_at")
+    if odds_raw and sc["outcome"] and sc["price"]:
+        field_order = []
+        col_names = []
+        for key in ("event_id", "bookmaker", "market", "outcome", "point", "price", "time"):
+            if sc[key]:
+                field_order.append(key)
+                col_names.append(sc[key])
 
-        odds_tuples = []
-        for item in odds_raw:
-            row = [item["event_id"], item["bookmaker"]]
-            if mkt_col:
-                row.append(item["market"])
-            row.append(item["outcome_name"])
-            if has_point:
-                row.append(item["point"])
-            row.append(item["price"])
-            row.append(item["recorded_at"])
-            odds_tuples.append(tuple(row))
-
-        cols_sql = ", ".join(insert_cols)
+        odds_tuples = [tuple(item[k] for k in field_order) for item in odds_raw]
+        cols_sql = ", ".join(col_names)
         execute_values(
             cur,
             f"INSERT INTO odds_history ({cols_sql}) VALUES %s;",
             odds_tuples,
         )
 
-    cur.execute("DELETE FROM odds_history WHERE recorded_at < NOW() - INTERVAL '4 days';")
+    if sc["time"]:
+        cur.execute(f"DELETE FROM odds_history WHERE {sc['time']} < NOW() - INTERVAL '4 days';")
     cur.execute("DELETE FROM events WHERE commence_time < NOW() - INTERVAL '4 days';")
 
     conn.commit()
@@ -338,9 +331,9 @@ def format_pick_label(market, outcome, point, match_name):
             return f"П1 ({home_t})"
         if outcome == away_t:
             return f"П2 ({away_t})"
-        if outcome.lower() == "draw":
+        if str(outcome).lower() == "draw":
             return "Х (Нічия)"
-        return outcome
+        return str(outcome)
 
     if market == "spreads":
         pt_str = f"{float(point):+g}" if point is not None else ""
@@ -352,14 +345,14 @@ def format_pick_label(market, outcome, point, match_name):
 
     if market == "totals":
         pt_str = f"{float(point):g}" if point is not None else ""
-        if outcome.lower() == "over":
+        if str(outcome).lower() == "over":
             return f"ТБ {pt_str}"
-        if outcome.lower() == "under":
+        if str(outcome).lower() == "under":
             return f"ТМ {pt_str}"
         return f"{outcome} {pt_str}"
 
     if point is not None:
-        if outcome.lower() in ("over", "under"):
+        if str(outcome).lower() in ("over", "under"):
             return format_pick_label("totals", outcome, point, match_name)
         return format_pick_label("spreads", outcome, point, match_name)
 
@@ -383,34 +376,44 @@ def infer_market_type(outcome_name, point):
     return "h2h"
 
 
-def build_odds_chart(cur, event_id, bookmaker, outcome_name, point, match_name, sport_title, pick_label, price_col, has_point):
-    if has_point and point is not None:
+def build_odds_chart(cur, event_id, bookmaker, outcome_name, point, match_name, sport_title, pick_label, sc):
+    ev_c = sc["event_id"]
+    bm_c = sc["bookmaker"]
+    out_c = sc["outcome"]
+    pt_c = sc["point"]
+    pr_c = sc["price"]
+    tm_c = sc["time"]
+
+    if not (out_c and pr_c and tm_c):
+        return None
+
+    if pt_c and point is not None:
         cur.execute(
             f"""
-            SELECT recorded_at, {price_col}
+            SELECT {tm_c}, {pr_c}
             FROM odds_history
-            WHERE event_id = %s AND bookmaker = %s AND outcome_name = %s AND point = %s
-            ORDER BY recorded_at ASC;
+            WHERE {ev_c} = %s AND {bm_c} = %s AND {out_c} = %s AND {pt_c} = %s
+            ORDER BY {tm_c} ASC;
             """,
             (event_id, bookmaker, outcome_name, point),
         )
-    elif has_point and point is None:
+    elif pt_c and point is None:
         cur.execute(
             f"""
-            SELECT recorded_at, {price_col}
+            SELECT {tm_c}, {pr_c}
             FROM odds_history
-            WHERE event_id = %s AND bookmaker = %s AND outcome_name = %s AND point IS NULL
-            ORDER BY recorded_at ASC;
+            WHERE {ev_c} = %s AND {bm_c} = %s AND {out_c} = %s AND {pt_c} IS NULL
+            ORDER BY {tm_c} ASC;
             """,
             (event_id, bookmaker, outcome_name),
         )
     else:
         cur.execute(
             f"""
-            SELECT recorded_at, {price_col}
+            SELECT {tm_c}, {pr_c}
             FROM odds_history
-            WHERE event_id = %s AND bookmaker = %s AND outcome_name = %s
-            ORDER BY recorded_at ASC;
+            WHERE {ev_c} = %s AND {bm_c} = %s AND {out_c} = %s
+            ORDER BY {tm_c} ASC;
             """,
             (event_id, bookmaker, outcome_name),
         )
@@ -845,7 +848,7 @@ def check_alerts_and_notify(sports_titles_map):
     conn = get_db_connection()
     cur = conn.cursor()
     ensure_tables_exist(cur, conn)
-    mkt_col, price_col, has_point = detect_odds_schema(cur)
+    sc = detect_odds_schema(cur)
 
     settle_finished_paper_bets(cur, conn)
     send_daily_bankroll_report(cur, conn)
@@ -889,13 +892,13 @@ def check_alerts_and_notify(sports_titles_map):
         c_str = format_kyiv_time(c_time)
 
         top_market = infer_market_type(top_outcome, top_point)
-        if mkt_col:
+        if sc["market"] and sc["outcome"] and sc["time"]:
             cur.execute(
                 f"""
-                SELECT {mkt_col}
+                SELECT {sc['market']}
                 FROM odds_history
-                WHERE event_id = %s AND bookmaker = %s AND outcome_name = %s
-                ORDER BY recorded_at DESC LIMIT 1;
+                WHERE {sc['event_id']} = %s AND {sc['bookmaker']} = %s AND {sc['outcome']} = %s
+                ORDER BY {sc['time']} DESC LIMIT 1;
                 """,
                 (ev_id, top_bm, top_outcome),
             )
@@ -910,12 +913,12 @@ def check_alerts_and_notify(sports_titles_map):
         for al in alerts_list[:4]:
             _, _, _, _, bm, out_n, pt, s_k, curr_k, d_pct, s_t = al
             mk = infer_market_type(out_n, pt)
-            if mkt_col:
+            if sc["market"] and sc["outcome"] and sc["time"]:
                 cur.execute(
                     f"""
-                    SELECT {mkt_col} FROM odds_history
-                    WHERE event_id = %s AND bookmaker = %s AND outcome_name = %s
-                    ORDER BY recorded_at DESC LIMIT 1;
+                    SELECT {sc['market']} FROM odds_history
+                    WHERE {sc['event_id']} = %s AND {sc['bookmaker']} = %s AND {sc['outcome']} = %s
+                    ORDER BY {sc['time']} DESC LIMIT 1;
                     """,
                     (ev_id, bm, out_n),
                 )
@@ -941,7 +944,7 @@ def check_alerts_and_notify(sports_titles_map):
         )
 
         chart_buf = build_odds_chart(
-            cur, ev_id, top_bm, top_outcome, top_point, match, sport_title, top_pick_label, price_col, has_point
+            cur, ev_id, top_bm, top_outcome, top_point, match, sport_title, top_pick_label, sc
         )
         if chart_buf:
             send_telegram_photo(chart_buf, card_caption)
