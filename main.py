@@ -47,6 +47,70 @@ def get_db_connection():
     return psycopg2.connect(DB_URL)
 
 
+def ensure_tables_exist(cur, conn):
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ai_match_analysis (
+            event_id TEXT PRIMARY KEY,
+            verdict_text TEXT NOT NULL,
+            created_at TIMESTAMPTZ DEFAULT NOW()
+        );
+        CREATE TABLE IF NOT EXISTS paper_bets (
+            id SERIAL PRIMARY KEY,
+            event_id TEXT UNIQUE NOT NULL,
+            sport TEXT NOT NULL,
+            match_name TEXT NOT NULL,
+            commence_time TIMESTAMPTZ NOT NULL,
+            pick_label TEXT NOT NULL,
+            odds NUMERIC(6,3) NOT NULL,
+            stake_uah NUMERIC(10,2) NOT NULL,
+            status TEXT NOT NULL DEFAULT 'PENDING',
+            match_score TEXT,
+            profit_uah NUMERIC(10,2) NOT NULL DEFAULT 0.00,
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            settled_at TIMESTAMPTZ
+        );
+        CREATE TABLE IF NOT EXISTS paper_daily_reports (
+            report_date DATE PRIMARY KEY,
+            sent_at TIMESTAMPTZ DEFAULT NOW()
+        );
+        """
+    )
+    conn.commit()
+
+
+def get_table_columns(cur, table_name):
+    cur.execute(
+        """
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = %s;
+        """,
+        (table_name,),
+    )
+    return {row[0] for row in cur.fetchall()}
+
+
+def detect_odds_schema(cur):
+    cols = get_table_columns(cur, "odds_history")
+    print(f"Колонки odds_history у БД: {sorted(list(cols))}")
+
+    mkt_col = None
+    for candidate in ("market_key", "market", "market_type", "mkt"):
+        if candidate in cols:
+            mkt_col = candidate
+            break
+
+    price_col = "price"
+    for candidate in ("price", "odds", "odd", "value"):
+        if candidate in cols:
+            price_col = candidate
+            break
+
+    has_point = "point" in cols
+    return mkt_col, price_col, has_point
+
+
 def format_kyiv_time(dt_obj):
     if dt_obj is None:
         return ""
@@ -103,7 +167,8 @@ def get_active_sports_map():
                     sp_key = s.get("key")
                     if sp_key in TARGET_SPORTS and s.get("active"):
                         active_map[sp_key] = s.get("title", sp_key)
-                return active_map
+                if active_map:
+                    return active_map
             print(f"Sports list API ({'main' if idx == 0 else 'reserve'}): {resp.status_code}")
         except Exception as e:
             print(f"Помилка отримання списку турнірів: {e}")
@@ -119,10 +184,10 @@ def fetch_and_save_odds(sports_titles_map):
     print(f"1. Активні турніри ({len(sports_to_scan)}): {sports_to_scan}")
 
     events_batch = []
-    odds_batch = []
+    odds_raw = []
     remaining_credits = "?"
-    current_api_key = API_KEY
-    using_reserve = False
+    current_api_key = API_KEY or API_KEY_RESERVE
+    using_reserve = (current_api_key == API_KEY_RESERVE and not API_KEY)
 
     for sport in sports_to_scan:
         url = f"https://api.the-odds-api.com/v4/sports/{sport}/odds/"
@@ -136,13 +201,14 @@ def fetch_and_save_odds(sports_titles_map):
             resp = requests.get(url, params=params, timeout=12)
             remaining_credits = resp.headers.get("x-requests-remaining", remaining_credits)
 
-            if (
-                (resp.status_code == 401 or (remaining_credits != "?" and int(remaining_credits) <= 1))
-                and not using_reserve
-                and API_KEY_RESERVE
-            ):
+            try:
+                rem_int = int(float(remaining_credits))
+            except Exception:
+                rem_int = 999
+
+            if (resp.status_code in (401, 402, 429) or rem_int <= 1) and not using_reserve and API_KEY_RESERVE:
                 print(
-                    f"⚠️ Основний ключ The Odds API вичерпано (залишок: {remaining_credits}). "
+                    f"⚠️ Основний ключ The Odds API вичерпано (статус {resp.status_code}, залишок: {remaining_credits}). "
                     f"Перемикаюся на ODDS_API_KEY_RESERVE!"
                 )
                 current_api_key = API_KEY_RESERVE
@@ -174,8 +240,16 @@ def fetch_and_save_odds(sports_titles_map):
                             point = out.get("point")
                             price = out.get("price")
                             if price is not None:
-                                odds_batch.append(
-                                    (ev_id, bm_key, mkt_key, out_name, point, price, now_utc)
+                                odds_raw.append(
+                                    {
+                                        "event_id": ev_id,
+                                        "bookmaker": bm_key,
+                                        "market": mkt_key,
+                                        "outcome_name": out_name,
+                                        "point": point,
+                                        "price": price,
+                                        "recorded_at": now_utc,
+                                    }
                                 )
         except Exception as e:
             print(f"Помилка при запиті {sport}: {e}")
@@ -183,39 +257,75 @@ def fetch_and_save_odds(sports_titles_map):
     print(f"2. Залишок кредитів API: {remaining_credits}. Запис у БД...")
     conn = get_db_connection()
     cur = conn.cursor()
+    ensure_tables_exist(cur, conn)
 
+    ev_cols = get_table_columns(cur, "events")
     if events_batch:
+        if "home_team" in ev_cols and "away_team" in ev_cols:
+            execute_values(
+                cur,
+                """
+                INSERT INTO events (id, sport, home_team, away_team, commence_time)
+                VALUES %s
+                ON CONFLICT (id) DO UPDATE SET
+                    commence_time = EXCLUDED.commence_time,
+                    home_team = EXCLUDED.home_team,
+                    away_team = EXCLUDED.away_team;
+                """,
+                events_batch,
+            )
+        elif "match_name" in ev_cols:
+            ev_match_batch = [(e[0], e[1], f"{e[2]} - {e[3]}", e[4]) for e in events_batch]
+            execute_values(
+                cur,
+                """
+                INSERT INTO events (id, sport, match_name, commence_time)
+                VALUES %s
+                ON CONFLICT (id) DO UPDATE SET
+                    commence_time = EXCLUDED.commence_time,
+                    match_name = EXCLUDED.match_name;
+                """,
+                ev_match_batch,
+            )
+
+    mkt_col, price_col, has_point = detect_odds_schema(cur)
+
+    if odds_raw:
+        insert_cols = ["event_id", "bookmaker"]
+        if mkt_col:
+            insert_cols.append(mkt_col)
+        insert_cols.append("outcome_name")
+        if has_point:
+            insert_cols.append("point")
+        insert_cols.append(price_col)
+        insert_cols.append("recorded_at")
+
+        odds_tuples = []
+        for item in odds_raw:
+            row = [item["event_id"], item["bookmaker"]]
+            if mkt_col:
+                row.append(item["market"])
+            row.append(item["outcome_name"])
+            if has_point:
+                row.append(item["point"])
+            row.append(item["price"])
+            row.append(item["recorded_at"])
+            odds_tuples.append(tuple(row))
+
+        cols_sql = ", ".join(insert_cols)
         execute_values(
             cur,
-            """
-            INSERT INTO events (id, sport, home_team, away_team, commence_time)
-            VALUES %s
-            ON CONFLICT (id) DO UPDATE SET
-                commence_time = EXCLUDED.commence_time,
-                home_team = EXCLUDED.home_team,
-                away_team = EXCLUDED.away_team;
-            """,
-            events_batch,
+            f"INSERT INTO odds_history ({cols_sql}) VALUES %s;",
+            odds_tuples,
         )
 
-    if odds_batch:
-        execute_values(
-            cur,
-            """
-            INSERT INTO odds_history (event_id, bookmaker, market, outcome_name, point, price, recorded_at)
-            VALUES %s;
-            """,
-            odds_batch,
-        )
-
-    # Очищення старих записів (понад 4 дні), не зачіпаючи paper_bets
     cur.execute("DELETE FROM odds_history WHERE recorded_at < NOW() - INTERVAL '4 days';")
     cur.execute("DELETE FROM events WHERE commence_time < NOW() - INTERVAL '4 days';")
 
     conn.commit()
     cur.close()
     conn.close()
-    print(f"3. Успішно збережено подій: {len(events_batch)}, котирувань: {len(odds_batch)}")
+    print(f"3. Успішно збережено подій: {len(events_batch)}, котирувань: {len(odds_raw)}")
 
 
 def format_pick_label(market, outcome, point, match_name):
@@ -248,7 +358,12 @@ def format_pick_label(market, outcome, point, match_name):
             return f"ТМ {pt_str}"
         return f"{outcome} {pt_str}"
 
-    return f"{outcome} {point if point is not None else ''}".strip()
+    if point is not None:
+        if outcome.lower() in ("over", "under"):
+            return format_pick_label("totals", outcome, point, match_name)
+        return format_pick_label("spreads", outcome, point, match_name)
+
+    return format_pick_label("h2h", outcome, None, match_name)
 
 
 def translate_market_ua(market):
@@ -260,26 +375,44 @@ def translate_market_ua(market):
     return mapping.get(market, market)
 
 
-def build_odds_chart(cur, event_id, bookmaker, market, outcome_name, point, match_name, sport_title, pick_label):
-    if point is None:
+def infer_market_type(outcome_name, point):
+    if point is not None:
+        if str(outcome_name).lower() in ("over", "under"):
+            return "totals"
+        return "spreads"
+    return "h2h"
+
+
+def build_odds_chart(cur, event_id, bookmaker, outcome_name, point, match_name, sport_title, pick_label, price_col, has_point):
+    if has_point and point is not None:
         cur.execute(
-            """
-            SELECT recorded_at, price
+            f"""
+            SELECT recorded_at, {price_col}
             FROM odds_history
-            WHERE event_id = %s AND bookmaker = %s AND market = %s AND outcome_name = %s AND point IS NULL
+            WHERE event_id = %s AND bookmaker = %s AND outcome_name = %s AND point = %s
             ORDER BY recorded_at ASC;
             """,
-            (event_id, bookmaker, market, outcome_name),
+            (event_id, bookmaker, outcome_name, point),
+        )
+    elif has_point and point is None:
+        cur.execute(
+            f"""
+            SELECT recorded_at, {price_col}
+            FROM odds_history
+            WHERE event_id = %s AND bookmaker = %s AND outcome_name = %s AND point IS NULL
+            ORDER BY recorded_at ASC;
+            """,
+            (event_id, bookmaker, outcome_name),
         )
     else:
         cur.execute(
-            """
-            SELECT recorded_at, price
+            f"""
+            SELECT recorded_at, {price_col}
             FROM odds_history
-            WHERE event_id = %s AND bookmaker = %s AND market = %s AND outcome_name = %s AND point = %s
+            WHERE event_id = %s AND bookmaker = %s AND outcome_name = %s
             ORDER BY recorded_at ASC;
             """,
-            (event_id, bookmaker, market, outcome_name, point),
+            (event_id, bookmaker, outcome_name),
         )
 
     rows = cur.fetchall()
@@ -453,38 +586,56 @@ def calculate_smart_stake(available_bank, odds):
         return 0.0
     k = float(odds)
     if k <= 1.75:
-        pct = 0.04  # Низький ризик: 4% від банку
+        pct = 0.04
     elif k <= 2.35:
-        pct = 0.03  # Середній ризик: 3% від банку
+        pct = 0.03
     else:
-        pct = 0.02  # Підвищений ризик: 2% від банку
+        pct = 0.02
     stake = round(available_bank * pct, 2)
     return min(stake, available_bank)
 
 
 def place_paper_bet(cur, conn, event_id, sport, match_name, commence_time, pick_label, odds):
-    if "пропустити" in pick_label.lower() or "утриматися" in pick_label.lower():
-        return None
-    cur.execute("SELECT id FROM paper_bets WHERE event_id = %s;", (event_id,))
-    if cur.fetchone():
+    try:
+        if "пропустити" in pick_label.lower() or "утриматися" in pick_label.lower():
+            return None
+        cur.execute("SELECT id FROM paper_bets WHERE event_id = %s;", (event_id,))
+        if cur.fetchone():
+            return None
+
+        _, available_bank = get_bankroll_state(cur)
+        stake = calculate_smart_stake(available_bank, odds)
+        if stake <= 0:
+            return None
+
+        cur.execute(
+            """
+            INSERT INTO paper_bets (event_id, sport, match_name, commence_time, pick_label, odds, stake_uah, status)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, 'PENDING')
+            ON CONFLICT (event_id) DO NOTHING;
+            """,
+            (event_id, sport, match_name, commence_time, pick_label, float(odds), stake),
+        )
+        conn.commit()
+        print(f"💰 Paper Bet: {match_name} | {pick_label} @ {odds} | Ставка: {stake:.2f} грн")
+        return stake
+    except Exception as e:
+        conn.rollback()
+        print(f"Помилка place_paper_bet: {e}")
         return None
 
-    _, available_bank = get_bankroll_state(cur)
-    stake = calculate_smart_stake(available_bank, odds)
-    if stake <= 0:
-        return None
 
-    cur.execute(
-        """
-        INSERT INTO paper_bets (event_id, sport, match_name, commence_time, pick_label, odds, stake_uah, status)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, 'PENDING')
-        ON CONFLICT (event_id) DO NOTHING;
-        """,
-        (event_id, sport, match_name, commence_time, pick_label, float(odds), stake),
-    )
-    conn.commit()
-    print(f"💰 Paper Bet: {match_name} | {pick_label} @ {odds} | Ставка: {stake:.2f} грн")
-    return stake
+def parse_score_value(raw_score):
+    if raw_score is None:
+        return None
+    s = str(raw_score).strip()
+    try:
+        return int(float(s))
+    except Exception:
+        nums = re.findall(r"\d+", s)
+        if nums:
+            return int(nums[0])
+    return None
 
 
 def evaluate_bet_outcome(pick_label, match_name, home_score, away_score):
@@ -494,7 +645,6 @@ def evaluate_bet_outcome(pick_label, match_name, home_score, away_score):
     away_team = parts[1].lower() if len(parts) == 2 else ""
     pick_low = pick.lower()
 
-    # 1. Тотали (ТБ / ТМ / Over / Under)
     m_tot = re.search(r"(?:тб|тотал\s*більше|over)\s*\(?([0-9]+(?:\.[0-9]+)?)\)?", pick_low)
     if m_tot:
         line = float(m_tot.group(1))
@@ -515,7 +665,6 @@ def evaluate_bet_outcome(pick_label, match_name, home_score, away_score):
             return "LOST"
         return "VOID"
 
-    # 2. Фори / гандикапи (Ф1 / Ф2)
     m_hand = re.search(r"ф([12])\s*\(?([+-]?[0-9]+(?:\.[0-9]+)?)\)?", pick_low)
     if m_hand:
         side = m_hand.group(1)
@@ -527,7 +676,6 @@ def evaluate_bet_outcome(pick_label, match_name, home_score, away_score):
             return "LOST"
         return "VOID"
 
-    # 3. Основний результат (П1 / П2 / Х)
     if re.search(r"(?:^|\b|\()п1(?:\b|\)|$)", pick_low) or (
         home_team and home_team in pick_low and "фора" not in pick_low
     ):
@@ -545,136 +693,149 @@ def evaluate_bet_outcome(pick_label, match_name, home_score, away_score):
 
 
 def settle_finished_paper_bets(cur, conn):
-    cur.execute(
-        """
-        SELECT id, event_id, sport, match_name, commence_time, pick_label, odds, stake_uah
-        FROM paper_bets
-        WHERE status = 'PENDING'
-          AND commence_time < NOW() - INTERVAL '2 hours 15 minutes'
-        ORDER BY commence_time ASC;
-        """
-    )
-    pending = cur.fetchall()
-    if not pending:
-        return
-
-    sports_needed = list({row[2] for row in pending})
-    scores_by_event = {}
-    current_key = API_KEY
-
-    for sp in sports_needed:
-        url = f"https://api.the-odds-api.com/v4/sports/{sp}/scores/"
-        params = {"apiKey": current_key, "daysFrom": 3}
-        try:
-            resp = requests.get(url, params=params, timeout=12)
-            rem = resp.headers.get("x-requests-remaining", "?")
-            if (
-                (resp.status_code == 401 or (rem != "?" and int(rem) <= 1))
-                and API_KEY_RESERVE
-                and current_key != API_KEY_RESERVE
-            ):
-                current_key = API_KEY_RESERVE
-                params["apiKey"] = current_key
-                resp = requests.get(url, params=params, timeout=12)
-
-            if resp.status_code == 200:
-                for ev in resp.json():
-                    if ev.get("completed") and ev.get("scores"):
-                        scores_by_event[ev["id"]] = ev
-            else:
-                print(f"Scores API ({sp}): {resp.status_code}")
-        except Exception as e:
-            print(f"Помилка запиту Scores API ({sp}): {e}")
-
-    settled_count = 0
-    for bet_id, ev_id, sport, m_name, c_time, pick, odds, stake in pending:
-        ev_data = scores_by_event.get(ev_id)
-        if not ev_data:
-            continue
-
-        home_t = ev_data.get("home_team", "")
-        away_t = ev_data.get("away_team", "")
-        home_sc, away_sc = None, None
-        for s_item in ev_data.get("scores", []):
-            if s_item.get("name") == home_t:
-                home_sc = int(float(s_item.get("score", 0)))
-            elif s_item.get("name") == away_t:
-                away_sc = int(float(s_item.get("score", 0)))
-
-        if home_sc is None or away_sc is None:
-            continue
-
-        score_str = f"{home_sc}:{away_sc}"
-        st = evaluate_bet_outcome(pick, f"{home_t} - {away_t}", home_sc, away_sc)
-        if st not in ("WON", "LOST", "VOID"):
-            print(f"⚠️ Не вдалося автоматично розпізнати маркет '{pick}' для рахунку {score_str}")
-            continue
-
-        stake_f = float(stake)
-        odds_f = float(odds)
-        if st == "WON":
-            profit = round(stake_f * (odds_f - 1.0), 2)
-        elif st == "LOST":
-            profit = round(-stake_f, 2)
-        else:
-            profit = 0.0
-
+    try:
         cur.execute(
             """
-            UPDATE paper_bets
-            SET status = %s, match_score = %s, profit_uah = %s, settled_at = NOW()
-            WHERE id = %s AND status = 'PENDING';
-            """,
-            (st, score_str, profit, bet_id),
+            SELECT id, event_id, sport, match_name, commence_time, pick_label, odds, stake_uah
+            FROM paper_bets
+            WHERE status = 'PENDING'
+              AND commence_time < NOW() - INTERVAL '2 hours 15 minutes'
+            ORDER BY commence_time ASC;
+            """
         )
-        settled_count += 1
-        print(f"📊 Розраховано #{bet_id} ({m_name}): {score_str} | {pick} -> {st} ({profit:+.2f} грн)")
+        pending = cur.fetchall()
+        if not pending:
+            return
 
-    if settled_count > 0:
-        conn.commit()
+        sports_needed = list({row[2] for row in pending})
+        scores_by_event = {}
+        current_key = API_KEY or API_KEY_RESERVE
+
+        for sp in sports_needed:
+            url = f"https://api.the-odds-api.com/v4/sports/{sp}/scores/"
+            params = {"apiKey": current_key, "daysFrom": 3}
+            try:
+                resp = requests.get(url, params=params, timeout=12)
+                rem = resp.headers.get("x-requests-remaining", "?")
+                try:
+                    rem_int = int(float(rem))
+                except Exception:
+                    rem_int = 999
+
+                if (
+                    (resp.status_code in (401, 402, 429) or rem_int <= 1)
+                    and API_KEY_RESERVE
+                    and current_key != API_KEY_RESERVE
+                ):
+                    current_key = API_KEY_RESERVE
+                    params["apiKey"] = current_key
+                    resp = requests.get(url, params=params, timeout=12)
+
+                if resp.status_code == 200:
+                    for ev in resp.json():
+                        if ev.get("completed") and ev.get("scores"):
+                            scores_by_event[ev["id"]] = ev
+                else:
+                    print(f"Scores API ({sp}): {resp.status_code}")
+            except Exception as e:
+                print(f"Помилка запиту Scores API ({sp}): {e}")
+
+        settled_count = 0
+        for bet_id, ev_id, sport, m_name, c_time, pick, odds, stake in pending:
+            ev_data = scores_by_event.get(ev_id)
+            if not ev_data:
+                continue
+
+            home_t = ev_data.get("home_team", "")
+            away_t = ev_data.get("away_team", "")
+            home_sc, away_sc = None, None
+            for s_item in ev_data.get("scores", []):
+                if s_item.get("name") == home_t:
+                    home_sc = parse_score_value(s_item.get("score"))
+                elif s_item.get("name") == away_t:
+                    away_sc = parse_score_value(s_item.get("score"))
+
+            if home_sc is None or away_sc is None:
+                continue
+
+            score_str = f"{home_sc}:{away_sc}"
+            st = evaluate_bet_outcome(pick, f"{home_t} - {away_t}", home_sc, away_sc)
+            if st not in ("WON", "LOST", "VOID"):
+                print(f"⚠️ Не вдалося автоматично розпізнати маркет '{pick}' для рахунку {score_str}")
+                continue
+
+            stake_f = float(stake)
+            odds_f = float(odds)
+            if st == "WON":
+                profit = round(stake_f * (odds_f - 1.0), 2)
+            elif st == "LOST":
+                profit = round(-stake_f, 2)
+            else:
+                profit = 0.0
+
+            cur.execute(
+                """
+                UPDATE paper_bets
+                SET status = %s, match_score = %s, profit_uah = %s, settled_at = NOW()
+                WHERE id = %s AND status = 'PENDING';
+                """,
+                (st, score_str, profit, bet_id),
+            )
+            settled_count += 1
+            print(f"📊 Розраховано #{bet_id} ({m_name}): {score_str} | {pick} -> {st} ({profit:+.2f} грн)")
+
+        if settled_count > 0:
+            conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f"Помилка settle_finished_paper_bets: {e}")
 
 
 def send_daily_bankroll_report(cur, conn):
-    kyiv_now = datetime.now(KYIV_TZ)
-    if kyiv_now.hour < 8:
-        return
-    today_date = kyiv_now.date()
-    cur.execute("SELECT 1 FROM paper_daily_reports WHERE report_date = %s;", (today_date,))
-    if cur.fetchone():
-        return
+    try:
+        kyiv_now = datetime.now(KYIV_TZ)
+        if kyiv_now.hour < 8:
+            return
+        today_date = kyiv_now.date()
+        cur.execute("SELECT 1 FROM paper_daily_reports WHERE report_date = %s;", (today_date,))
+        if cur.fetchone():
+            return
 
-    cur.execute(
-        """
-        SELECT
-            COUNT(*) AS total_bets,
-            COUNT(*) FILTER (WHERE status = 'WON') AS won_bets,
-            COUNT(*) FILTER (WHERE status = 'LOST') AS lost_bets,
-            COUNT(*) FILTER (WHERE status = 'VOID') AS void_bets,
-            COUNT(*) FILTER (WHERE status = 'PENDING') AS pending_bets,
-            COALESCE(SUM(stake_uah) FILTER (WHERE status IN ('WON', 'LOST', 'VOID')), 0) AS settled_turnover,
-            COALESCE(SUM(profit_uah) FILTER (WHERE status IN ('WON', 'LOST', 'VOID')), 0) AS net_profit
-        FROM paper_bets;
-        """
-    )
-    total_b, won_b, lost_b, void_b, pend_b, turnover, net_profit = cur.fetchone()
-    final_bank = round(INITIAL_BANKROLL + float(net_profit), 2)
-    roi = round((float(net_profit) / float(turnover)) * 100, 2) if float(turnover) > 0 else 0.0
-    bank_diff = round(final_bank - INITIAL_BANKROLL, 2)
+        cur.execute(
+            """
+            SELECT
+                COUNT(*) AS total_bets,
+                COUNT(*) FILTER (WHERE status = 'WON') AS won_bets,
+                COUNT(*) FILTER (WHERE status = 'LOST') AS lost_bets,
+                COUNT(*) FILTER (WHERE status = 'VOID') AS void_bets,
+                COUNT(*) FILTER (WHERE status = 'PENDING') AS pending_bets,
+                COALESCE(SUM(stake_uah) FILTER (WHERE status IN ('WON', 'LOST', 'VOID')), 0) AS settled_turnover,
+                COALESCE(SUM(profit_uah) FILTER (WHERE status IN ('WON', 'LOST', 'VOID')), 0) AS net_profit
+            FROM paper_bets;
+            """
+        )
+        total_b, won_b, lost_b, void_b, pend_b, turnover, net_profit = cur.fetchone()
+        final_bank = round(INITIAL_BANKROLL + float(net_profit), 2)
+        roi = round((float(net_profit) / float(turnover)) * 100, 2) if float(turnover) > 0 else 0.0
+        bank_diff = round(final_bank - INITIAL_BANKROLL, 2)
 
-    report_msg = (
-        f"💼 <b>ЩОДЕННИЙ ЗВІТ PAPER BANK ({kyiv_now.strftime('%d.%m.%Y')})</b>\n\n"
-        f"🏦 Початковий банк: <code>{INITIAL_BANKROLL:,.2f} грн</code>\n"
-        f"💰 Кінцевий банк: <b><code>{final_bank:,.2f} грн</code></b> (<code>{bank_diff:+.2f} грн</code>)\n"
-        f"📈 ROI (по розрахованих): <b><code>{roi:+.2f}%</code></b>\n\n"
-        f"📊 Всього ставок: <b>{total_b}</b> (в грі: {pend_b})\n"
-        f"✅ Виграшні: <b>{won_b}</b> | ❌ Програшні: <b>{lost_b}</b> | 🔄 Повернення: <b>{void_b}</b>"
-    )
-    send_telegram_alert(report_msg)
-    cur.execute(
-        "INSERT INTO paper_daily_reports (report_date) VALUES (%s) ON CONFLICT DO NOTHING;",
-        (today_date,),
-    )
-    conn.commit()
+        report_msg = (
+            f"💼 <b>ЩОДЕННИЙ ЗВІТ PAPER BANK ({kyiv_now.strftime('%d.%m.%Y')})</b>\n\n"
+            f"🏦 Початковий банк: <code>{INITIAL_BANKROLL:,.2f} грн</code>\n"
+            f"💰 Кінцевий банк: <b><code>{final_bank:,.2f} грн</code></b> (<code>{bank_diff:+.2f} грн</code>)\n"
+            f"📈 ROI (по розрахованих): <b><code>{roi:+.2f}%</code></b>\n\n"
+            f"📊 Всього ставок: <b>{total_b}</b> (в грі: {pend_b})\n"
+            f"✅ Виграшні: <b>{won_b}</b> | ❌ Програшні: <b>{lost_b}</b> | 🔄 Повернення: <b>{void_b}</b>"
+        )
+        send_telegram_alert(report_msg)
+        cur.execute(
+            "INSERT INTO paper_daily_reports (report_date) VALUES (%s) ON CONFLICT DO NOTHING;",
+            (today_date,),
+        )
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f"Помилка send_daily_bankroll_report: {e}")
 
 
 # --- ОСНОВНИЙ ЦИКЛ ОБРОБКИ АЛЕРТІВ ---
@@ -683,8 +844,9 @@ def check_alerts_and_notify(sports_titles_map):
     print("4. Перевірка алертів, AI-аналіз та відправка в Telegram...")
     conn = get_db_connection()
     cur = conn.cursor()
+    ensure_tables_exist(cur, conn)
+    mkt_col, price_col, has_point = detect_odds_schema(cur)
 
-    # 1. Спочатку розраховуємо завершені ставки й за потреби надсилаємо ранковий звіт о 08:00
     settle_finished_paper_bets(cur, conn)
     send_daily_bankroll_report(cur, conn)
 
@@ -692,7 +854,6 @@ def check_alerts_and_notify(sports_titles_map):
     status_line = f"✅ коеф. {kyiv_now.strftime('%d.%m.%Y')} оновлено в {kyiv_now.strftime('%H:%M')}"
     send_telegram_alert(status_line)
 
-    # 2. Читаємо просідання коефіцієнтів із v_odds_alerts
     cur.execute(
         """
         SELECT
@@ -723,39 +884,45 @@ def check_alerts_and_notify(sports_titles_map):
         processed_events += 1
 
         first = alerts_list[0]
-        _, sport, match, c_time, top_bm, top_outcome, _, _, top_curr_k, _, _ = first
+        _, sport, match, c_time, top_bm, top_outcome, top_point, _, top_curr_k, _, _ = first
         sport_title = sports_titles_map.get(sport, sport)
         c_str = format_kyiv_time(c_time)
 
-        # Визначаємо маркет для головного просідання
-        cur.execute(
-            """
-            SELECT market, point
-            FROM odds_history
-            WHERE event_id = %s AND bookmaker = %s AND outcome_name = %s
-            ORDER BY recorded_at DESC LIMIT 1;
-            """,
-            (ev_id, top_bm, top_outcome),
-        )
-        m_res = cur.fetchone()
-        top_market = m_res[0] if m_res else "h2h"
-        top_point = m_res[1] if m_res else None
+        top_market = infer_market_type(top_outcome, top_point)
+        if mkt_col:
+            cur.execute(
+                f"""
+                SELECT {mkt_col}
+                FROM odds_history
+                WHERE event_id = %s AND bookmaker = %s AND outcome_name = %s
+                ORDER BY recorded_at DESC LIMIT 1;
+                """,
+                (ev_id, top_bm, top_outcome),
+            )
+            m_res = cur.fetchone()
+            if m_res and m_res[0]:
+                top_market = m_res[0]
+
         top_pick_label = format_pick_label(top_market, top_outcome, top_point, match)
 
         plain_drops = []
         html_drops = []
         for al in alerts_list[:4]:
             _, _, _, _, bm, out_n, pt, s_k, curr_k, d_pct, s_t = al
-            cur.execute(
-                """
-                SELECT market FROM odds_history
-                WHERE event_id = %s AND bookmaker = %s AND outcome_name = %s
-                ORDER BY recorded_at DESC LIMIT 1;
-                """,
-                (ev_id, bm, out_n),
-            )
-            mk_row = cur.fetchone()
-            mk = mk_row[0] if mk_row else "h2h"
+            mk = infer_market_type(out_n, pt)
+            if mkt_col:
+                cur.execute(
+                    f"""
+                    SELECT {mkt_col} FROM odds_history
+                    WHERE event_id = %s AND bookmaker = %s AND outcome_name = %s
+                    ORDER BY recorded_at DESC LIMIT 1;
+                    """,
+                    (ev_id, bm, out_n),
+                )
+                mk_row = cur.fetchone()
+                if mk_row and mk_row[0]:
+                    mk = mk_row[0]
+
             p_lbl = format_pick_label(mk, out_n, pt, match)
             s_time_str = format_kyiv_time(s_t)
 
@@ -774,14 +941,13 @@ def check_alerts_and_notify(sports_titles_map):
         )
 
         chart_buf = build_odds_chart(
-            cur, ev_id, top_bm, top_market, top_outcome, top_point, match, sport_title, top_pick_label
+            cur, ev_id, top_bm, top_outcome, top_point, match, sport_title, top_pick_label, price_col, has_point
         )
         if chart_buf:
             send_telegram_photo(chart_buf, card_caption)
         else:
             send_telegram_alert(card_caption)
 
-        # Перевірка 12-годинного кешу AI-аналізу
         cur.execute(
             """
             SELECT verdict_text FROM ai_match_analysis
@@ -829,7 +995,6 @@ def check_alerts_and_notify(sports_titles_map):
                 }
             )
 
-    # 3. Відправка хронологічно відсортованого фінального зведення ставок
     if summary_table_rows:
         summary_table_rows.sort(key=lambda x: x["dt"])
         lines_out = ["📋 <b>ЗВЕДЕННЯ СТАВОК (AI-ВЕРДИКТ)</b>"]
