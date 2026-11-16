@@ -153,77 +153,72 @@ def run_streamlit_app():
         page_title="StatMonitor Dashboard",
         page_icon="⚽",
         layout="wide",
-        initial_sidebar_state="expanded",
+        initial_sidebar_state="collapsed",
     )
 
-    # Бокова панель
-    st.sidebar.title("⚽ StatMonitor")
-    st.sidebar.caption("Платформа спортивного моніторингу та аналітики v2.0")
+    # Приховуємо ліву панель для чистого повноекранного інтерфейсу
+    st.markdown("""
+        <style>
+            [data-testid="stSidebar"] { display: none; }
+            [data-testid="collapsedControl"] { display: none; }
+            .block-container { padding-top: 1.8rem; padding-bottom: 2rem; }
+        </style>
+    """, unsafe_allow_html=True)
 
-    # Отримання збережених секретів зі Streamlit Secrets або env
-    saved_db_url = ""
-    saved_secret = ""
+    # Автоматичне читання налаштувань зі Streamlit Secrets або env
+    db_url = ""
+    secret_key = ""
     try:
-        saved_db_url = st.secrets.get("SUPABASE_DB_URL", "")
-        saved_secret = st.secrets.get("SECRET_KEY", "")
+        db_url = st.secrets.get("SUPABASE_DB_URL", "")
+        secret_key = st.secrets.get("SECRET_KEY", "")
     except Exception:
         pass
-    saved_db_url = saved_db_url or os.environ.get("SUPABASE_DB_URL", "")
-    saved_secret = saved_secret or os.environ.get("SECRET_KEY", "")
-
-    db_url = st.sidebar.text_input(
-        "Supabase DB URL",
-        value=saved_db_url,
-        type="password",
-        help="Рядок підключення до PostgreSQL бази даних Supabase",
-    )
-
-    if st.sidebar.button("🔄 Оновити дані"):
-        st.rerun()
-
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("🚀 Керування тригером")
-    trigger_url = "https://statmonitor.symchak.workers.dev"
-    secret_key = st.sidebar.text_input(
-        "Webhook Secret Key",
-        value=saved_secret,
-        type="password",
-        help="Секретний пароль для Cloudflare Worker",
-    )
-    if st.sidebar.button("⚡ Запустити моніторинг зараз"):
-        try:
-            import requests
-            if secret_key:
-                resp = requests.get(f"{trigger_url}/?secret={secret_key}&source=dashboard", timeout=12)
-                if resp.status_code == 200:
-                    st.sidebar.success("🚀 Моніторинг успішно запущено!")
-                else:
-                    st.sidebar.error(f"Помилка [{resp.status_code}]: {resp.text[:120]}")
-            else:
-                from trigger_dispatch import trigger_workflow
-                ok, code, msg = trigger_workflow()
-                if ok:
-                    st.sidebar.success(f"Запущено! [{code}] {msg}")
-                else:
-                    st.sidebar.error("Вкажіть Webhook Secret Key або токен GitHub.")
-        except Exception as e:
-            st.sidebar.error(f"Помилка виклику: {e}")
+    db_url = db_url or os.environ.get("SUPABASE_DB_URL", "")
+    secret_key = secret_key or os.environ.get("SECRET_KEY", "")
 
     # Завантаження даних
     if not db_url:
-        st.warning("⚠️ Будь ласка, вкажіть `SUPABASE_DB_URL` у боковій панелі або змінних оточення.")
-        st.info("💡 Підказка: дашборд автоматично підтягує дані про ставки, AI-аналіз та розклад.")
+        st.warning("⚠️ Будь ласка, додайте `SUPABASE_DB_URL` у Streamlit Secrets.")
+        st.info("💡 Підказка: у правому верхньому кутку відкрийте `Settings` -> `Secrets` і збережіть `SUPABASE_DB_URL`.")
         return
 
     bets_df, ai_df, sched_df, heartbeat_df, db_err = fetch_data(db_url)
     if db_err:
         st.error(f"❌ Помилка з'єднання з базою Supabase:\n\n`{db_err}`")
-        st.info("💡 Підказка: якщо помилка 'Name or service not known' — використайте рядок підключення через Pooler (IPv4) із Supabase.")
+        st.info("💡 Підказка: перевірте наявність правильного рядка підключення через Pooler у Secrets.")
     metrics = compute_metrics(bets_df)
 
-    # 1. Верхній блок KPI карток
-    st.title("📊 Моніторинг та аналітика системи")
+    # 1. Шапка з кнопками дій
+    col_title, col_btn_refresh, col_btn_run = st.columns([6, 2, 2])
+    with col_title:
+        st.title("📊 Моніторинг та аналітика системи")
+        st.caption("StatMonitor — інтелектуальна платформа спортивного моніторингу та трейдингу v2.0")
+    
+    with col_btn_refresh:
+        st.write("")
+        if st.button("🔄 Оновити дані", use_container_width=True):
+            st.rerun()
 
+    with col_btn_run:
+        st.write("")
+        if st.button("⚡ Запустити моніторинг", use_container_width=True):
+            try:
+                import requests
+                trigger_url = "https://statmonitor.symchak.workers.dev"
+                if secret_key:
+                    resp = requests.get(f"{trigger_url}/?secret={secret_key}&source=dashboard_button", timeout=12)
+                    if resp.status_code == 200:
+                        st.toast("🚀 Моніторинг успішно запущено!", icon="✅")
+                    else:
+                        st.error(f"Помилка [{resp.status_code}]: {resp.text[:120]}")
+                else:
+                    st.warning("Вкажіть SECRET_KEY у Secrets для запуску через вебхук.")
+            except Exception as e:
+                st.error(f"Помилка виклику: {e}")
+
+    st.markdown("---")
+
+    # 2. Верхній блок KPI карток
     col1, col2, col3, col4 = st.columns(4)
 
     delta_bank = metrics["net_profit"]
