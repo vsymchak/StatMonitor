@@ -154,15 +154,28 @@ def run_streamlit_app():
     st.sidebar.markdown("---")
     st.sidebar.subheader("🚀 Керування тригером")
     trigger_url = "https://statmonitor.symchak.workers.dev"
-    st.sidebar.caption(f"Шлюз виклику: `{trigger_url}`")
+    secret_key = st.sidebar.text_input(
+        "Webhook Secret Key",
+        value=os.environ.get("SECRET_KEY", ""),
+        type="password",
+        help="Секретний пароль для Cloudflare Worker",
+    )
     if st.sidebar.button("⚡ Запустити моніторинг зараз"):
         try:
-            from trigger_dispatch import trigger_workflow
-            ok, code, msg = trigger_workflow()
-            if ok:
-                st.sidebar.success(f"Запущено! [{code}] {msg}")
+            import requests
+            if secret_key:
+                resp = requests.get(f"{trigger_url}/?secret={secret_key}&source=dashboard", timeout=12)
+                if resp.status_code == 200:
+                    st.sidebar.success("🚀 Моніторинг успішно запущено!")
+                else:
+                    st.sidebar.error(f"Помилка [{resp.status_code}]: {resp.text[:120]}")
             else:
-                st.sidebar.error(f"Помилка [{code}]: {msg}")
+                from trigger_dispatch import trigger_workflow
+                ok, code, msg = trigger_workflow()
+                if ok:
+                    st.sidebar.success(f"Запущено! [{code}] {msg}")
+                else:
+                    st.sidebar.error("Вкажіть Webhook Secret Key або токен GitHub.")
         except Exception as e:
             st.sidebar.error(f"Помилка виклику: {e}")
 
