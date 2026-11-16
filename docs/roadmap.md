@@ -1,6 +1,6 @@
 # Дорожня карта розвитку StatMonitor (SDD Roadmap)
 
-> **Статус**: 12 з 17 кроків реалізовано (Shipped) · 1 в процесі (In Progress)  
+> **Статус**: 13 з 17 кроків реалізовано (Shipped) · 1 в процесі (In Progress)  
 > **Оновлено**: 16.11.2026  
 > **Фокус**: Вдосконалення планувальника (Scheduler Evolution), спостережливість (Web Dashboard) та міграції БД
 
@@ -97,8 +97,8 @@
 
 ### 13. Modular code decomposition
 * **Розмір**: M
-* **Статус**: 🟪 Idea
-* **Опис**: Розбиття 566-рядкового `main.py` на окремі імпортовані модулі: `statmonitor.fetcher`, `statmonitor.database`, `statmonitor.ai`, `statmonitor.scheduler`, `statmonitor.notifier`.
+* **Статус**: 🟩 Shipped
+* **Опис**: Розбиття 566-рядкового `main.py` на окремі імпортовані модулі в пакеті `statmonitor`: `config`, `database`, `notifier`, `fetcher`, `chart`, `ai`, `paper_trading`, `pipeline`. Забезпечено повну зворотну сумісність та 100% проходження тестів.
 * **Залежності**: потрібен крок 12
 
 ### 14. Dedicated DB migrations & view optimization

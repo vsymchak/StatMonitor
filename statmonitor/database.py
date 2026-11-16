@@ -1,0 +1,58 @@
+import psycopg2
+from statmonitor.config import SUPABASE_DB_URL
+
+def get_db(db_url=None):
+    url = db_url or SUPABASE_DB_URL
+    if not url:
+        return None
+    try:
+        return psycopg2.connect(url, connect_timeout=10)
+    except Exception as e:
+        print(f"Помилка підключення до БД: {e}")
+        return None
+
+def get_cols(cur, tbl):
+    try:
+        cur.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name=%s;",
+            (tbl,)
+        )
+        return {r[0] for r in cur.fetchall()}
+    except Exception:
+        return set()
+
+def pick(cols, candidates, default=None):
+    for c in candidates:
+        if c in cols:
+            return c
+    return default
+
+def pick_v(d, candidates, default=None):
+    for n in candidates:
+        if n in d and d[n] is not None:
+            return d[n]
+    return default
+
+def ensure_tables(cur, conn):
+    try:
+        from migrate import run_migrations
+        run_migrations(db_url=SUPABASE_DB_URL)
+    except Exception as e:
+        print(f"Migrations run notice: {e}")
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ai_match_analysis (
+                event_id TEXT PRIMARY KEY, verdict_text TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS paper_bets (
+                id SERIAL PRIMARY KEY, event_id TEXT UNIQUE NOT NULL, sport TEXT NOT NULL,
+                match_name TEXT NOT NULL, commence_time TIMESTAMPTZ NOT NULL, pick_label TEXT NOT NULL,
+                odds NUMERIC(6,3) NOT NULL, stake_uah NUMERIC(10,2) NOT NULL,
+                status TEXT NOT NULL DEFAULT 'PENDING', match_score TEXT,
+                profit_uah NUMERIC(10,2) NOT NULL DEFAULT 0.00,
+                created_at TIMESTAMPTZ DEFAULT NOW(), settled_at TIMESTAMPTZ
+            );
+            CREATE TABLE IF NOT EXISTS paper_daily_reports (
+                report_date DATE PRIMARY KEY, sent_at TIMESTAMPTZ DEFAULT NOW()
+            );
+        """)
+        conn.commit()
