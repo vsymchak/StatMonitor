@@ -16,6 +16,8 @@ except Exception:
 
 INITIAL_BANKROLL = 10000.00
 
+from decimal import Decimal
+
 def get_db_connection(db_url):
     if not db_url:
         return None, "URL бази даних порожній"
@@ -29,9 +31,12 @@ def query_to_dataframe(cur, sql, params=None):
     cur.execute(sql, params or ())
     cols = [d[0] for d in cur.description]
     rows = cur.fetchall()
+    clean_rows = []
+    for r in rows:
+        clean_rows.append([float(v) if isinstance(v, Decimal) else v for v in r])
     if pd is not None:
-        return pd.DataFrame(rows, columns=cols)
-    return [dict(zip(cols, r)) for r in rows]
+        return pd.DataFrame(clean_rows, columns=cols)
+    return [dict(zip(cols, r)) for r in clean_rows]
 
 def compute_metrics(bets):
     """
@@ -155,10 +160,20 @@ def run_streamlit_app():
     st.sidebar.title("⚽ StatMonitor")
     st.sidebar.caption("Платформа спортивного моніторингу та аналітики v2.0")
 
-    env_db_url = os.environ.get("SUPABASE_DB_URL", "")
+    # Отримання збережених секретів зі Streamlit Secrets або env
+    saved_db_url = ""
+    saved_secret = ""
+    try:
+        saved_db_url = st.secrets.get("SUPABASE_DB_URL", "")
+        saved_secret = st.secrets.get("SECRET_KEY", "")
+    except Exception:
+        pass
+    saved_db_url = saved_db_url or os.environ.get("SUPABASE_DB_URL", "")
+    saved_secret = saved_secret or os.environ.get("SECRET_KEY", "")
+
     db_url = st.sidebar.text_input(
         "Supabase DB URL",
-        value=env_db_url,
+        value=saved_db_url,
         type="password",
         help="Рядок підключення до PostgreSQL бази даних Supabase",
     )
@@ -171,7 +186,7 @@ def run_streamlit_app():
     trigger_url = "https://statmonitor.symchak.workers.dev"
     secret_key = st.sidebar.text_input(
         "Webhook Secret Key",
-        value=os.environ.get("SECRET_KEY", ""),
+        value=saved_secret,
         type="password",
         help="Секретний пароль для Cloudflare Worker",
     )
@@ -256,62 +271,70 @@ def run_streamlit_app():
 
     # Вкладка 1: Ставки
     with tab_bets:
-        # Графік кумулятивного прибутку
-        if bets_df is not None and not bets_df.empty:
-            settled_df = bets_df[bets_df["status"].isin(["WON", "LOST", "VOID"])].copy()
-            if not settled_df.empty and "settled_at" in settled_df.columns:
-                settled_df = settled_df.sort_values(by="settled_at", ascending=True)
-                settled_df["cum_profit"] = settled_df["profit_uah"].cumsum()
-                settled_df["balance"] = INITIAL_BANKROLL + settled_df["cum_profit"]
+        df_all = pd.DataFrame(bets_df) if (pd is not None and not isinstance(bets_df, pd.DataFrame)) else bets_df
 
-                fig = px.line(
-                    settled_df,
-                    x="settled_at",
-                    y="balance",
-                    title="📈 Динаміка капіталу (Paper Bank Balance Growth)",
-                    markers=True,
-                    labels={"settled_at": "Дата розрахунку", "balance": "Баланс (грн)"},
-                )
-                fig.update_layout(template="plotly_dark", height=380)
-                st.plotly_chart(fig, use_container_width=True)
+        # Графік кумулятивного прибутку
+        try:
+            if df_all is not None and not df_all.empty:
+                settled_df = df_all[df_all["status"].isin(["WON", "LOST", "VOID"])].copy()
+                if not settled_df.empty and "settled_at" in settled_df.columns:
+                    settled_df = settled_df.dropna(subset=["settled_at"]).sort_values(by="settled_at", ascending=True)
+                    if not settled_df.empty:
+                        settled_df["profit_uah"] = settled_df["profit_uah"].astype(float)
+                        settled_df["cum_profit"] = settled_df["profit_uah"].cumsum()
+                        settled_df["balance"] = float(INITIAL_BANKROLL) + settled_df["cum_profit"]
+
+                        fig = px.line(
+                            settled_df,
+                            x="settled_at",
+                            y="balance",
+                            title="📈 Динаміка капіталу (Paper Bank Balance Growth)",
+                            markers=True,
+                            labels={"settled_at": "Дата розрахунку", "balance": "Баланс (грн)"},
+                        )
+                        fig.update_layout(template="plotly_dark", height=380)
+                        st.plotly_chart(fig, use_container_width=True)
+        except Exception as chart_err:
+            st.warning(f"Графік очікує даних: {chart_err}")
 
         col_left, col_right = st.columns([1, 1])
 
         with col_left:
             st.subheader("⏳ Активні ставки в грі (Pending)")
-            if bets_df is not None and not bets_df.empty:
-                pending_df = bets_df[bets_df["status"] == "PENDING"]
-                if not pending_df.empty:
-                    st.dataframe(
-                        pending_df[["sport", "match_name", "pick_label", "odds", "stake_uah", "commence_time"]],
-                        use_container_width=True,
-                        hide_index=True,
-                    )
+            try:
+                if df_all is not None and not df_all.empty:
+                    pending_df = df_all[df_all["status"] == "PENDING"]
+                    if not pending_df.empty:
+                        disp_cols = [c for c in ["sport", "match_name", "pick_label", "odds", "stake_uah", "commence_time"] if c in pending_df.columns]
+                        st.dataframe(pending_df[disp_cols], use_container_width=True, hide_index=True)
+                    else:
+                        st.info("Наразі немає відкритих ставок у грі.")
                 else:
-                    st.info("Наразі немає відкритих ставок у грі.")
-            else:
-                st.info("Дані відсутні.")
+                    st.info("Дані відсутні.")
+            except Exception as e:
+                st.error(f"Помилка таблиці ставок: {e}")
 
         with col_right:
             st.subheader("📋 Історія розрахованих ставок")
-            if bets_df is not None and not bets_df.empty:
-                settled_df = bets_df[bets_df["status"].isin(["WON", "LOST", "VOID"])]
-                if not settled_df.empty:
-                    st.dataframe(
-                        settled_df[["match_name", "pick_label", "odds", "stake_uah", "match_score", "status", "profit_uah"]],
-                        use_container_width=True,
-                        hide_index=True,
-                    )
+            try:
+                if df_all is not None and not df_all.empty:
+                    settled_df = df_all[df_all["status"].isin(["WON", "LOST", "VOID"])]
+                    if not settled_df.empty:
+                        disp_cols = [c for c in ["match_name", "pick_label", "odds", "stake_uah", "match_score", "status", "profit_uah"] if c in settled_df.columns]
+                        st.dataframe(settled_df[disp_cols], use_container_width=True, hide_index=True)
+                    else:
+                        st.info("Історія розрахунків порожня.")
                 else:
-                    st.info("Історія розрахунків порожня.")
-            else:
-                st.info("Дані відсутні.")
+                    st.info("Дані відсутні.")
+            except Exception as e:
+                st.error(f"Помилка таблиці історії: {e}")
 
     # Вкладка 2: AI-аналітика Gemini
     with tab_ai:
         st.subheader("🤖 Останні AI-вердикти та рекомендації матчів")
-        if ai_df is not None and not ai_df.empty:
-            for _, row in ai_df.iterrows():
+        df_ai = pd.DataFrame(ai_df) if (pd is not None and not isinstance(ai_df, pd.DataFrame)) else ai_df
+        if df_ai is not None and not df_ai.empty:
+            for _, row in df_ai.iterrows():
                 with st.expander(f"⚽ {row.get('match_name', 'Матч')} ({row.get('sport', '')}) — {str(row.get('created_at', ''))[:16]}"):
                     st.markdown(row.get("verdict_text", "Текст аналізу відсутній"))
         else:
@@ -320,21 +343,21 @@ def run_streamlit_app():
     # Вкладка 3: Планувальник та здоров'я
     with tab_sched:
         col_s1, col_s2 = st.columns([1, 1])
+        df_sched = pd.DataFrame(sched_df) if (pd is not None and not isinstance(sched_df, pd.DataFrame)) else sched_df
+        df_hb = pd.DataFrame(heartbeat_df) if (pd is not None and not isinstance(heartbeat_df, pd.DataFrame)) else heartbeat_df
+
         with col_s1:
             st.subheader("⏰ Контрольні точки розкладу (scheduler_plan)")
-            if sched_df is not None and not sched_df.empty:
-                st.dataframe(
-                    sched_df[["target_time", "trigger_type", "description", "status"]],
-                    use_container_width=True,
-                    hide_index=True,
-                )
+            if df_sched is not None and not df_sched.empty:
+                disp_sc = [c for c in ["target_time", "trigger_type", "description", "status"] if c in df_sched.columns]
+                st.dataframe(df_sched[disp_sc], use_container_width=True, hide_index=True)
             else:
                 st.info("Точки розкладу ще не сформовані.")
 
         with col_s2:
             st.subheader("💓 Монітор пульсу (system_heartbeat)")
-            if heartbeat_df is not None and not heartbeat_df.empty:
-                st.dataframe(heartbeat_df, use_container_width=True, hide_index=True)
+            if df_hb is not None and not df_hb.empty:
+                st.dataframe(df_hb, use_container_width=True, hide_index=True)
             else:
                 st.info("Записів пульсу не знайдено.")
 
