@@ -16,7 +16,10 @@ TG_CHAT_ID = os.environ.get("TG_CHAT_ID")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 INITIAL_BANKROLL = 10000.00
-KYIV_TZ = ZoneInfo("Europe/Kyiv")
+try:
+    KYIV_TZ = ZoneInfo("Europe/Kyiv")
+except Exception:
+    KYIV_TZ = timezone(timedelta(hours=2))
 EXHAUSTED_MODELS = set()
 
 TARGET_SPORTS = [
@@ -556,6 +559,15 @@ def check_alerts_and_notify(sports_map):
         for i, r in enumerate(summary_rows, 1):
             lines.append(f"<b>{i}. {esc(r['match'])}</b>\n   🕒 <code>{esc(r['time'])}</code> | <i>{esc(r['title'])}</i>\n   🎯 <b>{esc(r['pick'])}</b> — Коеф: <code>{r['odds']}</code>")
         send_tg("\n\n".join(lines))
+
+    # 6. Динамічний розклад контрольних точок (SPEC-08)
+    try:
+        from scheduler import run_schedule_update
+        sched_msg = run_schedule_update(cur, conn)
+        if sched_msg:
+            send_tg(sched_msg)
+    except Exception as e:
+        print(f"Помилка динамічного розкладу: {e}")
 
     cur.close()
     conn.close()
