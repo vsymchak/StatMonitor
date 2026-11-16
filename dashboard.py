@@ -18,11 +18,20 @@ INITIAL_BANKROLL = 10000.00
 
 def get_db_connection(db_url):
     if not db_url:
-        return None
+        return None, "URL бази даних порожній"
     try:
-        return psycopg2.connect(db_url)
+        conn = psycopg2.connect(db_url, connect_timeout=10)
+        return conn, None
     except Exception as e:
-        return None
+        return None, str(e)
+
+def query_to_dataframe(cur, sql, params=None):
+    cur.execute(sql, params or ())
+    cols = [d[0] for d in cur.description]
+    rows = cur.fetchall()
+    if pd is not None:
+        return pd.DataFrame(rows, columns=cols)
+    return [dict(zip(cols, r)) for r in rows]
 
 def compute_metrics(bets):
     """
@@ -77,53 +86,59 @@ def compute_metrics(bets):
 def fetch_data(db_url):
     """
     Завантажує дані з Supabase PostgreSQL.
+    Повертає (bets_df, ai_df, sched_df, heartbeat_df, error_msg)
     """
-    conn = get_db_connection(db_url)
+    conn, err = get_db_connection(db_url)
     if not conn:
-        return None, None, None, None
+        return None, None, None, None, err
+
+    bets_data = pd.DataFrame() if pd is not None else []
+    ai_data = pd.DataFrame() if pd is not None else []
+    sched_data = pd.DataFrame() if pd is not None else []
+    hb_data = pd.DataFrame() if pd is not None else []
 
     try:
+        cur = conn.cursor()
         # 1. Ставки
-        bets_df = pd.read_sql_query(
-            "SELECT * FROM paper_bets ORDER BY commence_time DESC LIMIT 100;", conn
-        )
-    except Exception:
-        bets_df = pd.DataFrame()
+        try:
+            bets_data = query_to_dataframe(cur, "SELECT * FROM paper_bets ORDER BY commence_time DESC LIMIT 100;")
+        except Exception as e:
+            print("Bets query err:", e)
 
-    try:
         # 2. AI вердикти
-        ai_df = pd.read_sql_query(
-            """
-            SELECT a.event_id, a.verdict_text, a.created_at, e.sport,
-                   COALESCE(e.home_team || ' - ' || e.away_team, e.sport) AS match_name,
-                   e.commence_time
-            FROM ai_match_analysis a
-            LEFT JOIN events e ON a.event_id = e.id
-            ORDER BY a.created_at DESC LIMIT 30;
-            """,
-            conn,
-        )
-    except Exception:
-        ai_df = pd.DataFrame()
+        try:
+            ai_data = query_to_dataframe(
+                cur,
+                """
+                SELECT a.event_id, a.verdict_text, a.created_at, e.sport,
+                       COALESCE(e.home_team || ' - ' || e.away_team, e.sport) AS match_name,
+                       e.commence_time
+                FROM ai_match_analysis a
+                LEFT JOIN events e ON a.event_id = e.id
+                ORDER BY a.created_at DESC LIMIT 30;
+                """,
+            )
+        except Exception as e:
+            print("AI query err:", e)
 
-    try:
         # 3. Розклад
-        sched_df = pd.read_sql_query(
-            "SELECT * FROM scheduler_plan ORDER BY target_time ASC LIMIT 25;", conn
-        )
-    except Exception:
-        sched_df = pd.DataFrame()
+        try:
+            sched_data = query_to_dataframe(cur, "SELECT * FROM scheduler_plan ORDER BY target_time ASC LIMIT 25;")
+        except Exception as e:
+            print("Sched query err:", e)
 
-    try:
-        # 4. Пульс системи
-        heartbeat_df = pd.read_sql_query(
-            "SELECT * FROM system_heartbeat WHERE service_name='StatMonitor';", conn
-        )
-    except Exception:
-        heartbeat_df = pd.DataFrame()
+        # 4. Пульс
+        try:
+            hb_data = query_to_dataframe(cur, "SELECT * FROM system_heartbeat WHERE service_name='StatMonitor';")
+        except Exception as e:
+            print("Heartbeat query err:", e)
 
-    conn.close()
-    return bets_df, ai_df, sched_df, heartbeat_df
+        cur.close()
+        conn.close()
+        return bets_data, ai_data, sched_data, hb_data, None
+    except Exception as e:
+        conn.close()
+        return None, None, None, None, str(e)
 
 def run_streamlit_app():
     import streamlit as st
@@ -185,7 +200,10 @@ def run_streamlit_app():
         st.info("💡 Підказка: дашборд автоматично підтягує дані про ставки, AI-аналіз та розклад.")
         return
 
-    bets_df, ai_df, sched_df, heartbeat_df = fetch_data(db_url)
+    bets_df, ai_df, sched_df, heartbeat_df, db_err = fetch_data(db_url)
+    if db_err:
+        st.error(f"❌ Помилка з'єднання з базою Supabase:\n\n`{db_err}`")
+        st.info("💡 Підказка: якщо помилка 'Name or service not known' — використайте рядок підключення через Pooler (IPv4) із Supabase.")
     metrics = compute_metrics(bets_df)
 
     # 1. Верхній блок KPI карток
