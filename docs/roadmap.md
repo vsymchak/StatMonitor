@@ -1,6 +1,6 @@
 # Дорожня карта розвитку StatMonitor (SDD Roadmap)
 
-> **Статус**: 9 з 17 кроків реалізовано (Shipped) · 1 в процесі (In Progress)  
+> **Статус**: 10 з 17 кроків реалізовано (Shipped) · 1 в процесі (In Progress)  
 > **Оновлено**: 16.11.2026  
 > **Фокус**: Вдосконалення планувальника (Scheduler Evolution) та стабілізація кодової бази
 
@@ -81,8 +81,8 @@
 
 ### 11. Hybrid runner support (External webhook / Cloud backup)
 * **Розмір**: M
-* **Статус**: ⬜ To Do
-* **Опис**: Резервний тригер через безкоштовний сервіс (наприклад, Cron-job.org / Cloudflare Worker webhook / modal / serverless cron), що викликає GitHub Actions `workflow_dispatch` за точним розкладом без затримок черг.
+* **Статус**: 🟩 Shipped
+* **Опис**: Реалізовано модуль `trigger_dispatch.py` (CLI + API для негайного запуску `workflow_dispatch`), безсерверний шлюз `deploy/cloudflare_webhook.js` для безкоштовного хостингу на Cloudflare Workers та підтримку вхідного параметра `trigger_source` у GitHub Actions воркфлоу.
 * **Залежності**: потрібен крок 9
 
 ---
