@@ -1,4 +1,14 @@
-from dashboard import compute_metrics, INITIAL_BANKROLL
+from dashboard import compute_metrics, INITIAL_BANKROLL, format_verdict_markdown
+
+def test_format_verdict_markdown():
+    raw_html = "📌 <b>Коротка ставка:</b> Ф2 (+1.5)<br>🎯 <b>Рекомендована ставка:</b> Ставити &amp; вигравати!"
+    formatted = format_verdict_markdown(raw_html)
+    assert "<b>" not in formatted
+    assert "</b>" not in formatted
+    assert "<br>" not in formatted
+    assert "**Коротка ставка:**" in formatted
+    assert "&amp;" not in formatted
+    assert "&" in formatted
 
 def test_compute_metrics_empty():
     m = compute_metrics([])
@@ -31,6 +41,7 @@ def test_compute_metrics_with_bets():
     assert m["pending"] == 1
 
 if __name__ == "__main__":
+    test_format_verdict_markdown()
     test_compute_metrics_empty()
     test_compute_metrics_with_bets()
     print("Всі тести dashboard успішно пройдено!")

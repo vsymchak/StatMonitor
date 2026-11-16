@@ -1,11 +1,15 @@
 import os
 import sys
 from datetime import datetime, timezone, timedelta
+import psycopg2
+from psycopg2.extras import execute_values
+
 try:
     from zoneinfo import ZoneInfo
     KYIV_TZ = ZoneInfo("Europe/Kyiv")
 except Exception:
     KYIV_TZ = timezone(timedelta(hours=2))
+
 DB_URL = os.environ.get("SUPABASE_DB_URL")
 
 def get_db():
@@ -66,10 +70,22 @@ def generate_schedule_points(events, pending_bets, now_utc=None, horizon_hours=3
 
     points = []
 
+    # Об'єднуємо події з events та активні ставки з pending_bets для гарантованого формування точок
+    all_events = list(events)
+    existing_ids = {str(e.get("id")) for e in all_events if "id" in e}
+    for b in pending_bets:
+        bid = str(b.get("event_id") or "")
+        if bid and bid not in existing_ids:
+            all_events.append({
+                "id": bid,
+                "match_name": b.get("match_name", ""),
+                "commence_time": b.get("commence_time"),
+            })
+
     # 1. Передматчеві точки (PRE_MATCH)
     upcoming = [
-        e for e in events
-        if e["commence_time"] > now_utc and e["commence_time"] <= now_utc + timedelta(hours=horizon_hours)
+        e for e in all_events
+        if e.get("commence_time") and e["commence_time"] > now_utc and e["commence_time"] <= now_utc + timedelta(hours=horizon_hours)
     ]
     clusters = cluster_events(upcoming, threshold_minutes=25)
 
@@ -144,15 +160,25 @@ def sync_schedule_to_db(cur, conn, points):
             "PLANNED",
         ))
     if rows:
-        execute_values(
-            cur,
-            """
-            INSERT INTO scheduler_plan (target_time, trigger_type, event_ids, description, status)
-            VALUES %s
-            ON CONFLICT DO NOTHING;
-            """,
-            rows,
-        )
+        try:
+            execute_values(
+                cur,
+                """
+                INSERT INTO scheduler_plan (target_time, trigger_type, event_ids, description, status)
+                VALUES %s
+                ON CONFLICT DO NOTHING;
+                """,
+                rows,
+            )
+        except Exception:
+            for r in rows:
+                cur.execute(
+                    """
+                    INSERT INTO scheduler_plan (target_time, trigger_type, event_ids, description, status)
+                    VALUES (%s, %s, %s, %s, %s);
+                    """,
+                    r,
+                )
     conn.commit()
 
 def format_schedule_for_tg(points, limit=3):

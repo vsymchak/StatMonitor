@@ -17,6 +17,27 @@ except Exception:
 INITIAL_BANKROLL = 10000.00
 
 from decimal import Decimal
+import html
+import re
+
+def format_verdict_markdown(text):
+    """
+    Очищає HTML-теги <b>, <i>, <br> та форматує їх у чистий гарний Markdown.
+    """
+    if not text:
+        return ""
+    s = str(text)
+    s = html.unescape(s)
+    # <b>...</b> -> **...**
+    s = re.sub(r"<\s*b\s*>(.*?)</\s*b\s*>", r"**\1**", s, flags=re.IGNORECASE)
+    s = re.sub(r"</?b>", "**", s, flags=re.IGNORECASE)
+    # <i>...</i> -> *...*
+    s = re.sub(r"<\s*i\s*>(.*?)</\s*i\s*>", r"*\1*", s, flags=re.IGNORECASE)
+    s = re.sub(r"</?i>", "*", s, flags=re.IGNORECASE)
+    # <br> -> новий рядок
+    s = re.sub(r"<\s*br\s*/?>", "\n", s, flags=re.IGNORECASE)
+    s = re.sub(r"\*{4,}", "**", s)
+    return s.strip()
 
 def get_db_connection(db_url):
     if not db_url:
@@ -393,8 +414,9 @@ def run_streamlit_app():
                 header_title = f"⚽ {m_name}{sp_tag}" + (f" ({t_str})" if t_str else "")
                 with st.expander(header_title, expanded=(idx < 2)):
                     body = row.get(text_col, "") if text_col else ""
-                    if body and str(body).strip():
-                        st.markdown(body)
+                    clean_body = format_verdict_markdown(body)
+                    if clean_body:
+                        st.markdown(clean_body)
                     else:
                         st.write("Текст аналізу відсутній або очікує заповнення.")
                     if "event_id" in row and row["event_id"]:
