@@ -1,6 +1,6 @@
 # Дорожня карта розвитку StatMonitor (SDD Roadmap)
 
-> **Статус**: 15 з 17 кроків реалізовано (Shipped) · 2 заплановано (Idea)  
+> **Статус**: 16 з 17 кроків реалізовано (Shipped) · 1 заплановано (Idea)  
 > **Оновлено**: 16.11.2026  
 > **Фокус**: Вдосконалення планувальника (Scheduler Evolution), спостережливість (Web Dashboard) та міграції БД
 
@@ -113,8 +113,8 @@
 
 ### 15. Telegram interactive bot commands (`/status`, `/bank`, `/run_now`)
 * **Розмір**: M
-* **Статус**: 🟪 Idea
-* **Опис**: Перетворення бота зі суто сповіщувача на інтерактивного асистента через Webhook або Polling.
+* **Статус**: 🟩 Shipped
+* **Опис**: Інтерактивний бот-асистент (`statmonitor/bot.py` + `bot_service.py`). Підтримка команд `/status`, `/bank`, `/bets`, `/today`, `/schedule`, `/run_now`, клавіатури швидких дій, перевірки авторизації за `TG_CHAT_ID` та режимів daemon / single-run.
 * **Залежності**: потрібен крок 13
 
 ### 16. Multi-sport & custom league configuration matrix

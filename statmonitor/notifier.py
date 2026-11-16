@@ -14,14 +14,14 @@ def fmt_kyiv(dt):
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(KYIV_TZ).strftime("%d.%m %H:%M")
 
-def _post_tg_chunk(url, chunk):
+def _post_tg_chunk(url, chunk, chat_id=None, reply_markup=None):
+    cid = chat_id or TG_CHAT_ID
     for attempt in range(2):
         try:
-            r = requests.post(
-                url,
-                json={"chat_id": TG_CHAT_ID, "text": chunk, "parse_mode": "HTML", "disable_web_page_preview": True},
-                timeout=12
-            )
+            payload = {"chat_id": cid, "text": chunk, "parse_mode": "HTML", "disable_web_page_preview": True}
+            if reply_markup:
+                payload["reply_markup"] = reply_markup
+            r = requests.post(url, json=payload, timeout=12)
             if r.status_code == 200:
                 time.sleep(0.45)
                 return
@@ -32,31 +32,35 @@ def _post_tg_chunk(url, chunk):
                 continue
             print(f"TG HTML err ({r.status_code}): {r.text[:120]}")
             plain = re.sub(r"<[^>]+>", "", chunk)
-            requests.post(url, json={"chat_id": TG_CHAT_ID, "text": plain, "disable_web_page_preview": True}, timeout=12)
+            plain_payload = {"chat_id": cid, "text": plain, "disable_web_page_preview": True}
+            if reply_markup:
+                plain_payload["reply_markup"] = reply_markup
+            requests.post(url, json=plain_payload, timeout=12)
             time.sleep(0.45)
             return
         except Exception as e:
             print(f"TG msg err: {e}")
 
-def send_tg(text):
-    if not TG_BOT_TOKEN or not TG_CHAT_ID or not text:
+def send_tg(text, chat_id=None, reply_markup=None):
+    cid = chat_id or TG_CHAT_ID
+    if not TG_BOT_TOKEN or not cid or not text:
         return
     url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage"
     if len(text) <= 3800:
-        _post_tg_chunk(url, text)
+        _post_tg_chunk(url, text, chat_id=cid, reply_markup=reply_markup)
         return
     parts = text.split("\n\n")
     cur, c_len = [], 0
     for p in parts:
         if c_len + len(p) + 2 > 3800:
             if cur:
-                _post_tg_chunk(url, "\n\n".join(cur))
+                _post_tg_chunk(url, "\n\n".join(cur), chat_id=cid, reply_markup=reply_markup)
             cur, c_len = [p], len(p)
         else:
             cur.append(p)
             c_len += len(p) + 2
     if cur:
-        _post_tg_chunk(url, "\n\n".join(cur))
+        _post_tg_chunk(url, "\n\n".join(cur), chat_id=cid, reply_markup=reply_markup)
 
 def send_photo(buf, caption):
     if not TG_BOT_TOKEN or not TG_CHAT_ID or not buf:

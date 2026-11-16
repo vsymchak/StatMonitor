@@ -54,6 +54,12 @@ from statmonitor.limiter import (
     filter_sports_to_poll,
     record_poll_success,
 )
+from statmonitor.bot import (
+    handle_command,
+    process_telegram_update,
+    poll_updates,
+    run_bot_worker,
+)
 
 __all__ = [
     "INITIAL_BANKROLL",
@@ -87,4 +93,8 @@ __all__ = [
     "classify_sports_urgency",
     "filter_sports_to_poll",
     "record_poll_success",
+    "handle_command",
+    "process_telegram_update",
+    "poll_updates",
+    "run_bot_worker",
 ]

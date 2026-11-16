@@ -1,7 +1,7 @@
 # Візуальна архітектура системи StatMonitor
 
 > **Проєкт**: StatMonitor — інтелектуальна система спортивного моніторингу прогрузів, віртуального трейдингу (Paper Trading), спостережливості (Web Dashboard) та предиктивної AI-аналітики.  
-> **Версія**: 2.5 (Еволюція SDD: Smart Rate-Limiter & Credit Budgeter + Modular Package + Migrations Runner + Unit Test Suite)  
+> **Версія**: 2.6 (Еволюція SDD: Telegram Interactive Bot + Smart Rate-Limiter + Dynamic Scheduler + Web Dashboard + 45 Unit Tests)  
 > **Оновлено**: 16.11.2026
 
 ---
@@ -49,6 +49,7 @@ flowchart TD
             ModPaper["paper_trading.py<br>Стейкінг, розрахунок результатів"]:::pkg
             ModChart["chart.py<br>Matplotlib тренди в пам'яті"]:::pkg
             ModNotify["notifier.py<br>Telegram HTML delivery & chunking"]:::pkg
+            ModBot["bot.py<br>Двосторонній асистент /status /bank /run_now"]:::pkg
             ModConfig["config.py<br>Константи, часовий пояс, ліги"]:::pkg
         end
 
@@ -74,7 +75,8 @@ flowchart TD
         T_Beat["system_heartbeat"]:::data
     end
 
-    subgraph TestSuite["🧪 7. Шар якості та тестування (33 unit-тести)"]
+    subgraph TestSuite["🧪 7. Шар якості та тестування (45 unit-тестів)"]
+        TestBot["test_bot.py (12 тестів)<br>Команди /bank /status /bets, RBAC, оновлення"]:::test
         TestLimiter["test_rate_limiter.py (6 тестів)<br>HOT/WARM/COLD, Eco-режими, квоти"]:::test
         TestEval["test_eval_picks.py (17 тестів)<br>format_pick, eval_outcome, extract_short_pick"]:::test
         TestModules["test_modules.py (6 тестів)<br>Ізоляція та цілісність statmonitor/"]:::test
