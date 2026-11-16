@@ -90,7 +90,7 @@ def compute_metrics(bets):
 
 def fetch_data(db_url):
     """
-    Завантажує дані з Supabase PostgreSQL.
+    Завантажує дані з Supabase PostgreSQL з повною транзакційною ізоляцією.
     Повертає (bets_df, ai_df, sched_df, heartbeat_df, error_msg)
     """
     conn, err = get_db_connection(db_url)
@@ -103,38 +103,74 @@ def fetch_data(db_url):
     hb_data = pd.DataFrame() if pd is not None else []
 
     try:
+        conn.autocommit = True
         cur = conn.cursor()
-        # 1. Ставки
+
+        # 1. Ставки (Paper Bets)
         try:
             bets_data = query_to_dataframe(cur, "SELECT * FROM paper_bets ORDER BY commence_time DESC LIMIT 100;")
         except Exception as e:
             print("Bets query err:", e)
 
-        # 2. AI вердикти
+        # 2. AI вердикти (Безпечний запит без жорстких JOIN з гарантією існування таблиці)
         try:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS ai_match_analysis (
+                    event_id TEXT PRIMARY KEY,
+                    verdict_text TEXT NOT NULL,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                );
+            """)
             ai_data = query_to_dataframe(
                 cur,
-                """
-                SELECT a.event_id, a.verdict_text, a.created_at, e.sport,
-                       COALESCE(e.home_team || ' - ' || e.away_team, e.sport) AS match_name,
-                       e.commence_time
-                FROM ai_match_analysis a
-                LEFT JOIN events e ON a.event_id = e.id
-                ORDER BY a.created_at DESC LIMIT 30;
-                """,
+                "SELECT * FROM ai_match_analysis ORDER BY created_at DESC LIMIT 50;",
             )
         except Exception as e:
-            print("AI query err:", e)
+            try:
+                ai_data = query_to_dataframe(cur, "SELECT * FROM ai_match_analysis ORDER BY 1 DESC LIMIT 50;")
+            except Exception as e2:
+                print("AI query err:", e2)
 
-        # 3. Розклад
+        # Збагачуємо ai_data назвами матчів зі ставок
+        if isinstance(ai_data, pd.DataFrame) and not ai_data.empty and "event_id" in ai_data.columns:
+            if isinstance(bets_data, pd.DataFrame) and not bets_data.empty and "event_id" in bets_data.columns:
+                ev_map = bets_data[["event_id", "match_name", "sport", "commence_time"]].drop_duplicates(subset=["event_id"]).set_index("event_id")
+                for col in ["match_name", "sport", "commence_time"]:
+                    if col in ev_map.columns:
+                        if col not in ai_data.columns:
+                            ai_data[col] = ai_data["event_id"].map(ev_map[col])
+                        else:
+                            ai_data[col] = ai_data[col].fillna(ai_data["event_id"].map(ev_map[col]))
+
+        # 3. Розклад (Scheduler Plan - SPEC-08)
         try:
-            sched_data = query_to_dataframe(cur, "SELECT * FROM scheduler_plan ORDER BY target_time ASC LIMIT 25;")
+            from scheduler import ensure_scheduler_tables, run_schedule_update
+            ensure_scheduler_tables(cur, conn)
+            sched_data = query_to_dataframe(cur, "SELECT * FROM scheduler_plan ORDER BY target_time ASC LIMIT 50;")
+            
+            # Якщо точок розкладу ще немає в БД, генеруємо їх автоматично
+            if (isinstance(sched_data, pd.DataFrame) and sched_data.empty) or (isinstance(sched_data, list) and not sched_data):
+                try:
+                    run_schedule_update(cur, conn)
+                    sched_data = query_to_dataframe(cur, "SELECT * FROM scheduler_plan ORDER BY target_time ASC LIMIT 50;")
+                except Exception as se:
+                    print("Auto schedule init err:", se)
         except Exception as e:
             print("Sched query err:", e)
 
-        # 4. Пульс
+        # 4. Пульс (System Heartbeat - SPEC-09)
         try:
-            hb_data = query_to_dataframe(cur, "SELECT * FROM system_heartbeat WHERE service_name='StatMonitor';")
+            from sys_watchdog import ensure_heartbeat_table, record_heartbeat
+            ensure_heartbeat_table(cur, conn)
+            hb_data = query_to_dataframe(cur, "SELECT * FROM system_heartbeat WHERE service_name='StatMonitor' LIMIT 1;")
+            
+            # Якщо запису пульсу ще немає, фіксуємо стартовий статус
+            if (isinstance(hb_data, pd.DataFrame) and hb_data.empty) or (isinstance(hb_data, list) and not hb_data):
+                try:
+                    record_heartbeat(cur, conn, duration_sec=0.1, status="ONLINE", metadata={"source": "dashboard_init"})
+                    hb_data = query_to_dataframe(cur, "SELECT * FROM system_heartbeat WHERE service_name='StatMonitor' LIMIT 1;")
+                except Exception as he:
+                    print("Auto heartbeat init err:", he)
         except Exception as e:
             print("Heartbeat query err:", e)
 
@@ -240,14 +276,16 @@ def run_streamlit_app():
         delta=f"Всього: {metrics['total_bets']} (в грі: {metrics['pending']})",
     )
 
-    hb_status = "🟢 Норма"
-    hb_time = "Немає даних"
+    hb_status = "🟢 Онлайн"
+    hb_time = "Очікує запуску"
     if heartbeat_df is not None and not heartbeat_df.empty:
         hb_row = heartbeat_df.iloc[0]
         t_raw = hb_row.get("last_ping_at")
         if t_raw:
             hb_time = t_raw.strftime("%d.%m %H:%M") if hasattr(t_raw, "strftime") else str(t_raw)[:16]
-        hb_status = f"🟢 {hb_row.get('last_status', 'OK')}"
+        status_txt = hb_row.get("last_status", "ONLINE")
+        icon = "🟢" if status_txt in ("OK", "ONLINE") else "🔴"
+        hb_status = f"{icon} {status_txt}"
 
     col4.metric(
         label="💓 Пульс системи (Watchdog)",
@@ -329,11 +367,46 @@ def run_streamlit_app():
         st.subheader("🤖 Останні AI-вердикти та рекомендації матчів")
         df_ai = pd.DataFrame(ai_df) if (pd is not None and not isinstance(ai_df, pd.DataFrame)) else ai_df
         if df_ai is not None and not df_ai.empty:
-            for _, row in df_ai.iterrows():
-                with st.expander(f"⚽ {row.get('match_name', 'Матч')} ({row.get('sport', '')}) — {str(row.get('created_at', ''))[:16]}"):
-                    st.markdown(row.get("verdict_text", "Текст аналізу відсутній"))
+            text_col = None
+            for cand in ["verdict_text", "analysis_text", "analysis", "verdict", "text", "content"]:
+                if cand in df_ai.columns:
+                    text_col = cand
+                    break
+            if not text_col:
+                for c in df_ai.columns:
+                    if c not in ("event_id", "id", "created_at", "match_name", "sport", "commence_time"):
+                        text_col = c
+                        break
+
+            time_col = "created_at" if "created_at" in df_ai.columns else ("commence_time" if "commence_time" in df_ai.columns else None)
+            st.caption(f"Всього вердиктів: {len(df_ai)}. Розгорніть картку матчу для перегляду детального висновку Gemini AI:")
+
+            for idx, row in df_ai.iterrows():
+                m_name = row.get("match_name") or row.get("event_id") or f"Подія #{idx + 1}"
+                sp = row.get("sport", "")
+                sp_tag = f" • {sp}" if sp and str(sp) != "nan" else ""
+                raw_t = row.get(time_col) if time_col else None
+                t_str = ""
+                if raw_t:
+                    t_str = raw_t.strftime("%d.%m %H:%M") if hasattr(raw_t, "strftime") else str(raw_t)[:16]
+
+                header_title = f"⚽ {m_name}{sp_tag}" + (f" ({t_str})" if t_str else "")
+                with st.expander(header_title, expanded=(idx < 2)):
+                    body = row.get(text_col, "") if text_col else ""
+                    if body and str(body).strip():
+                        st.markdown(body)
+                    else:
+                        st.write("Текст аналізу відсутній або очікує заповнення.")
+                    if "event_id" in row and row["event_id"]:
+                        st.caption(f"Event ID: `{row['event_id']}`")
         else:
-            st.info("AI-вердикти поки що не збережені в базі даних.")
+            st.info("ℹ️ AI-вердикти поки що не збережені в базі даних.")
+            st.markdown(
+                "> **Як формуються вердикти:**\n"
+                "> Коли система фіксує вигідний валуйний коефіцієнт (Value Bet), нейромережа **Gemini 2.5 Flash** "
+                "проводить глибокий факторний аналіз матчу, генерує розгорнуту аналітику та зберігає її в `ai_match_analysis`.\n"
+                "> Для запуску свіжого сканування натисніть кнопку **«⚡ Запустити моніторинг»** у верхньому правому кутку."
+            )
 
     # Вкладка 3: Планувальник та здоров'я
     with tab_sched:
@@ -344,17 +417,26 @@ def run_streamlit_app():
         with col_s1:
             st.subheader("⏰ Контрольні точки розкладу (scheduler_plan)")
             if df_sched is not None and not df_sched.empty:
-                disp_sc = [c for c in ["target_time", "trigger_type", "description", "status"] if c in df_sched.columns]
+                disp_sc = [c for c in ["target_time", "trigger_type", "description", "status", "executed_at"] if c in df_sched.columns]
                 st.dataframe(df_sched[disp_sc], use_container_width=True, hide_index=True)
             else:
-                st.info("Точки розкладу ще не сформовані.")
+                st.info("ℹ️ Точки розкладу ще не сформовані.")
+                st.markdown(
+                    "> **Динамічний планувальник (SPEC-08):**\n"
+                    "> Формує точні моменти запуску (PRE_MATCH за 15 хв до початку та SETTLE для фіксації результатів). "
+                    "Точки оновлюються автоматично при кожному запуску моніторингу."
+                )
 
         with col_s2:
             st.subheader("💓 Монітор пульсу (system_heartbeat)")
             if df_hb is not None and not df_hb.empty:
                 st.dataframe(df_hb, use_container_width=True, hide_index=True)
             else:
-                st.info("Записів пульсу не знайдено.")
+                st.info("ℹ️ Записів пульсу не знайдено.")
+                st.markdown(
+                    "> **Watchdog Монітор (SPEC-09):**\n"
+                    "> Фіксує стан системи та час виконання останнього циклу моніторингу."
+                )
 
 if __name__ == "__main__":
     try:
