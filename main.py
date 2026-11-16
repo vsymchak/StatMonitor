@@ -449,11 +449,21 @@ def settle_and_report(cur, conn):
         conn.rollback()
         print(f"Report err: {e}")
 
-def check_alerts_and_notify(sports_map):
+def check_alerts_and_notify(sports_map, t_start=None):
     print("4. Перевірка алертів і відправка...")
     conn = get_db()
     cur = conn.cursor()
     ensure_tables(cur, conn)
+
+    # 0. Watchdog Healthcheck (SPEC-09)
+    try:
+        from watchdog import check_watchdog_before_run
+        w_alert = check_watchdog_before_run(cur, conn)
+        if w_alert:
+            send_tg(w_alert)
+    except Exception as e:
+        print(f"Watchdog check err: {e}")
+
     settle_and_report(cur, conn)
 
     oh_cols = get_cols(cur, "odds_history")
@@ -569,10 +579,20 @@ def check_alerts_and_notify(sports_map):
     except Exception as e:
         print(f"Помилка динамічного розкладу: {e}")
 
+    # 7. Запис пульсу сервісу (SPEC-09)
+    try:
+        from watchdog import record_heartbeat, ping_external_watchdog
+        elapsed = round(time.time() - (t_start or time.time()), 2)
+        record_heartbeat(cur, conn, duration_sec=elapsed, status="OK", metadata={"events_checked": len(summary_rows)})
+        ping_external_watchdog()
+    except Exception as e:
+        print(f"Watchdog record err: {e}")
+
     cur.close()
     conn.close()
 
 if __name__ == "__main__":
+    t_start = time.time()
     s_map = get_sports_map()
     fetch_and_save_odds(s_map)
-    check_alerts_and_notify(s_map)
+    check_alerts_and_notify(s_map, t_start=t_start)

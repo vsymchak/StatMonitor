@@ -1,8 +1,9 @@
-# Roadmap diagram
+# Візуальна діаграма дорожньої карти (Roadmap diagram)
 
-8 of 17 steps shipped · 1 in progress · source: [roadmap.md](roadmap.md)
+**9 з 17 кроків реалізовано (Shipped)** · **1 в процесі (In Progress)** · Детальний опис: [roadmap.md](roadmap.md)
 
-🟩 shipped · 🟧 in progress (specified, designed or being built) · 🟪 idea · ⬜ fog: not yet formulated. Columns are the execution waves; steps outside a column are not scheduled yet. An arrow means «needed by».
+> 🟩 **Реалізовано (Shipped)** · 🟧 **У розробці (In Progress)** · 🟪 **Заплановано (Idea)** · ⬜ **Концепт (Fog)**  
+> Колонки — це послідовні хвилі виконання (**Execution Waves**). Стрілка показує залежність («потрібен для»).
 
 ```mermaid
 flowchart LR
@@ -11,40 +12,40 @@ flowchart LR
     classDef idea fill:#2b2d42,stroke:#8d99ae,color:#edf2f4,stroke-width:1px;
     classDef fog fill:#1e1e24,stroke:#4a4e69,color:#9a8c98,stroke-width:1px,stroke-dasharray: 4 4;
 
-    subgraph Wave1["Wave 1: Data Ingestion"]
-        1["1 · Dynamic schema<br>detection & ingestion<br><b>S</b>"]:::shipped
-        2["2 · Odds history &<br>4-day retention<br><b>S</b>"]:::shipped
-        3["3 · Telegram delivery<br>& HTML chunking<br><b>S</b>"]:::shipped
+    subgraph Wave1["Хвиля 1: Базовий збір даних"]
+        1["1 · Детекція схеми та збір коеф.<br><small>Адаптація колонок Supabase</small><br><b>S</b>"]:::shipped
+        2["2 · Історія коеф. та ротація<br><small>4-денний ковзний архів</small><br><b>S</b>"]:::shipped
+        3["3 · Доставка в Telegram<br><small>Чанкінг HTML до 3800 симв.</small><br><b>S</b>"]:::shipped
     end
 
-    subgraph Wave2["Wave 2: Analytics & Paper Trading"]
-        4["4 · Matplotlib drop<br>chart generator<br><b>S</b>"]:::shipped
-        5["5 · Gemini AI analyzer<br>with failover<br><b>M</b>"]:::shipped
-        6["6 · Paper Bank &<br>auto-staking<br><b>S</b>"]:::shipped
-        7["7 · Score settlement<br>& daily report<br><b>M</b>"]:::shipped
+    subgraph Wave2["Хвиля 2: Аналітика та Paper Trading"]
+        4["4 · Графіки падіння коеф.<br><small>Matplotlib тренди в пам'яті</small><br><b>S</b>"]:::shipped
+        5["5 · AI-аналіз Gemini<br><small>Каскад 4 моделей при 429</small><br><b>M</b>"]:::shipped
+        6["6 · Paper Bank & автоставки<br><small>Банк 10k, стейкінг 2-4%</small><br><b>S</b>"]:::shipped
+        7["7 · Розрахунок та щоденний звіт<br><small>Статуси WON/LOST, ROI о 08:00</small><br><b>M</b>"]:::shipped
     end
 
-    subgraph Wave3["Wave 3: Scheduler Evolution"]
-        8["8 · Dynamic schedule<br>by match kickoffs<br><b>M</b>"]:::shipped
-        9["9 · GH Actions cron<br>healthcheck watchdog<br><b>S</b>"]:::in_progress
-        10["10 · Smart rate-limiter<br>& quota allocator<br><b>S</b>"]:::idea
-        11["11 · Hybrid external<br>runner webhook<br><b>M</b>"]:::idea
+    subgraph Wave3["Хвиля 3: Еволюція планувальника (Фокус)"]
+        8["8 · Динамічний розклад за матчами<br><small>Тригери за -15m та +115m</small><br><b>M</b>"]:::shipped
+        9["9 · Watchdog & Healthcheck<br><small>Контроль затримок GH Actions</small><br><b>S</b>"]:::shipped
+        10["10 · Smart Rate-Limiter<br><small>Бюджет квот The Odds API</small><br><b>S</b>"]:::in_progress
+        11["11 · Гібридний зовнішній тригер<br><small>Резервний Webhook/Cron-job</small><br><b>M</b>"]:::idea
     end
 
-    subgraph Wave4["Wave 4: Architecture & Reliability"]
-        12["12 · Unit test suite<br>for picks & settlement<br><b>S</b>"]:::idea
-        13["13 · Modular code<br>decomposition<br><b>M</b>"]:::idea
-        14["14 · Dedicated DB<br>migrations & indexes<br><b>S</b>"]:::idea
+    subgraph Wave4["Хвиля 4: Архітектура та надійність"]
+        12["12 · Юніт-тести розрахунків<br><small>Покриття pytest маркетів</small><br><b>S</b>"]:::idea
+        13["13 · Модульна декомпозиція<br><small>Поділ main.py на пакети</small><br><b>M</b>"]:::idea
+        14["14 · Міграції БД та індекси<br><small>Оптимізація v_odds_alerts</small><br><b>S</b>"]:::idea
     end
 
-    subgraph Wave5["Wave 5: Advanced Features"]
-        15["15 · Telegram bot<br>interactive commands<br><b>M</b>"]:::idea
-        16["16 · Multi-sport &<br>leagues matrix<br><b>S</b>"]:::idea
+    subgraph Wave5["Хвиля 5: Інтерактивність та налаштування"]
+        15["15 · Інтерактивний бот TG<br><small>Команди /status, /bank, /run</small><br><b>M</b>"]:::idea
+        16["16 · Матриця ліг та видів спорту<br><small>Конфігурація без зміни коду</small><br><b>S</b>"]:::idea
     end
 
-    17["17 · Web dashboard &<br>Observability UI<br><b>L</b>"]:::fog
+    17["17 · Веб-дашборд моніторингу<br><small>UI на Streamlit або Next.js</small><br><b>L</b>"]:::fog
 
-    %% Dependencies
+    %% Залежності Хвилі 1 і 2
     1 --> 2
     2 --> 4
     3 --> 4
@@ -53,7 +54,7 @@ flowchart LR
     6 --> 7
     3 --> 7
 
-    %% Scheduler wave connections
+    %% Залежності Хвилі 3 (Планувальник)
     2 --> 8
     7 --> 8
     8 --> 9
@@ -61,15 +62,39 @@ flowchart LR
     8 --> 10
     9 --> 11
 
-    %% Wave 4 connections
+    %% Залежності Хвилі 4
     7 --> 12
     12 --> 13
     2 --> 14
 
-    %% Wave 5 connections
+    %% Залежності Хвилі 5
     13 --> 15
     13 --> 16
 
-    %% Fog connections
+    %% Fog
     13 -.-> 17
 ```
+
+---
+
+## Короткий опис пунктів українською мовою
+
+| № | Пункт | Розмір | Статус | Короткий опис |
+| :---: | :--- | :---: | :---: | :--- |
+| **1** | **Детекція схеми та збір коеф.** | `S` | 🟩 Shipped | Автоматично адаптується до різних назв колонок у Supabase (`event_id`/`match_id`, `price`/`odds`) і зберігає котирування. |
+| **2** | **Історія коеф. та ротація** | `S` | 🟩 Shipped | Накопичує часові ряди прогрузів та видаляє записи старіші за 4 дні для економії місця. |
+| **3** | **Доставка в Telegram** | `S` | 🟩 Shipped | Відправляє сповіщення з розбиттям на блоки до 3800 символів та захистом від блокувань (rate-limit 429). |
+| **4** | **Графіки падіння коеф.** | `S` | 🟩 Shipped | Генерує візуальні графіки Matplotlib у пам'яті (`BytesIO`) за київським часом і надсилає як фото. |
+| **5** | **AI-аналіз Gemini** | `M` | 🟩 Shipped | Оцінює прогрузи через моделі Gemini з автоперемиканням при лімітах (`3.5-flash-lite` $\rightarrow$ `2.5-flash` $\rightarrow$ `3.8-flash`). |
+| **6** | **Paper Bank & автоставки** | `S` | 🟩 Shipped | Веде віртуальний банк 10 000 грн, автоматично ставить 2–4% від банку залежно від коефіцієнта без дублювання. |
+| **7** | **Розрахунок та щоденний звіт** | `M` | 🟩 Shipped | Перевіряє фінальні рахунки (`WON`/`LOST`/`VOID`), фіксує прибуток і щодня о 08:00 публікує підсумок з ROI. |
+| **8** | **Динамічний розклад за матчами** | `M` | 🟩 Shipped | Аналізує розклад ігор: планує перевірки за 15 хв до старту (пікові прогрузи) та через 115 хв (миттєвий розрахунок). |
+| **9** | **Watchdog & Healthcheck** | `S` | 🟩 Shipped | Фіксує пульс системи (`system_heartbeat`), знаходить запізнення GitHub Actions ($> 25$ хв) і надсилає алерт у Telegram. |
+| **10** | **Smart Rate-Limiter** | `S` | 🟧 In Progress | Автоматично регулює частоту опитування ліг, щоб не спалити місячний ліміт запитів The Odds API. |
+| **11** | **Гібридний зовнішній тригер** | `M` | 🟪 Idea | Резервний Webhook (Cron-job / Cloudflare) для гарантованого запуску без затримок у чергах GitHub. |
+| **12** | **Юніт-тести розрахунків** | `S` | 🟪 Idea | Набір тестів `pytest` для перевірки парсингу маркетів (`format_pick`) та логіки перемог (`eval_outcome`). |
+| **13** | **Модульна декомпозиція** | `M` | 🟪 Idea | Розподіл монолітного `main.py` на окремі пакети: `fetcher`, `database`, `ai`, `notifier`. |
+| **14** | **Міграції БД та індекси** | `S` | 🟪 Idea | Оптимізація SQL-в'юшки `v_odds_alerts` та додавання індексів для миттєвого пошуку прогрузів. |
+| **15** | **Інтерактивний бот TG** | `M` | 🟪 Idea | Підтримка команд у чаті (`/status`, `/bank`, `/run_now`) для ручного перегляду стану та тригеру. |
+| **16** | **Матриця ліг та спорту** | `S` | 🟪 Idea | Винесення переліку турнірів і фільтрів у конфіг замість жорсткого кодування в скрипті. |
+| **17** | **Веб-дашборд моніторингу** | `L` | ⬜ Fog | Графічний інтерфейс (Streamlit / Web) з історією ставок, прибутком і аналітикою банку. |
