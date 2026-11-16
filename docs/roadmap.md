@@ -1,6 +1,6 @@
 # Дорожня карта розвитку StatMonitor (SDD Roadmap)
 
-> **Статус**: 13 з 17 кроків реалізовано (Shipped) · 1 в процесі (In Progress)  
+> **Статус**: 14 з 17 кроків реалізовано (Shipped) · 1 в процесі (In Progress)  
 > **Оновлено**: 16.11.2026  
 > **Фокус**: Вдосконалення планувальника (Scheduler Evolution), спостережливість (Web Dashboard) та міграції БД
 
@@ -91,8 +91,8 @@
 
 ### 12. Unit test suite for pick parsing & score evaluation
 * **Розмір**: S
-* **Статус**: 🟪 Idea
-* **Опис**: Покриття автотестами (`pytest`) критичних чистих функцій `format_pick()`, `eval_outcome()`, `extract_short_pick()`.
+* **Статус**: 🟩 Shipped
+* **Опис**: Покриття автотестами (`test_eval_picks.py`) критичних чистих функцій `format_pick()`, `eval_outcome()`, `extract_short_pick()`. 17 нових тест-кейсів для 1X2, фор, тоталів футболу та баскетболу, очищення HTML/Markdown та відсікання кефів.
 * **Залежності**: потрібен крок 7
 
 ### 13. Modular code decomposition

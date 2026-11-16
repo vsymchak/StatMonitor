@@ -65,7 +65,7 @@ def extract_short_pick(ai_verdict, fallback):
                     rec = clean.split(":", 1)[1].strip(" *_:;-")
                     if any(w in rec.lower() for w in ("пропустити", "утриматися")):
                         return "⏭ Пропустити матч"
-                    rec = re.split(r"\s*(?:,|\()?\s*(?:з|по|за|у|в)?\s*(?:поточн\w+|орієнтовн\w+)?\s*(?:коефіцієнт\w*|кеф\w*|@)\s*(?:близько|біля|в районі|у діапазоні)?\s*[~0-9].*$", rec, maxsplit=1, flags=re.I)[0]
+                    rec = re.split(r"\s*(?:,|\()?\s*(?:(?:з|по|за|у|в)\s+(?:поточн\w+|орієнтовн\w+)?\s*(?:коефіцієнт\w*|кеф\w*|кф\w*|@)?|(?:поточн\w+|орієнтовн\w+)?\s*(?:коефіцієнт\w*|кеф\w*|кф\w*|@))\s*(?:близько|біля|в районі|у діапазоні)?\s*[~0-9].*$", rec, maxsplit=1, flags=re.I)[0]
                     rec = re.split(r"\.(?:\s|$)", rec, maxsplit=1)[0].strip(" ,;-")
                     if len(rec) > 55:
                         rec = rec[:55].rsplit(" ", 1)[0].strip(" ,;-")

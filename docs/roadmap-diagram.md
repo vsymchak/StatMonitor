@@ -1,6 +1,6 @@
 # Візуальна діаграма дорожньої карти (Roadmap diagram)
 
-**13 з 17 кроків реалізовано (Shipped)** · **1 в процесі (In Progress)** · Детальний опис: [roadmap.md](roadmap.md)
+**14 з 17 кроків реалізовано (Shipped)** · **1 в процесі (In Progress)** · Детальний опис: [roadmap.md](roadmap.md)
 
 > 🟩 **Реалізовано (Shipped)** · 🟧 **У розробці (In Progress)** · 🟪 **Заплановано (Idea)** · ⬜ **Концепт (Fog)**  
 > Колонки — це послідовні хвилі виконання (**Execution Waves**). Стрілка показує залежність («потрібен для»).
@@ -33,7 +33,7 @@ flowchart LR
     end
 
     subgraph Wave4["Хвиля 4: Архітектура та надійність"]
-        12["12 · Юніт-тести розрахунків<br><small>Покриття pytest маркетів</small><br><b>S</b>"]:::idea
+        12["12 · Юніт-тести розрахунків<br><small>Покриття pytest маркетів</small><br><b>S</b>"]:::shipped
         13["13 · Модульна декомпозиція<br><small>Поділ main.py на пакети</small><br><b>M</b>"]:::shipped
         14["14 · Міграції БД та індекси<br><small>Оптимізація v_odds_alerts</small><br><b>S</b>"]:::shipped
     end
@@ -96,7 +96,7 @@ flowchart LR
 | **9** | **Watchdog & Healthcheck** | `S` | 🟩 Shipped | Фіксує пульс системи (`system_heartbeat`), знаходить запізнення GitHub Actions ($> 25$ хв) і надсилає алерт у Telegram. |
 | **10** | **Smart Rate-Limiter** | `S` | 🟧 In Progress | Автоматично регулює частоту опитування ліг, щоб не спалити місячний ліміт запитів The Odds API. |
 | **11** | **Гібридний зовнішній тригер** | `M` | 🟩 Shipped | Резервний Webhook (Cron-job / Cloudflare) для гарантованого запуску без затримок у чергах GitHub. |
-| **12** | **Юніт-тести розрахунків** | `S` | 🟪 Idea | Набір тестів `pytest` для перевірки парсингу маркетів (`format_pick`) та логіки перемог (`eval_outcome`). |
+| **12** | **Юніт-тести розрахунків** | `S` | 🟩 Shipped | Набір із 17 тестів (`test_eval_picks.py`) для маркетів 1X2, фор, тоталів (`eval_outcome`, `format_pick`, `extract_short_pick`). |
 | **13** | **Модульна декомпозиція** | `M` | 🟩 Shipped | Розподіл монолітного `main.py` на окремі пакети: `fetcher`, `database`, `ai`, `notifier`, `chart`, `paper_trading`. |
 | **14** | **Міграції БД та індекси** | `S` | 🟩 Shipped | Версіонований раннер `migrate.py`, цільові індекси для `odds_history` та оптимізована в'юшка `v_odds_alerts`. |
 | **15** | **Інтерактивний бот TG** | `M` | 🟪 Idea | Підтримка команд у чаті (`/status`, `/bank`, `/run_now`) для ручного перегляду стану та тригеру. |
