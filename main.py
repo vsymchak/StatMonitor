@@ -63,23 +63,28 @@ def pick_v(d, names, default=None):
     return default
 
 def ensure_tables(cur, conn):
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS ai_match_analysis (
-            event_id TEXT PRIMARY KEY, verdict_text TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW()
-        );
-        CREATE TABLE IF NOT EXISTS paper_bets (
-            id SERIAL PRIMARY KEY, event_id TEXT UNIQUE NOT NULL, sport TEXT NOT NULL,
-            match_name TEXT NOT NULL, commence_time TIMESTAMPTZ NOT NULL, pick_label TEXT NOT NULL,
-            odds NUMERIC(6,3) NOT NULL, stake_uah NUMERIC(10,2) NOT NULL,
-            status TEXT NOT NULL DEFAULT 'PENDING', match_score TEXT,
-            profit_uah NUMERIC(10,2) NOT NULL DEFAULT 0.00,
-            created_at TIMESTAMPTZ DEFAULT NOW(), settled_at TIMESTAMPTZ
-        );
-        CREATE TABLE IF NOT EXISTS paper_daily_reports (
-            report_date DATE PRIMARY KEY, sent_at TIMESTAMPTZ DEFAULT NOW()
-        );
-    """)
-    conn.commit()
+    try:
+        from migrate import run_migrations
+        run_migrations(db_url=SUPABASE_DB_URL)
+    except Exception as e:
+        print(f"Migrations run notice: {e}")
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ai_match_analysis (
+                event_id TEXT PRIMARY KEY, verdict_text TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS paper_bets (
+                id SERIAL PRIMARY KEY, event_id TEXT UNIQUE NOT NULL, sport TEXT NOT NULL,
+                match_name TEXT NOT NULL, commence_time TIMESTAMPTZ NOT NULL, pick_label TEXT NOT NULL,
+                odds NUMERIC(6,3) NOT NULL, stake_uah NUMERIC(10,2) NOT NULL,
+                status TEXT NOT NULL DEFAULT 'PENDING', match_score TEXT,
+                profit_uah NUMERIC(10,2) NOT NULL DEFAULT 0.00,
+                created_at TIMESTAMPTZ DEFAULT NOW(), settled_at TIMESTAMPTZ
+            );
+            CREATE TABLE IF NOT EXISTS paper_daily_reports (
+                report_date DATE PRIMARY KEY, sent_at TIMESTAMPTZ DEFAULT NOW()
+            );
+        """)
+        conn.commit()
 
 def _post_tg_chunk(url, chunk):
     for attempt in range(2):
