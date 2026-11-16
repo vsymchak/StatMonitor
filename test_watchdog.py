@@ -1,5 +1,5 @@
 from datetime import datetime, timezone, timedelta
-from watchdog import detect_stale_heartbeat, format_watchdog_alert
+from sys_watchdog import detect_stale_heartbeat, format_watchdog_alert
 
 def test_detect_stale_heartbeat_alert():
     # Симуляція денного часу: 15:00 UTC (17:00 Київ)

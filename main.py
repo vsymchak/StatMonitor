@@ -457,7 +457,7 @@ def check_alerts_and_notify(sports_map, t_start=None):
 
     # 0. Watchdog Healthcheck (SPEC-09)
     try:
-        from watchdog import check_watchdog_before_run
+        from sys_watchdog import check_watchdog_before_run
         w_alert = check_watchdog_before_run(cur, conn)
         if w_alert:
             send_tg(w_alert)
@@ -581,7 +581,7 @@ def check_alerts_and_notify(sports_map, t_start=None):
 
     # 7. Запис пульсу сервісу (SPEC-09)
     try:
-        from watchdog import record_heartbeat, ping_external_watchdog
+        from sys_watchdog import record_heartbeat, ping_external_watchdog
         elapsed = round(time.time() - (t_start or time.time()), 2)
         record_heartbeat(cur, conn, duration_sec=elapsed, status="OK", metadata={"events_checked": len(summary_rows)})
         ping_external_watchdog()
