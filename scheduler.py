@@ -142,7 +142,7 @@ def generate_schedule_points(events, pending_bets, now_utc=None, horizon_hours=3
 
 def sync_schedule_to_db(cur, conn, points):
     """
-    Зберігає актуальні точки розкладу в таблицю scheduler_plan.
+    Зберігає актуальні точки розкладу в таблицю scheduler_plan з дедуплікацією.
     """
     if not points:
         return
@@ -150,10 +150,26 @@ def sync_schedule_to_db(cur, conn, points):
     # Позначаємо застарілі невиконані точки як SKIPPED
     cur.execute("UPDATE scheduler_plan SET status='SKIPPED' WHERE status='PLANNED' AND target_time < NOW() - INTERVAL '1 hour';")
     
+    # Отримуємо вже наявні точки у статусах PLANNED або EXECUTED, щоб уникнути дублювання
+    cur.execute("SELECT target_time, description FROM scheduler_plan WHERE status IN ('PLANNED', 'EXECUTED') AND target_time > NOW() - INTERVAL '6 hours';")
+    existing_keys = set()
+    for row in cur.fetchall():
+        t_exist = row[0]
+        if t_exist.tzinfo is None:
+            t_exist = t_exist.replace(tzinfo=timezone.utc)
+        existing_keys.add((t_exist.strftime("%Y-%m-%d %H:%M"), row[1]))
+
     rows = []
     for p in points:
+        t_target = p["target_time"]
+        if t_target.tzinfo is None:
+            t_target = t_target.replace(tzinfo=timezone.utc)
+        key = (t_target.strftime("%Y-%m-%d %H:%M"), p["description"])
+        if key in existing_keys:
+            continue
+        existing_keys.add(key)
         rows.append((
-            p["target_time"],
+            t_target,
             p["trigger_type"],
             p["event_ids"],
             p["description"],
@@ -165,8 +181,7 @@ def sync_schedule_to_db(cur, conn, points):
                 cur,
                 """
                 INSERT INTO scheduler_plan (target_time, trigger_type, event_ids, description, status)
-                VALUES %s
-                ON CONFLICT DO NOTHING;
+                VALUES %s;
                 """,
                 rows,
             )
@@ -179,6 +194,24 @@ def sync_schedule_to_db(cur, conn, points):
                     """,
                     r,
                 )
+    conn.commit()
+
+def mark_checkpoints_executed(cur, conn, now_utc=None, window_minutes=35):
+    """
+    Позначає контрольні точки як EXECUTED, якщо поточний запуск покриває їхнє часове вікно.
+    """
+    if now_utc is None:
+        now_utc = datetime.now(timezone.utc)
+    t_start = now_utc - timedelta(minutes=window_minutes)
+    t_end = now_utc + timedelta(minutes=15)
+    cur.execute(
+        """
+        UPDATE scheduler_plan 
+        SET status = 'EXECUTED', executed_at = %s 
+        WHERE status = 'PLANNED' AND target_time >= %s AND target_time <= %s;
+        """,
+        (now_utc, t_start, t_end),
+    )
     conn.commit()
 
 def format_schedule_for_tg(points, limit=3):

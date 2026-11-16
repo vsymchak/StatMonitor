@@ -57,8 +57,27 @@ def test_format_schedule_for_tg():
     assert "20:45" in msg  # 18:45 UTC is 20:45 Kyiv time (UTC+2)
     assert "Arsenal - Chelsea" in msg
 
+def test_mark_checkpoints_executed():
+    from scheduler import mark_checkpoints_executed
+    class MockCursor:
+        def __init__(self):
+            self.queries = []
+        def execute(self, q, params=None):
+            self.queries.append((q, params))
+    class MockConn:
+        def commit(self): pass
+
+    cur = MockCursor()
+    conn = MockConn()
+    t_now = datetime(2026, 11, 16, 14, 50, tzinfo=timezone.utc)
+    mark_checkpoints_executed(cur, conn, now_utc=t_now, window_minutes=35)
+    assert len(cur.queries) == 1
+    assert "UPDATE scheduler_plan" in cur.queries[0][0]
+    assert "SET status = 'EXECUTED'" in cur.queries[0][0]
+
 if __name__ == "__main__":
     test_cluster_events()
     test_generate_schedule_points()
     test_format_schedule_for_tg()
+    test_mark_checkpoints_executed()
     print("Всі юніт-тести планувальника успішно пройдено!")

@@ -136,7 +136,8 @@ def check_alerts_and_notify(sports_map, t_start=None):
 
     # 6. Динамічний розклад контрольних точок (SPEC-08)
     try:
-        from scheduler import run_schedule_update
+        from scheduler import run_schedule_update, mark_checkpoints_executed
+        mark_checkpoints_executed(cur, conn)
         sched_msg = run_schedule_update(cur, conn)
         if sched_msg:
             send_tg(sched_msg)

@@ -84,18 +84,23 @@ def detect_missed_checkpoints(cur, conn, now_utc=None, threshold_minutes=25):
 
     missed = []
     ids_to_update = []
+    seen = set()
     for r in rows:
         t_target = r[1]
         if t_target.tzinfo is None:
             t_target = t_target.replace(tzinfo=timezone.utc)
         delay_m = int((now_utc - t_target).total_seconds() / 60.0)
-        missed.append({
-            "id": r[0],
-            "target_time": t_target,
-            "trigger_type": r[2],
-            "description": r[3],
-            "delay_minutes": delay_m,
-        })
+        desc = r[3]
+        key = (t_target.strftime("%Y-%m-%d %H:%M"), desc)
+        if key not in seen:
+            seen.add(key)
+            missed.append({
+                "id": r[0],
+                "target_time": t_target,
+                "trigger_type": r[2],
+                "description": desc,
+                "delay_minutes": delay_m,
+            })
         ids_to_update.append(r[0])
 
     if ids_to_update:

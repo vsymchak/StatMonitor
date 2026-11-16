@@ -36,8 +36,37 @@ def test_format_watchdog_alert():
     assert "Chelsea - Arsenal" in alert_text
     assert "45 хв" in alert_text
 
+def test_detect_missed_checkpoints_dedup():
+    from sys_watchdog import detect_missed_checkpoints
+    class MockCursor:
+        def __init__(self):
+            self.queries = []
+        def execute(self, q, params=None):
+            self.queries.append((q, params))
+        def fetchone(self):
+            return (1,) # table exists
+        def fetchall(self):
+            t_old = datetime(2026, 11, 16, 14, 45, tzinfo=timezone.utc)
+            # 3 дублікати одного матчу
+            return [
+                (101, t_old, "PRE_MATCH", "Перед грою: Alcaraz - Tiafoe"),
+                (102, t_old, "PRE_MATCH", "Перед грою: Alcaraz - Tiafoe"),
+                (103, t_old, "PRE_MATCH", "Перед грою: Alcaraz - Tiafoe"),
+            ]
+    class MockConn:
+        def commit(self): pass
+
+    cur = MockCursor()
+    conn = MockConn()
+    t_now = datetime(2026, 11, 16, 16, 0, tzinfo=timezone.utc)
+    missed = detect_missed_checkpoints(cur, conn, now_utc=t_now, threshold_minutes=25)
+    # Повинна залишитися лише 1 дедуплікована точка замість 3
+    assert len(missed) == 1
+    assert missed[0]["description"] == "Перед грою: Alcaraz - Tiafoe"
+
 if __name__ == "__main__":
     test_detect_stale_heartbeat_alert()
     test_detect_stale_heartbeat_normal()
     test_format_watchdog_alert()
+    test_detect_missed_checkpoints_dedup()
     print("Всі тести watchdog успішно пройдено!")

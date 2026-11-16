@@ -1,10 +1,10 @@
 name: StatMonitor Auto Check
 
 on:
-  # Старий повільний розклад GitHub cron вимкнено на користь високоточного зовнішнього тригеру (SPEC-11)
-  # schedule:
-  #   - cron: '17 6,8,10,12,14,16,18,20 * * *'
-  #   - cron: '17 1 * * *'
+  # Резервний розклад GitHub Actions (кожні 30 хв: наприклад 14:15, 14:45, 15:15) для гарантії запуску
+  schedule:
+    - cron: '15,45 * * * *'
+  # Високоточний миттєвий запуск через Webhook / Cloudflare Worker / UI Дашборд
   workflow_dispatch:
     inputs:
       trigger_source:
