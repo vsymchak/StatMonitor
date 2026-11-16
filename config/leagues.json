@@ -1,0 +1,166 @@
+{
+  "version": "1.0",
+  "updated_at": "2026-11-16",
+  "leagues": [
+    {
+      "key": "soccer_epl",
+      "title": "Англія (АПЛ)",
+      "category": "soccer",
+      "enabled": true,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.40,
+      "max_odds": 4.00,
+      "markets": ["h2h", "totals", "spreads"]
+    },
+    {
+      "key": "soccer_spain_la_liga",
+      "title": "Іспанія (Ла Ліга)",
+      "category": "soccer",
+      "enabled": true,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.40,
+      "max_odds": 4.00,
+      "markets": ["h2h", "totals", "spreads"]
+    },
+    {
+      "key": "soccer_italy_serie_a",
+      "title": "Італія (Серія А)",
+      "category": "soccer",
+      "enabled": true,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.40,
+      "max_odds": 4.00,
+      "markets": ["h2h", "totals", "spreads"]
+    },
+    {
+      "key": "soccer_germany_bundesliga",
+      "title": "Німеччина (Бундесліга)",
+      "category": "soccer",
+      "enabled": true,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.40,
+      "max_odds": 4.00,
+      "markets": ["h2h", "totals", "spreads"]
+    },
+    {
+      "key": "soccer_france_ligue_one",
+      "title": "Франція (Ліга 1)",
+      "category": "soccer",
+      "enabled": true,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.40,
+      "max_odds": 4.00,
+      "markets": ["h2h", "totals", "spreads"]
+    },
+    {
+      "key": "soccer_ukraine_premier_league",
+      "title": "Україна (УПЛ)",
+      "category": "soccer",
+      "enabled": true,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.40,
+      "max_odds": 4.00,
+      "markets": ["h2h", "totals", "spreads"]
+    },
+    {
+      "key": "soccer_poland_ekstraklasa",
+      "title": "Польща (Екстракласа)",
+      "category": "soccer",
+      "enabled": true,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.40,
+      "max_odds": 4.00,
+      "markets": ["h2h", "totals", "spreads"]
+    },
+    {
+      "key": "soccer_uefa_champs_league",
+      "title": "Ліга Чемпіонів УЄФА",
+      "category": "soccer",
+      "enabled": true,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.40,
+      "max_odds": 4.00,
+      "markets": ["h2h", "totals", "spreads"]
+    },
+    {
+      "key": "soccer_uefa_europa_league",
+      "title": "Ліга Європи УЄФА",
+      "category": "soccer",
+      "enabled": true,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.40,
+      "max_odds": 4.00,
+      "markets": ["h2h", "totals", "spreads"]
+    },
+    {
+      "key": "soccer_uefa_conference_league",
+      "title": "Ліга Конференцій УЄФА",
+      "category": "soccer",
+      "enabled": true,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.40,
+      "max_odds": 4.00,
+      "markets": ["h2h", "totals", "spreads"]
+    },
+    {
+      "key": "soccer_uefa_europa_conference_league",
+      "title": "Ліга Конференцій УЄФА (alt)",
+      "category": "soccer",
+      "enabled": true,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.40,
+      "max_odds": 4.00,
+      "markets": ["h2h", "totals", "spreads"]
+    },
+    {
+      "key": "soccer_uefa_nations_league",
+      "title": "Ліга Націй УЄФА",
+      "category": "soccer",
+      "enabled": true,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.40,
+      "max_odds": 4.00,
+      "markets": ["h2h", "totals", "spreads"]
+    },
+    {
+      "key": "basketball_nba",
+      "title": "США (NBA)",
+      "category": "basketball",
+      "enabled": true,
+      "min_drop_pct": 4.0,
+      "min_odds": 1.35,
+      "max_odds": 4.20,
+      "markets": ["h2h", "totals", "spreads"]
+    },
+    {
+      "key": "tennis_atp_tour_finals",
+      "title": "Теніс (ATP Finals)",
+      "category": "tennis",
+      "enabled": true,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.35,
+      "max_odds": 4.00,
+      "markets": ["h2h", "totals", "spreads"]
+    },
+    {
+      "key": "tennis_atp_finals",
+      "title": "Теніс (ATP Finals alt)",
+      "category": "tennis",
+      "enabled": true,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.35,
+      "max_odds": 4.00,
+      "markets": ["h2h", "totals", "spreads"]
+    },
+    {
+      "key": "tennis_wta_finals",
+      "title": "Теніс (WTA Finals)",
+      "category": "tennis",
+      "enabled": true,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.35,
+      "max_odds": 4.00,
+      "markets": ["h2h", "totals", "spreads"]
+    }
+  ]
+}

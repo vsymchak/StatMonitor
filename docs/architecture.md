@@ -1,7 +1,7 @@
 # Візуальна архітектура системи StatMonitor
 
 > **Проєкт**: StatMonitor — інтелектуальна система спортивного моніторингу прогрузів, віртуального трейдингу (Paper Trading), спостережливості (Web Dashboard) та предиктивної AI-аналітики.  
-> **Версія**: 2.6 (Еволюція SDD: Telegram Interactive Bot + Smart Rate-Limiter + Dynamic Scheduler + Web Dashboard + 45 Unit Tests)  
+> **Версія**: 3.0 (Повна реалізація SDD: 17 з 17 кроків Shipped · Multi-Sport Matrix + Telegram Bot + Rate-Limiter + Dynamic Scheduler + Web Dashboard + 50 Unit Tests)  
 > **Оновлено**: 16.11.2026
 
 ---
@@ -50,6 +50,7 @@ flowchart TD
             ModChart["chart.py<br>Matplotlib тренди в пам'яті"]:::pkg
             ModNotify["notifier.py<br>Telegram HTML delivery & chunking"]:::pkg
             ModBot["bot.py<br>Двосторонній асистент /status /bank /run_now"]:::pkg
+            ModLeague["league_config.py<br>Завантаження матриці ліг config/leagues.json"]:::pkg
             ModConfig["config.py<br>Константи, часовий пояс, ліги"]:::pkg
         end
 
@@ -75,7 +76,8 @@ flowchart TD
         T_Beat["system_heartbeat"]:::data
     end
 
-    subgraph TestSuite["🧪 7. Шар якості та тестування (45 unit-тестів)"]
+    subgraph TestSuite["🧪 7. Шар якості та тестування (50 unit-тестів)"]
+        TestLeague["test_league_config.py (5 тестів)<br>Матриця ліг, валідація, пороги"]:::test
         TestBot["test_bot.py (12 тестів)<br>Команди /bank /status /bets, RBAC, оновлення"]:::test
         TestLimiter["test_rate_limiter.py (6 тестів)<br>HOT/WARM/COLD, Eco-режими, квоти"]:::test
         TestEval["test_eval_picks.py (17 тестів)<br>format_pick, eval_outcome, extract_short_pick"]:::test

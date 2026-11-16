@@ -46,6 +46,8 @@ def check_alerts_and_notify(sports_map, t_start=None):
     kyiv_now = datetime.now(KYIV_TZ)
     send_tg(f"✅ коеф. {kyiv_now.strftime('%d.%m.%Y')} оновлено в {kyiv_now.strftime('%H:%M')}")
 
+    from statmonitor.league_config import get_league_thresholds
+
     cur.execute("SELECT * FROM v_odds_alerts;")
     v_cols = [d[0] for d in cur.description]
     items = []
@@ -54,7 +56,11 @@ def check_alerts_and_notify(sports_map, t_start=None):
         curr_k = float(pick_v(d, ("current_odds", "curr_odds", "last_odds", "odds", "price"), 0) or 0)
         pt = pick_v(d, ("point", "handicap", "line"))
         out = pick_v(d, ("outcome_name", "outcome", "selection", "side", "name"), "")
-        if curr_k < 1.40 or curr_k > 4.00:
+        sp_key = pick_v(d, ("sport", "sport_key"), r[1])
+
+        # Динамічні пороги коефіцієнтів для ліги (SPEC-16)
+        thresh = get_league_thresholds(sp_key)
+        if curr_k < thresh["min_odds"] or curr_k > thresh["max_odds"]:
             continue
         if pt is not None and abs((float(pt) * 100) % 50) != 0:
             continue

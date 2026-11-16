@@ -19,28 +19,14 @@ INITIAL_BANKROLL = 10000.00
 
 EXHAUSTED_MODELS = set()
 
-TARGET_SPORTS = [
-    "soccer_epl", "soccer_spain_la_liga", "soccer_italy_serie_a",
-    "soccer_germany_bundesliga", "soccer_france_ligue_one",
-    "soccer_ukraine_premier_league", "soccer_poland_ekstraklasa",
-    "soccer_uefa_champs_league", "soccer_uefa_europa_league",
-    "soccer_uefa_conference_league", "soccer_uefa_nations_league",
-    "basketball_nba", "tennis_atp_tour_finals", "tennis_wta_finals",
-]
+# Динамічна конфігураційна матриця ліг (SPEC-16)
+from statmonitor.league_config import (
+    load_leagues_config,
+    get_active_sports_map,
+    get_active_target_sports,
+    get_league_thresholds,
+)
 
-SPORTS_MAP = {
-    "soccer_uefa_nations_league": "Ліга Націй УЄФА",
-    "soccer_uefa_champs_league": "Ліга Чемпіонів УЄФА",
-    "soccer_uefa_europa_league": "Ліга Європи УЄФА",
-    "soccer_uefa_europa_conference_league": "Ліга Конференцій УЄФА",
-    "soccer_epl": "Англія (АПЛ)",
-    "soccer_spain_la_liga": "Іспанія (Ла Ліга)",
-    "soccer_italy_serie_a": "Італія (Серія А)",
-    "soccer_germany_bundesliga": "Німеччина (Бундесліга)",
-    "soccer_france_ligue_one": "Франція (Ліга 1)",
-    "soccer_poland_ekstraklasa": "Польща (Екстракласа)",
-    "soccer_ukraine_premier_league": "Україна (УПЛ)",
-    "basketball_nba": "США (NBA)",
-    "tennis_atp_finals": "Теніс (ATP Finals)",
-    "tennis_wta_finals": "Теніс (WTA Finals)",
-}
+LEAGUES_CONFIG = load_leagues_config()
+SPORTS_MAP = get_active_sports_map(LEAGUES_CONFIG)
+TARGET_SPORTS = get_active_target_sports(LEAGUES_CONFIG)

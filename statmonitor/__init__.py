@@ -60,11 +60,18 @@ from statmonitor.bot import (
     poll_updates,
     run_bot_worker,
 )
+from statmonitor.league_config import (
+    load_leagues_config,
+    get_active_sports_map,
+    get_active_target_sports,
+    get_league_thresholds,
+)
 
 __all__ = [
     "INITIAL_BANKROLL",
     "KYIV_TZ",
     "SPORTS_MAP",
+    "TARGET_SPORTS",
     "API_KEY",
     "API_KEY_RESERVE",
     "SUPABASE_DB_URL",
@@ -97,4 +104,8 @@ __all__ = [
     "process_telegram_update",
     "poll_updates",
     "run_bot_worker",
+    "load_leagues_config",
+    "get_active_sports_map",
+    "get_active_target_sports",
+    "get_league_thresholds",
 ]
