@@ -245,33 +245,61 @@ def run_streamlit_app():
         st.info("💡 Підказка: перевірте наявність правильного рядка підключення через Pooler у Secrets.")
     metrics = compute_metrics(bets_df)
 
-    # 1. Шапка з кнопками дій
-    col_title, col_btn_refresh, col_btn_run = st.columns([6, 2, 2])
-    with col_title:
-        st.title("📊 Моніторинг та аналітика системи")
-        st.caption("StatMonitor — інтелектуальна платформа спортивного моніторингу та трейдингу v2.0")
-    
-    with col_btn_refresh:
-        st.write("")
-        if st.button("🔄 Оновити дані", use_container_width=True):
-            st.rerun()
+    # Перевірка прав адміністратора (Admin vs Read-Only режим)
+    if "is_admin" not in st.session_state:
+        st.session_state.is_admin = False
 
-    with col_btn_run:
-        st.write("")
-        if st.button("⚡ Запустити моніторинг", use_container_width=True):
-            try:
-                import requests
-                trigger_url = "https://statmonitor.symchak.workers.dev"
-                if secret_key:
-                    resp = requests.get(f"{trigger_url}/?secret={secret_key}&source=dashboard_button", timeout=12)
-                    if resp.status_code == 200:
-                        st.toast("🚀 Моніторинг успішно запущено!", icon="✅")
+    query_key = st.query_params.get("key") or st.query_params.get("admin")
+    if secret_key and query_key and str(query_key).strip() == str(secret_key).strip():
+        st.session_state.is_admin = True
+
+    is_admin = st.session_state.is_admin
+
+    # 1. Шапка з кнопками дій або режимом перегляду
+    if is_admin:
+        col_title, col_btn_refresh, col_btn_run = st.columns([6, 2, 2])
+        with col_title:
+            st.title("📊 Моніторинг та аналітика системи")
+            st.caption("StatMonitor — інтелектуальна платформа v2.0 • 👑 **Режим адміністратора**")
+        
+        with col_btn_refresh:
+            st.write("")
+            if st.button("🔄 Оновити дані", use_container_width=True):
+                st.rerun()
+
+        with col_btn_run:
+            st.write("")
+            if st.button("⚡ Запустити моніторинг", use_container_width=True):
+                try:
+                    import requests
+                    trigger_url = "https://statmonitor.symchak.workers.dev"
+                    if secret_key:
+                        resp = requests.get(f"{trigger_url}/?secret={secret_key}&source=dashboard_button", timeout=12)
+                        if resp.status_code == 200:
+                            st.toast("🚀 Моніторинг успішно запущено!", icon="✅")
+                        else:
+                            st.error(f"Помилка [{resp.status_code}]: {resp.text[:120]}")
                     else:
-                        st.error(f"Помилка [{resp.status_code}]: {resp.text[:120]}")
-                else:
-                    st.warning("Вкажіть SECRET_KEY у Secrets для запуску через вебхук.")
-            except Exception as e:
-                st.error(f"Помилка виклику: {e}")
+                        st.warning("Вкажіть SECRET_KEY у Secrets для запуску через вебхук.")
+                except Exception as e:
+                    st.error(f"Помилка виклику: {e}")
+    else:
+        col_title, col_login = st.columns([8, 2])
+        with col_title:
+            st.title("📊 Моніторинг та аналітика системи")
+            st.caption("StatMonitor — інтелектуальна платформа v2.0 • 👁️ **Режим перегляду (Read-Only)**")
+        
+        with col_login:
+            st.write("")
+            login_container = st.popover("🔐 Вхід") if hasattr(st, "popover") else st.expander("🔐 Вхід")
+            with login_container:
+                entered_pass = st.text_input("Ключ адміністратора:", type="password", key="admin_pwd_field")
+                if st.button("Увійти", key="btn_admin_login", use_container_width=True):
+                    if secret_key and entered_pass.strip() == str(secret_key).strip():
+                        st.session_state.is_admin = True
+                        st.rerun()
+                    else:
+                        st.error("Невірний ключ доступу")
 
     st.markdown("---")
 
