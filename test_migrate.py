@@ -55,6 +55,7 @@ class TestMigrate(unittest.TestCase):
         self.assertIn("001", applied)
         self.assertIn("002", applied)
         self.assertIn("003", applied)
+        self.assertIn("004", applied)
         # У режимі dry_run commit викликається лише один раз для ensure_migrations_table
         self.assertEqual(mock_conn.commit.call_count, 1)
 
@@ -72,7 +73,10 @@ class TestMigrate(unittest.TestCase):
         ]
 
         applied = run_migrations(db_url="postgresql://test:test@localhost/test", dry_run=True)
-        self.assertEqual(applied, ["003"])
+        self.assertIn("003", applied)
+        self.assertIn("004", applied)
+        self.assertNotIn("001", applied)
+        self.assertNotIn("002", applied)
 
 if __name__ == "__main__":
     unittest.main()

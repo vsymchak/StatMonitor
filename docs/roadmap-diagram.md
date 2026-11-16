@@ -1,6 +1,6 @@
 # Візуальна діаграма дорожньої карти (Roadmap diagram)
 
-**14 з 17 кроків реалізовано (Shipped)** · **1 в процесі (In Progress)** · Детальний опис: [roadmap.md](roadmap.md)
+**15 з 17 кроків реалізовано (Shipped)** · **2 заплановано (Idea)** · Детальний опис: [roadmap.md](roadmap.md)
 
 > 🟩 **Реалізовано (Shipped)** · 🟧 **У розробці (In Progress)** · 🟪 **Заплановано (Idea)** · ⬜ **Концепт (Fog)**  
 > Колонки — це послідовні хвилі виконання (**Execution Waves**). Стрілка показує залежність («потрібен для»).
@@ -28,7 +28,7 @@ flowchart LR
     subgraph Wave3["Хвиля 3: Еволюція планувальника (Фокус)"]
         8["8 · Динамічний розклад за матчами<br><small>Тригери за -15m та +115m</small><br><b>M</b>"]:::shipped
         9["9 · Watchdog & Healthcheck<br><small>Контроль затримок GH Actions</small><br><b>S</b>"]:::shipped
-        10["10 · Smart Rate-Limiter<br><small>Бюджет квот The Odds API</small><br><b>S</b>"]:::in_progress
+        10["10 · Smart Rate-Limiter<br><small>Бюджет квот The Odds API</small><br><b>S</b>"]:::shipped
         11["11 · Гібридний зовнішній тригер<br><small>Резервний Webhook/Cron-job</small><br><b>M</b>"]:::shipped
     end
 
@@ -94,7 +94,7 @@ flowchart LR
 | **7** | **Розрахунок та щоденний звіт** | `M` | 🟩 Shipped | Перевіряє фінальні рахунки (`WON`/`LOST`/`VOID`), фіксує прибуток і щодня о 08:00 публікує підсумок з ROI. |
 | **8** | **Динамічний розклад за матчами** | `M` | 🟩 Shipped | Аналізує розклад ігор: планує перевірки за 15 хв до старту (пікові прогрузи) та через 115 хв (миттєвий розрахунок). |
 | **9** | **Watchdog & Healthcheck** | `S` | 🟩 Shipped | Фіксує пульс системи (`system_heartbeat`), знаходить запізнення GitHub Actions ($> 25$ хв) і надсилає алерт у Telegram. |
-| **10** | **Smart Rate-Limiter** | `S` | 🟧 In Progress | Автоматично регулює частоту опитування ліг, щоб не спалити місячний ліміт запитів The Odds API. |
+| **10** | **Smart Rate-Limiter** | `S` | 🟩 Shipped | Автоматично адаптує частоту опитування ліг (HOT/WARM/COLD) для збереження місячного ліміту запитів The Odds API. |
 | **11** | **Гібридний зовнішній тригер** | `M` | 🟩 Shipped | Резервний Webhook (Cron-job / Cloudflare) для гарантованого запуску без затримок у чергах GitHub. |
 | **12** | **Юніт-тести розрахунків** | `S` | 🟩 Shipped | Набір із 17 тестів (`test_eval_picks.py`) для маркетів 1X2, фор, тоталів (`eval_outcome`, `format_pick`, `extract_short_pick`). |
 | **13** | **Модульна декомпозиція** | `M` | 🟩 Shipped | Розподіл монолітного `main.py` на окремі пакети: `fetcher`, `database`, `ai`, `notifier`, `chart`, `paper_trading`. |

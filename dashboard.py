@@ -195,12 +195,19 @@ def fetch_data(db_url):
         except Exception as e:
             print("Heartbeat query err:", e)
 
+        # 5. Smart Rate-Limiter (SPEC-10)
+        poll_data = None
+        try:
+            poll_data = query_to_dataframe(cur, "SELECT sport, tier, last_polled_at, poll_count FROM sports_poll_log ORDER BY last_polled_at DESC LIMIT 30;")
+        except Exception:
+            pass
+
         cur.close()
         conn.close()
-        return bets_data, ai_data, sched_data, hb_data, None
+        return bets_data, ai_data, sched_data, hb_data, poll_data, None
     except Exception as e:
         conn.close()
-        return None, None, None, None, str(e)
+        return None, None, None, None, None, str(e)
 
 def run_streamlit_app():
     import streamlit as st
@@ -240,7 +247,7 @@ def run_streamlit_app():
         st.info("💡 Підказка: у правому верхньому кутку відкрийте `Settings` -> `Secrets` і збережіть `SUPABASE_DB_URL`.")
         return
 
-    bets_df, ai_df, sched_df, heartbeat_df, db_err = fetch_data(db_url)
+    bets_df, ai_df, sched_df, heartbeat_df, poll_df, db_err = fetch_data(db_url)
     if db_err:
         st.error(f"❌ Помилка з'єднання з базою Supabase:\n\n`{db_err}`")
         st.info("💡 Підказка: перевірте наявність правильного рядка підключення через Pooler у Secrets.")
@@ -507,6 +514,18 @@ def run_streamlit_app():
                 st.markdown(
                     "> **Watchdog Монітор (SPEC-09):**\n"
                     "> Фіксує стан системи та час виконання останнього циклу моніторингу."
+                )
+
+            # Smart Rate-Limiter (SPEC-10)
+            st.subheader("🚦 Smart Rate-Limiter (Облік ліг)")
+            df_poll = pd.DataFrame(poll_df) if (pd is not None and not isinstance(poll_df, pd.DataFrame)) else poll_df
+            if df_poll is not None and not df_poll.empty:
+                st.dataframe(df_poll, use_container_width=True, hide_index=True)
+            else:
+                st.info("ℹ️ Лог опитування ліг ще оновлюється.")
+                st.markdown(
+                    "> **Smart Rate-Limiter (SPEC-10):**\n"
+                    "> Динамічно розподіляє запити між HOT, WARM та COLD лігами для збереження місячного ліміту."
                 )
 
 if __name__ == "__main__":

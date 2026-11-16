@@ -48,6 +48,12 @@ from statmonitor.paper_trading import (
 from statmonitor.pipeline import (
     check_alerts_and_notify,
 )
+from statmonitor.limiter import (
+    get_budget_mode,
+    classify_sports_urgency,
+    filter_sports_to_poll,
+    record_poll_success,
+)
 
 __all__ = [
     "INITIAL_BANKROLL",
@@ -77,4 +83,8 @@ __all__ = [
     "eval_outcome",
     "settle_and_report",
     "check_alerts_and_notify",
+    "get_budget_mode",
+    "classify_sports_urgency",
+    "filter_sports_to_poll",
+    "record_poll_success",
 ]

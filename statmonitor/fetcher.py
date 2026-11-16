@@ -23,12 +23,37 @@ def fetch_and_save_odds(sports_map=None):
 
     now_utc = datetime.now(timezone.utc)
     to_str = (now_utc + timedelta(days=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    print(f"1. Турніри ({len(sports_map)}): {list(sports_map.keys())}")
+
+    conn = get_db()
+    cur = conn.cursor() if conn else None
+    if conn and cur:
+        ensure_tables(cur, conn)
+
+    # 1. Smart Rate-Limiter (SPEC-10)
+    selected_sports = sports_map
+    mode = "NORMAL"
+    tiers = {}
+    if conn and cur:
+        try:
+            from statmonitor.limiter import filter_sports_to_poll, record_poll_success
+            selected_sports, mode, tiers = filter_sports_to_poll(cur, conn, sports_map, now_utc=now_utc)
+            print(f"1. Smart Rate-Limiter [{mode}]: до опитування відібрано {len(selected_sports)} з {len(sports_map)} ліг: {list(selected_sports.keys())}")
+        except Exception as e:
+            print(f"Rate-limiter filter err: {e}")
+            selected_sports = sports_map
+    else:
+        print(f"1. Турніри ({len(sports_map)}): {list(sports_map.keys())}")
+
+    if not selected_sports:
+        print("1. Smart Rate-Limiter: всі ліги нещодавно опитані, пропускаємо запити до API для економії квоти.")
+        if cur: cur.close()
+        if conn: conn.close()
+        return 0, 0, "cached"
 
     events_batch, odds_raw = [], []
     rem_credits, cur_key, using_res = "?", (API_KEY or API_KEY_RESERVE), (not API_KEY and bool(API_KEY_RESERVE))
 
-    for sp in sports_map:
+    for sp in selected_sports:
         url = f"https://api.the-odds-api.com/v4/sports/{sp}/odds/"
         params = {"apiKey": cur_key, "regions": "eu", "markets": "h2h,totals,spreads", "commenceTimeTo": to_str}
         try:
@@ -57,12 +82,16 @@ def fetch_and_save_odds(sports_map=None):
             print(f"API err {sp}: {e}")
 
     print(f"2. Залишок кредитів: {rem_credits}")
-    conn = get_db()
-    if not conn:
+    if not conn or not cur:
         print("Помилка підключення до БД для збереження котирувань.")
         return len(events_batch), len(odds_raw), rem_credits
 
-    cur = conn.cursor()
+    # Фіксуємо успішне опитування ліг у rate limiter
+    try:
+        from statmonitor.limiter import record_poll_success
+        record_poll_success(cur, conn, list(selected_sports.keys()), tiers=tiers, now_utc=now_utc)
+    except Exception as e:
+        print(f"Rate-limiter record err: {e}")
     ensure_tables(cur, conn)
 
     ev_cols = get_cols(cur, "events")

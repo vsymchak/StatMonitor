@@ -1,7 +1,7 @@
 # Візуальна архітектура системи StatMonitor
 
 > **Проєкт**: StatMonitor — інтелектуальна система спортивного моніторингу прогрузів, віртуального трейдингу (Paper Trading), спостережливості (Web Dashboard) та предиктивної AI-аналітики.  
-> **Версія**: 2.4 (Еволюція SDD: Modular Package Decomposition + Dynamic Scheduler + Precision Webhook + Watchdog + Web Dashboard + Migrations Runner + Unit Test Suite)  
+> **Версія**: 2.5 (Еволюція SDD: Smart Rate-Limiter & Credit Budgeter + Modular Package + Migrations Runner + Unit Test Suite)  
 > **Оновлено**: 16.11.2026
 
 ---
@@ -43,6 +43,7 @@ flowchart TD
         subgraph StatMonitorPkg["📦 statmonitor/ (Модульний пакет)"]
             ModPipeline["pipeline.py<br>Конвеєр перевірки та алертингу"]:::pkg
             ModFetcher["fetcher.py<br>API запити та ротація ключів"]:::pkg
+            ModLimiter["limiter.py<br>HOT/WARM/COLD ліги & Eco-режими"]:::pkg
             ModDB["database.py<br>Пул з'єднань та адаптація схеми"]:::pkg
             ModAI["ai.py<br>Gemini клієнт + Search Grounding"]:::pkg
             ModPaper["paper_trading.py<br>Стейкінг, розрахунок результатів"]:::pkg
@@ -69,10 +70,12 @@ flowchart TD
         T_AI["ai_match_analysis"]:::data
         T_Bets["paper_bets (індекс за статусом і часом)"]:::data
         T_Sched["scheduler_plan (дедуплікація точок)"]:::data
+        T_Poll["sports_poll_log (облік опитування ліг)"]:::data
         T_Beat["system_heartbeat"]:::data
     end
 
-    subgraph TestSuite["🧪 7. Шар якості та тестування (27 unit-тестів)"]
+    subgraph TestSuite["🧪 7. Шар якості та тестування (33 unit-тести)"]
+        TestLimiter["test_rate_limiter.py (6 тестів)<br>HOT/WARM/COLD, Eco-режими, квоти"]:::test
         TestEval["test_eval_picks.py (17 тестів)<br>format_pick, eval_outcome, extract_short_pick"]:::test
         TestModules["test_modules.py (6 тестів)<br>Ізоляція та цілісність statmonitor/"]:::test
         TestSched["test_scheduler.py<br>Кластеризація, точки, маркування EXECUTED"]:::test
