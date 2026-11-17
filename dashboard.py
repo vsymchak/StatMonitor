@@ -39,6 +39,32 @@ def format_verdict_markdown(text):
     s = re.sub(r"\*{4,}", "**", s)
     return s.strip()
 
+def format_kyiv_time(val):
+    """
+    Конвертує значення дати/часу (UTC або рядок) у локальний київський час (Europe/Kyiv).
+    Повертає відформатований рядок 'DD.MM HH:MM'.
+    """
+    if val is None:
+        return ""
+    if pd is not None and hasattr(pd, "isna") and pd.isna(val):
+        return ""
+    try:
+        if isinstance(val, str):
+            val = datetime.fromisoformat(val.replace("Z", "+00:00"))
+        elif pd is not None and isinstance(val, getattr(pd, "Timestamp", type(None))):
+            val = val.to_pydatetime()
+        if not hasattr(val, "tzinfo") or not val.tzinfo:
+            val = val.replace(tzinfo=timezone.utc)
+        return val.astimezone(KYIV_TZ).strftime("%d.%m %H:%M")
+    except Exception:
+        try:
+            if pd is not None:
+                ts = pd.to_datetime(val, utc=True)
+                return ts.tz_convert(KYIV_TZ).strftime("%d.%m %H:%M")
+        except Exception:
+            pass
+        return str(val)[:16]
+
 def get_db_connection(db_url):
     if not db_url:
         return None, "URL бази даних порожній"
@@ -359,7 +385,7 @@ def run_streamlit_app():
         hb_row = heartbeat_df.iloc[0]
         t_raw = hb_row.get("last_ping_at")
         if t_raw:
-            hb_time = t_raw.strftime("%d.%m %H:%M") if hasattr(t_raw, "strftime") else str(t_raw)[:16]
+            hb_time = format_kyiv_time(t_raw)
         status_txt = hb_row.get("last_status", "ONLINE")
         icon = "🟢" if status_txt in ("OK", "ONLINE") else "🔴"
         hb_status = f"{icon} {status_txt}"
@@ -413,16 +439,23 @@ def run_streamlit_app():
             st.subheader("⏳ Активні ставки в грі (Pending)")
             try:
                 if df_all is not None and not df_all.empty:
-                    pending_df = df_all[df_all["status"] == "PENDING"]
+                    pending_df = df_all[df_all["status"] == "PENDING"].copy()
                     if not pending_df.empty:
-                        disp_cols = [c for c in ["id", "sport", "match_name", "pick_label", "odds", "stake_uah", "commence_time"] if c in pending_df.columns]
-                        st.dataframe(pending_df[disp_cols], use_container_width=True, hide_index=True)
+                        disp_df = pending_df.copy()
+                        if "commence_time" in disp_df.columns:
+                            disp_df["Час (Київ)"] = disp_df["commence_time"].apply(format_kyiv_time)
+                            disp_cols = [c for c in ["id", "sport", "match_name", "pick_label", "odds", "stake_uah", "Час (Київ)"] if c in disp_df.columns]
+                        else:
+                            disp_cols = [c for c in ["id", "sport", "match_name", "pick_label", "odds", "stake_uah"] if c in disp_df.columns]
+                        st.dataframe(disp_df[disp_cols], use_container_width=True, hide_index=True)
 
                         if is_admin:
                             with st.expander("✏️ Редагувати коефіцієнт ставки (Edit Odds)"):
                                 bet_options = {}
                                 for _, r_bet in pending_df.iterrows():
-                                    b_lbl = f"ID #{r_bet['id']} | {r_bet.get('match_name', '')} ({r_bet.get('pick_label', '')}) — Поточний: {float(r_bet.get('odds', 0)):.2f}"
+                                    c_time_str = format_kyiv_time(r_bet.get('commence_time'))
+                                    time_badge = f" [🕒 {c_time_str}]" if c_time_str else ""
+                                    b_lbl = f"ID #{r_bet['id']} | {r_bet.get('match_name', '')} ({r_bet.get('pick_label', '')}){time_badge} — Поточний: {float(r_bet.get('odds', 0)):.2f}"
                                     bet_options[b_lbl] = r_bet["id"]
 
                                 sel_lbl = st.selectbox("Оберіть нерозраховану ставку:", list(bet_options.keys()), key="sel_pending_bet")
@@ -467,10 +500,15 @@ def run_streamlit_app():
             st.subheader("📋 Історія розрахованих ставок")
             try:
                 if df_all is not None and not df_all.empty:
-                    settled_df = df_all[df_all["status"].isin(["WON", "LOST", "VOID"])]
+                    settled_df = df_all[df_all["status"].isin(["WON", "LOST", "VOID"])].copy()
                     if not settled_df.empty:
-                        disp_cols = [c for c in ["match_name", "pick_label", "odds", "stake_uah", "match_score", "status", "profit_uah"] if c in settled_df.columns]
-                        st.dataframe(settled_df[disp_cols], use_container_width=True, hide_index=True)
+                        disp_df_settled = settled_df.copy()
+                        if "settled_at" in disp_df_settled.columns:
+                            disp_df_settled["Розраховано (Київ)"] = disp_df_settled["settled_at"].apply(format_kyiv_time)
+                            disp_cols = [c for c in ["match_name", "pick_label", "odds", "stake_uah", "match_score", "status", "profit_uah", "Розраховано (Київ)"] if c in disp_df_settled.columns]
+                        else:
+                            disp_cols = [c for c in ["match_name", "pick_label", "odds", "stake_uah", "match_score", "status", "profit_uah"] if c in disp_df_settled.columns]
+                        st.dataframe(disp_df_settled[disp_cols], use_container_width=True, hide_index=True)
                     else:
                         st.info("Історія розрахунків порожня.")
                 else:
@@ -504,7 +542,7 @@ def run_streamlit_app():
                 raw_t = row.get(time_col) if time_col else None
                 t_str = ""
                 if raw_t:
-                    t_str = raw_t.strftime("%d.%m %H:%M") if hasattr(raw_t, "strftime") else str(raw_t)[:16]
+                    t_str = format_kyiv_time(raw_t)
 
                 header_title = f"⚽ {m_name}{sp_tag}" + (f" ({t_str})" if t_str else "")
                 with st.expander(header_title, expanded=(idx < 2)):
@@ -534,8 +572,13 @@ def run_streamlit_app():
         with col_s1:
             st.subheader("⏰ Контрольні точки розкладу (scheduler_plan)")
             if df_sched is not None and not df_sched.empty:
-                disp_sc = [c for c in ["target_time", "trigger_type", "description", "status", "executed_at"] if c in df_sched.columns]
-                st.dataframe(df_sched[disp_sc], use_container_width=True, hide_index=True)
+                disp_sc_df = df_sched.copy()
+                if "target_time" in disp_sc_df.columns:
+                    disp_sc_df["Час запуску (Київ)"] = disp_sc_df["target_time"].apply(format_kyiv_time)
+                if "executed_at" in disp_sc_df.columns:
+                    disp_sc_df["Виконано (Київ)"] = disp_sc_df["executed_at"].apply(format_kyiv_time)
+                disp_sc = [c for c in ["Час запуску (Київ)", "trigger_type", "description", "status", "Виконано (Київ)"] if c in disp_sc_df.columns]
+                st.dataframe(disp_sc_df[disp_sc], use_container_width=True, hide_index=True)
             else:
                 st.info("ℹ️ Точки розкладу ще не сформовані.")
                 st.markdown(

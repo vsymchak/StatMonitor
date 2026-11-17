@@ -10,6 +10,11 @@ def esc(txt):
 def fmt_kyiv(dt):
     if not dt:
         return ""
+    if isinstance(dt, str):
+        try:
+            dt = datetime.fromisoformat(dt.replace("Z", "+00:00"))
+        except Exception:
+            return str(dt)[:16]
     if not hasattr(dt, "tzinfo") or not dt.tzinfo:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(KYIV_TZ).strftime("%d.%m %H:%M")

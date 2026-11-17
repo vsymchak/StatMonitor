@@ -147,7 +147,7 @@ def cmd_bets(cur):
         c_str = fmt_kyiv(c_time)
         lines.append(
             f"<b>{i}. {id_prefix}{esc(m_name)}</b>\n"
-            f"   🕒 Старт: <code>{c_str}</code>\n"
+            f"   🕒 Старт (Київ): <code>{c_str}</code>\n"
             f"   🎯 Вибір: <b>{esc(pick_lbl)}</b> (Коеф: <code>{float(odds):.2f}</code>)\n"
             f"   💵 Ставка: <code>{float(stake):.2f} грн</code>\n"
         )
