@@ -273,7 +273,11 @@ def recalculate_historical_paper_bets(cur, conn):
         old_k = float(old_odds)
         ref_time = cr_at or c_time
 
-        # Синхронізація з вердиктом ШІ, якщо ШІ надав конкретну рекомендацію
+        # Строга заборона зміни активних ставок: перерахунок застосовується виключно до розрахованих матчів!
+        if st == "PENDING":
+            continue
+
+        # Синхронізація з вердиктом ШІ для історичних розрахованих матчів
         effective_pick = pick_lbl
         if ai_txt:
             ai_pick = extract_short_pick(ai_txt, fallback=pick_lbl)
@@ -372,15 +376,10 @@ def place_paper_bet(cur, conn, ev_id, sport, match, c_time, pick_lbl, odds, drop
     try:
         if any(w in pick_lbl.lower() for w in ("пропустити", "утриматися")):
             return False
-        cur.execute("SELECT id, status, pick_label FROM paper_bets WHERE event_id=%s;", (ev_id,))
-        existing = cur.fetchone()
-        if existing:
-            bid, st, curr_lbl = existing
-            # Якщо ставка ще PENDING і ШІ уточнив вибір (наприклад, фора замість чистої перемоги), оновлюємо
-            if st == "PENDING" and curr_lbl != pick_lbl and odds > 1.0:
-                cur.execute("UPDATE paper_bets SET pick_label=%s, odds=%s WHERE id=%s;", (pick_lbl, float(odds), bid))
-                conn.commit()
-                return True
+        # Строга заборона зміни активних або існуючих ставок:
+        # Ставка фіксується один раз і є незмінною для всіх автоматичних процесів!
+        cur.execute("SELECT 1 FROM paper_bets WHERE event_id=%s;", (ev_id,))
+        if cur.fetchone():
             return False
         cur.execute("SELECT COALESCE(SUM(profit_uah),0), COALESCE(SUM(CASE WHEN status='PENDING' THEN stake_uah ELSE 0 END),0) FROM paper_bets;")
         prof, locked = cur.fetchone()

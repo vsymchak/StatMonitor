@@ -307,11 +307,11 @@ class TestMarketMedianOdds(unittest.TestCase):
         self.assertEqual(u["new_profit"], 174.0)
 
     def test_recalculate_syncs_ai_pick(self):
-        """Перевіряє, що якщо ставка була П2, а ШІ дав вердикт Ф2 (+4.5), вона синхронізується"""
+        """Перевіряє, що для розрахованих матчів синхронізується вибір ШІ"""
         cur = MockCursor()
         conn = MockConn()
         rows_bets = [
-            (28, "ev_med", "Daniil Medvedev - Flavio Cobolli", "П2", 3.89, 78.4, "PENDING", 0.0, None, None,
+            (28, "ev_med", "Daniil Medvedev - Flavio Cobolli", "П2", 3.89, 78.4, "WON", 226.58, None, None,
              "📌 Коротка ставка: Ф2 (+4.5)\n🎯 Рекомендована ставка: Утримати фору")
         ]
         rows_history = [
@@ -335,6 +335,32 @@ class TestMarketMedianOdds(unittest.TestCase):
         self.assertEqual(u["old_pick"], "П2")
         self.assertEqual(u["pick_label"], "Ф2 (+4.5)")
         self.assertEqual(u["new_odds"], 1.67)
+
+    def test_recalculate_does_not_modify_pending_bets(self):
+        """Перевіряє, що активні ставки PENDING ніколи не модифікуються перерахунком"""
+        cur = MockCursor()
+        conn = MockConn()
+        rows_bets = [
+            (38, "ev_ukr", "Ukraine - Georgia", "ТМ 2.5", 1.66, 489.6, "PENDING", 0.0, None, None,
+             "📌 Коротка ставка: П1\n🎯 Рекомендована ставка: Перемога України")
+        ]
+        def custom_fetchall():
+            q = cur.queries[-1][0]
+            if "paper_bets" in q and "SELECT" in q:
+                return rows_bets
+            return []
+        cur.fetchall = custom_fetchall
+        updated = recalculate_historical_paper_bets(cur, conn)
+        self.assertEqual(len(updated), 0)
+
+    def test_place_paper_bet_immutable(self):
+        """Перевіряє заборону зміни активних ставок у place_paper_bet"""
+        from statmonitor.paper_trading import place_paper_bet
+        cur = MockCursor(fetchone_data=(1,))
+        conn = MockConn()
+        # Подія вже існує в базі
+        res = place_paper_bet(cur, conn, "ev_ukr", "soccer_uefa_nations_league", "Ukraine - Georgia", None, "П1", 1.37)
+        self.assertFalse(res)
 
     def test_manual_settle_bet(self):
         from statmonitor.paper_trading import manual_settle_bet
