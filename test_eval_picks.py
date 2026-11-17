@@ -336,6 +336,15 @@ class TestMarketMedianOdds(unittest.TestCase):
         self.assertEqual(u["pick_label"], "Ф2 (+4.5)")
         self.assertEqual(u["new_odds"], 1.67)
 
+    def test_manual_settle_bet(self):
+        from statmonitor.paper_trading import manual_settle_bet
+        cur = MockCursor(fetchone_data=(28, "Daniil Medvedev - Flavio Cobolli", "Ф2 (+4.5)", 1.67, 78.40))
+        conn = MockConn()
+        ok, msg = manual_settle_bet(cur, conn, 28, "13:9", forced_status="WON")
+        self.assertTrue(ok)
+        self.assertIn("WON", msg)
+        self.assertIn("52.53", msg)
+
 
 if __name__ == "__main__":
     unittest.main()

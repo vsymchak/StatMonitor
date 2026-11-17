@@ -395,6 +395,37 @@ def eval_outcome(pick_lbl, match_name, h_sc, a_sc):
         return "WON" if h_sc == a_sc else "LOST"
     return None
 
+def manual_settle_bet(cur, conn, bet_id, score_str, forced_status=None):
+    """
+    Дозволяє вручну розрахувати ставку (наприклад, для тенісних матчів з форою по геймах,
+    скасованих матчів або подій, яких немає в автоматичному API).
+    """
+    try:
+        cur.execute("SELECT id, match_name, pick_label, odds, stake_uah FROM paper_bets WHERE id=%s;", (bet_id,))
+        row = cur.fetchone()
+        if not row:
+            return False, f"Ставку #{bet_id} не знайдено."
+        bid, m_name, pk, odds, st = row
+
+        res = (forced_status or "").upper() if forced_status else None
+        if not res or res not in ("WON", "LOST", "VOID"):
+            # Спробуємо визначити результат за рахунком
+            m = re.search(r"(\d+)\s*[:\-]\s*(\d+)", str(score_str))
+            if m:
+                hs, as_ = int(m.group(1)), int(m.group(2))
+                res = eval_outcome(pk, m_name, hs, as_)
+
+        if res in ("WON", "LOST", "VOID"):
+            prof = round(float(st) * (float(odds) - 1.0), 2) if res == "WON" else (round(-float(st), 2) if res == "LOST" else 0.0)
+            cur.execute("UPDATE paper_bets SET status=%s, match_score=%s, profit_uah=%s, settled_at=NOW() WHERE id=%s;", (res, score_str, prof, bid))
+            conn.commit()
+            return True, f"Ставку #{bid} ({m_name}) успішно розраховано як {res} ({score_str}) з профітом {prof:+.2f} грн."
+        return False, f"Не вдалося визначити статус WON/LOST/VOID для рахунку '{score_str}'."
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        return False, f"Помилка розрахунку ставки: {e}"
+
 def settle_and_report(cur, conn):
     try:
         cur.execute("SELECT id, event_id, sport, match_name, pick_label, odds, stake_uah FROM paper_bets WHERE status='PENDING' AND commence_time < NOW() - INTERVAL '2 hours 15 minutes';")
