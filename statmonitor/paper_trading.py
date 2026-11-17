@@ -336,7 +336,39 @@ def format_pick(market, outcome, point, match_name):
     if out_s == a_t: return f"П2 ({a_t})"
     return "Х (Нічия)" if out_s.lower() == "draw" else out_s
 
-def place_paper_bet(cur, conn, ev_id, sport, match, c_time, pick_lbl, odds):
+def calculate_kelly_fraction(odds, drop_pct=None, confidence=None, fraction=0.25, min_pct=0.01, max_pct=0.05):
+    """
+    Розраховує частку вільного банку за дробовим критерієм Келлі (Fractional Kelly Criterion).
+    f* = Edge / (odds - 1)
+    f_fractional = fraction * f*
+    За замовчуванням fraction = 0.25 (Quarter Kelly) із захисними межами [1%, 5%].
+    Повертає десяткову частку (наприклад, 0.032 для 3.2%).
+    """
+    try:
+        k = float(odds)
+        if k <= 1.01:
+            return 0.0
+    except (ValueError, TypeError):
+        return 0.0
+
+    b = k - 1.0
+    # 1. Оцінка переваги (Edge) на основі сили прогрузу (drop_pct) або рівня впевненості
+    if drop_pct is not None and float(drop_pct) > 0:
+        d = min(float(drop_pct), 40.0)
+        edge = 0.03 + (d / 100.0) * 0.30
+    elif confidence is not None:
+        c = max(1.0, min(10.0, float(confidence)))
+        edge = 0.02 + (c / 10.0) * 0.06
+    else:
+        # Консервативна базова перевага відбору
+        edge = 0.07 if k <= 1.75 else (0.06 if k <= 2.35 else 0.05)
+
+    full_kelly = edge / b
+    frac_kelly = full_kelly * fraction
+    clamped = max(min_pct, min(max_pct, frac_kelly))
+    return round(clamped, 4)
+
+def place_paper_bet(cur, conn, ev_id, sport, match, c_time, pick_lbl, odds, drop_pct=None, confidence=None):
     try:
         if any(w in pick_lbl.lower() for w in ("пропустити", "утриматися")):
             return False
@@ -356,12 +388,24 @@ def place_paper_bet(cur, conn, ev_id, sport, match, c_time, pick_lbl, odds):
         if avail < 50:
             return False
         k = float(odds)
-        pct = 0.04 if k <= 1.75 else (0.03 if k <= 2.35 else 0.02)
-        stake = min(round(avail * pct, 2), avail)
-        cur.execute(
-            "INSERT INTO paper_bets (event_id, sport, match_name, commence_time, pick_label, odds, stake_uah) VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING;",
-            (ev_id, sport, match, c_time, pick_lbl, k, stake),
-        )
+        
+        # Розрахунок розміру ставки за дробовим критерієм Келлі (SPEC-22)
+        frac = calculate_kelly_fraction(k, drop_pct=drop_pct, confidence=confidence, fraction=0.25)
+        kelly_pct = round(frac * 100.0, 1)
+        stake = min(round(avail * frac, 2), avail)
+
+        try:
+            cur.execute(
+                "INSERT INTO paper_bets (event_id, sport, match_name, commence_time, pick_label, odds, stake_uah, kelly_pct) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING;",
+                (ev_id, sport, match, c_time, pick_lbl, k, stake, kelly_pct),
+            )
+        except Exception:
+            if conn:
+                conn.rollback()
+            cur.execute(
+                "INSERT INTO paper_bets (event_id, sport, match_name, commence_time, pick_label, odds, stake_uah) VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING;",
+                (ev_id, sport, match, c_time, pick_lbl, k, stake),
+            )
         conn.commit()
         return True
     except Exception as e:

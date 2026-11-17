@@ -49,8 +49,10 @@ def ensure_tables(cur, conn):
                 odds NUMERIC(6,3) NOT NULL, stake_uah NUMERIC(10,2) NOT NULL,
                 status TEXT NOT NULL DEFAULT 'PENDING', match_score TEXT,
                 profit_uah NUMERIC(10,2) NOT NULL DEFAULT 0.00,
-                created_at TIMESTAMPTZ DEFAULT NOW(), settled_at TIMESTAMPTZ
+                created_at TIMESTAMPTZ DEFAULT NOW(), settled_at TIMESTAMPTZ,
+                kelly_pct NUMERIC(5,2)
             );
+            ALTER TABLE paper_bets ADD COLUMN IF NOT EXISTS kelly_pct NUMERIC(5,2);
             CREATE TABLE IF NOT EXISTS paper_daily_reports (
                 report_date DATE PRIMARY KEY, sent_at TIMESTAMPTZ DEFAULT NOW()
             );

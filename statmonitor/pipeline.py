@@ -153,7 +153,7 @@ def check_alerts_and_notify(sports_map, t_start=None):
 
         # 2. Розрахунок РЕАЛЬНОГО медіанного коефіцієнта ринку або еталонних БК (SPEC-18)
         real_odds = get_market_median_odds(cur, ev_id, short_pick, f["match"], fallback_odds=f["curr_k"])
-        place_paper_bet(cur, conn, ev_id, f["sport"], f["match"], f["c_time"], short_pick, real_odds)
+        place_paper_bet(cur, conn, ev_id, f["sport"], f["match"], f["c_time"], short_pick, real_odds, drop_pct=f.get("drop"))
 
         dt_sort = f["c_time"] if hasattr(f["c_time"], "tzinfo") and f["c_time"].tzinfo else (f["c_time"].replace(tzinfo=timezone.utc) if hasattr(f["c_time"], "replace") else datetime.now(timezone.utc))
         summary_rows.append({"dt": dt_sort, "time": c_str, "match": f["match"], "title": title, "pick": short_pick, "odds": f"{real_odds:.2f}"})

@@ -126,30 +126,63 @@ def cmd_bank(cur):
     return "\n".join(lines)
 
 def cmd_bets(cur):
-    cur.execute("""
-        SELECT id, match_name, sport, pick_label, odds, stake_uah, commence_time 
-        FROM paper_bets 
-        WHERE status='PENDING' 
-        ORDER BY commence_time ASC;
-    """)
-    rows = cur.fetchall()
+    try:
+        cur.execute("SELECT COALESCE(SUM(profit_uah), 0) FROM paper_bets WHERE status IN ('WON', 'LOST', 'VOID');")
+        net_p = float(cur.fetchone()[0] or 0)
+    except Exception:
+        net_p = 0.0
+    current_bank = max(100.0, INITIAL_BANKROLL + net_p)
+
+    try:
+        cur.execute("""
+            SELECT id, match_name, sport, pick_label, odds, stake_uah, commence_time, kelly_pct 
+            FROM paper_bets 
+            WHERE status='PENDING' 
+            ORDER BY commence_time ASC;
+        """)
+        rows = cur.fetchall()
+    except Exception:
+        try:
+            cur.execute("""
+                SELECT id, match_name, sport, pick_label, odds, stake_uah, commence_time 
+                FROM paper_bets 
+                WHERE status='PENDING' 
+                ORDER BY commence_time ASC;
+            """)
+            rows = cur.fetchall()
+        except Exception:
+            rows = []
+
     if not rows:
         return "ℹ️ <b>Наразі немає активних ставок у грі.</b>\nВсі попередні парі розраховано або очікується новий сигнал."
 
     lines = [f"🎯 <b>АКТИВНІ СТАВКИ В ГРІ ({len(rows)}):</b>\n"]
     for i, r in enumerate(rows, 1):
-        if len(r) >= 7:
+        if len(r) >= 8:
+            bid, m_name, sport, pick_lbl, odds, stake, c_time, k_pct = r[:8]
+            id_prefix = f"[ID #{bid}] "
+        elif len(r) >= 7:
             bid, m_name, sport, pick_lbl, odds, stake, c_time = r[:7]
+            k_pct = None
             id_prefix = f"[ID #{bid}] "
         else:
             m_name, sport, pick_lbl, odds, stake, c_time = r[:6]
+            k_pct = None
             id_prefix = ""
         c_str = fmt_kyiv(c_time)
+
+        pct_val = None
+        if k_pct is not None:
+            pct_val = float(k_pct)
+        elif current_bank > 0 and float(stake) > 0:
+            pct_val = round((float(stake) / current_bank) * 100, 1)
+
+        pct_badge = f" (<b>{pct_val:.1f}%</b> банку за Келлі)" if pct_val is not None else ""
         lines.append(
             f"<b>{i}. {id_prefix}{esc(m_name)}</b>\n"
             f"   🕒 Старт (Київ): <code>{c_str}</code>\n"
             f"   🎯 Вибір: <b>{esc(pick_lbl)}</b> (Коеф: <code>{float(odds):.2f}</code>)\n"
-            f"   💵 Ставка: <code>{float(stake):.2f} грн</code>\n"
+            f"   💵 Ставка: <code>{float(stake):.2f} грн</code>{pct_badge}\n"
         )
     lines.append("✏️ <i>Щоб змінити коефіцієнт ставки:</i> <code>/edit_odds &lt;ID&gt; &lt;новий_коеф&gt;</code>")
     return "\n".join(lines)

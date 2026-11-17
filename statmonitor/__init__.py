@@ -42,6 +42,7 @@ from statmonitor.ai import (
 from statmonitor.paper_trading import (
     format_pick,
     place_paper_bet,
+    calculate_kelly_fraction,
     eval_outcome,
     settle_and_report,
     manual_settle_bet,
@@ -100,6 +101,7 @@ __all__ = [
     "extract_short_pick",
     "format_pick",
     "place_paper_bet",
+    "calculate_kelly_fraction",
     "eval_outcome",
     "settle_and_report",
     "manual_settle_bet",

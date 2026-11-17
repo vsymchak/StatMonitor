@@ -442,11 +442,34 @@ def run_streamlit_app():
                     pending_df = df_all[df_all["status"] == "PENDING"].copy()
                     if not pending_df.empty:
                         disp_df = pending_df.copy()
+                        curr_bank_val = metrics.get("current_bank", INITIAL_BANKROLL)
+
+                        def get_kelly_badge(r):
+                            if "kelly_pct" in r and r["kelly_pct"] is not None and not (pd is not None and pd.isna(r["kelly_pct"])):
+                                try:
+                                    return f"{float(r['kelly_pct']):.1f}%"
+                                except Exception:
+                                    pass
+                            try:
+                                stk = float(r.get("stake_uah", 0) or 0)
+                                if curr_bank_val and curr_bank_val > 0 and stk > 0:
+                                    return f"{(stk / curr_bank_val) * 100:.1f}%"
+                            except Exception:
+                                pass
+                            try:
+                                from statmonitor.paper_trading import calculate_kelly_fraction
+                                frac = calculate_kelly_fraction(r.get("odds", 2.0))
+                                return f"{frac * 100:.1f}%"
+                            except Exception:
+                                return "2.5%"
+
+                        disp_df["% банку (Келлі)"] = disp_df.apply(get_kelly_badge, axis=1) if hasattr(disp_df, "apply") else "2.5%"
+
                         if "commence_time" in disp_df.columns:
                             disp_df["Час (Київ)"] = disp_df["commence_time"].apply(format_kyiv_time)
-                            disp_cols = [c for c in ["id", "sport", "match_name", "pick_label", "odds", "stake_uah", "Час (Київ)"] if c in disp_df.columns]
+                            disp_cols = [c for c in ["id", "sport", "match_name", "pick_label", "odds", "stake_uah", "% банку (Келлі)", "Час (Київ)"] if c in disp_df.columns]
                         else:
-                            disp_cols = [c for c in ["id", "sport", "match_name", "pick_label", "odds", "stake_uah"] if c in disp_df.columns]
+                            disp_cols = [c for c in ["id", "sport", "match_name", "pick_label", "odds", "stake_uah", "% банку (Келлі)"] if c in disp_df.columns]
                         st.dataframe(disp_df[disp_cols], use_container_width=True, hide_index=True)
 
                         if is_admin:
@@ -455,7 +478,9 @@ def run_streamlit_app():
                                 for _, r_bet in pending_df.iterrows():
                                     c_time_str = format_kyiv_time(r_bet.get('commence_time'))
                                     time_badge = f" [🕒 {c_time_str}]" if c_time_str else ""
-                                    b_lbl = f"ID #{r_bet['id']} | {r_bet.get('match_name', '')} ({r_bet.get('pick_label', '')}){time_badge} — Поточний: {float(r_bet.get('odds', 0)):.2f}"
+                                    k_badge = get_kelly_badge(r_bet)
+                                    stk_val = float(r_bet.get('stake_uah', 0) or 0)
+                                    b_lbl = f"ID #{r_bet['id']} | {r_bet.get('match_name', '')} ({r_bet.get('pick_label', '')}){time_badge} — {stk_val:.2f} грн ({k_badge}) | Коеф: {float(r_bet.get('odds', 0)):.2f}"
                                     bet_options[b_lbl] = r_bet["id"]
 
                                 sel_lbl = st.selectbox("Оберіть нерозраховану ставку:", list(bet_options.keys()), key="sel_pending_bet")

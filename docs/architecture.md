@@ -1,7 +1,7 @@
 # Візуальна архітектура системи StatMonitor
 
 > **Проєкт**: StatMonitor — інтелектуальна система спортивного моніторингу прогрузів, віртуального трейдингу (Paper Trading), спостережливості (Web Dashboard) та предиктивної AI-аналітики.  
-> **Версія**: 3.1 (Еволюція: Точні медіанні коефіцієнти Benchmark БК + Інтерактивне редагування PENDING ставок у Web UI/TG/CLI + Час подій за Києвом + 72 Unit Tests)  
+> **Версія**: 3.2 (Еволюція: Динамічний стейкінг за критерієм Келлі 0.25 + % банку в активних ставках UI/TG + 78 Unit Tests)  
 > **Оновлено**: 17.11.2026
 
 ---
@@ -77,15 +77,17 @@ flowchart TD
         T_Beat["system_heartbeat"]:::data
     end
 
-    subgraph TestSuite["🧪 7. Шар якості та тестування (72 unit-тести)"]
+    subgraph TestSuite["🧪 7. Шар якості та тестування (78 unit-тестів)"]
         TestLeague["test_league_config.py (5 тестів)<br>Матриця ліг, валідація, пороги"]:::test
-        TestBot["test_bot.py (13 тестів)<br>Команди /bank /status /bets /edit_odds, RBAC"]:::test
+        TestBot["test_bot.py (15 тестів)<br>Команди /bank /status /bets /edit_odds, RBAC"]:::test
         TestLimiter["test_rate_limiter.py (6 тестів)<br>HOT/WARM/COLD, Eco-режими, квоти"]:::test
         TestEval["test_eval_picks.py (33 тести)<br>format_pick, eval_outcome, median_odds, edit_odds"]:::test
+        TestKelly["test_kelly.py (6 тестів)<br>Критерій Келлі, clamping 1-5%, стейкінг"]:::test
         TestModules["test_modules.py (6 тестів)<br>Ізоляція та цілісність statmonitor/"]:::test
+        TestDashboard["test_dashboard.py (4 тести)<br>Метрики банку, час за Києвом"]:::test
         TestSched["test_scheduler.py<br>Кластеризація, точки, маркування EXECUTED"]:::test
         TestWatch["test_watchdog.py<br>Пульс, затримки, дедуплікація"]:::test
-        TestMigrate["test_migrate.py<br>Ідемпотентність SQL-міграцій"]:::test
+        TestMigrate["test_migrate.py<br>Ідемпотентність SQL-міграцій (001-006)"]:::test
     end
 
     subgraph Delivery["📲 8. Рівень сповіщень та користувацького UI"]
@@ -257,7 +259,9 @@ erDiagram
   - Структуровані секції: **Склади та кадрові втрати**, **Форма та тонус**, **Інсайди, чутки та суть прогрузу**, **Оцінка валую**.
   - Функція `extract_short_pick`: нормалізація назви ставки, відсікання кефів (`за 2.10`, `@ 1.95`), балансування дужок.
 * **Paper Bank (10 000 грн) (`statmonitor.paper_trading`)**:
-  - Автоматичний стейкінг: 4% на коефіцієнти $\le 1.75$, 3% на $\le 2.35$, 2% на високі.
+  - **Динамічний стейкінг за критерієм Келлі (`calculate_kelly_fraction`, Крок 22)**: розрахунок частки банку за формулою дробового Келлі ($0.25 \times \text{Kelly}$) на основі сили прогрузу (`drop_pct`) та очікуваної математичної переваги (Edge) із захисними межами $[1.0\%, 5.0\%]$.
+  - Відображення % банку за Келлі в активних ставках Web Dashboard (колонка `"% банку (Келлі)"`) та у Telegram-боті (`/bets`).
+  - Фіксація `kelly_pct` у базі даних (міграція `006_paper_bets_kelly_pct.sql`).
   - Ручне та автоматичне редагування коефіцієнтів (`update_pending_bet_odds`) для нерозрахованих ставок (Крок 19).
   - Гнучкий ручний розрахунок (`manual_settle_bet`) та автоматичний за фінальними рахунками (`WON`, `LOST`, `VOID`).
   - Щоденний звіт з розрахунком ROI о 08:00 за Києвом.
@@ -267,11 +271,11 @@ erDiagram
   - Чітке розділення обов'язків: `config`, `database`, `notifier`, `fetcher`, `chart`, `ai`, `paper_trading`, `pipeline`.
   - Зворотна сумісність: `main.py` залишається центральною точкою входу.
 * **Версіоновані міграції БД (`migrate.py`)**:
-  - Каталог `migrations/` (`001_base_schema.sql` ... `005_nullable_legacy_odds_columns.sql`).
+  - Каталог `migrations/` (`001_base_schema.sql` ... `006_paper_bets_kelly_pct.sql`).
   - Ідемпотентний раннер з журналом у `schema_migrations`.
   - Цільові B-Tree індекси на `odds_history`, `events`, `paper_bets`.
 * **Автоматизований тестовий комплекс (`tests/` та кореневі тести)**:
-  - 72 модульні тести (100% проходження за $< 0.1$ с) без зовнішніх мережевих викликів.
+  - 78 модульних тестів (100% проходження за $< 0.1$ с) без зовнішніх мережевих викликів.
 * **Динамічний планувальник (`scheduler.py`)**:
   - Кластеризація подій ($\Delta \le 25$ хв).
   - Формування контрольних точок за 15 хв до гри (`PRE_MATCH` для фіксації Closing Line) та через 115 хв (`SETTLE` для розрахунку ставок).
