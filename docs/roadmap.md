@@ -1,8 +1,8 @@
 # Дорожня карта розвитку StatMonitor (SDD Roadmap)
 
-> **Статус**: 18 з 18 кроків реалізовано (100% Shipped) · Дорожня карта повністю виконана 🎉  
-> **Оновлено**: 16.11.2026  
-> **Фокус**: Повна зрілість платформи: Hybrid Cloud + Multi-sport Matrix + AI Analysis + Paper Bank + Web Dashboard + Interactive Bot + Accurate Market Odds
+> **Статус**: 19 з 19 кроків реалізовано (100% Shipped) · Дорожня карта повністю виконана 🎉  
+> **Оновлено**: 17.11.2026  
+> **Фокус**: Повна зрілість платформи: Hybrid Cloud + Multi-sport Matrix + AI Analysis + Paper Bank + Web Dashboard + Interactive Bot + Accurate Market Odds & Odds Editing
 
 ---
 
@@ -142,3 +142,9 @@
 * **Статус**: 🟩 Shipped
 * **Опис**: Пряме дотягування точного `point` та `market_key` з `odds_history`, якщо в'юшка `v_odds_alerts` повертає NULL. Розрахунок медіанного коефіцієнта еталонних букмекерів (`BENCHMARK_BOOKMAKERS`: Pinnacle, Betfair, Unibet, Marathonbet) для вибору AI (`short_pick`) перед фіксацією в `paper_bets` та зведеннях Telegram. Механізм перерахунку історичних ставок (`recalc_odds.py` / `main.py --recalc-bets`).
 * **Залежності**: потрібен крок 6, потрібен крок 13, потрібен крок 14
+
+### 19. Manual odds editing for pending paper bets
+* **Розмір**: S
+* **Статус**: 🟩 Shipped
+* **Опис**: Інтерактивне коригування коефіцієнтів для нерозрахованих ставок (`status = 'PENDING'`) через Web Dashboard (селектор у Streamlit з валідацією прав адміністратора), Telegram-бот (`/edit_odds <ID> <коеф>`) та CLI (`recalc_odds.py --edit-odds`). Автоматичний перерахунок потенційного виграшу, транзакційна безпека та захист від зміни закритих ставок.
+* **Залежності**: потрібен крок 6, потрібен крок 15, потрібен крок 17

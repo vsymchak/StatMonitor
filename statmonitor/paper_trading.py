@@ -395,13 +395,19 @@ def eval_outcome(pick_lbl, match_name, h_sc, a_sc):
         return "WON" if h_sc == a_sc else "LOST"
     return None
 
-def update_pending_bet_odds(cur, conn, bet_id, new_odds):
+def update_pending_bet_odds(cur=None, conn=None, bet_id=None, new_odds=None):
     """
     Оновлює коефіцієнт для нерозрахованої ставки (status = 'PENDING').
     Повертає кортеж (success: bool, message: str, old_odds: float | None).
     """
-    if not cur or not conn:
-        return False, "База даних недоступна", None
+    should_close = False
+    if not conn or not cur:
+        from statmonitor.database import get_db
+        conn = get_db()
+        if not conn:
+            return False, "База даних недоступна", None
+        cur = conn.cursor()
+        should_close = True
 
     try:
         k = float(new_odds)
@@ -409,6 +415,8 @@ def update_pending_bet_odds(cur, conn, bet_id, new_odds):
             return False, f"Неприпустимий коефіцієнт: {new_odds}. Очікується значення від 1.01 до 100.0.", None
     except (ValueError, TypeError):
         return False, f"Некоректний формат коефіцієнта: '{new_odds}'. Очікується десяткове число (наприклад, 1.75).", None
+    finally:
+        pass
 
     try:
         cur.execute("""
@@ -440,6 +448,13 @@ def update_pending_bet_odds(cur, conn, bet_id, new_odds):
         if conn:
             conn.rollback()
         return False, f"Помилка бази даних під час оновлення коефіцієнта: {e}", None
+    finally:
+        if should_close:
+            try:
+                cur.close()
+                conn.close()
+            except Exception:
+                pass
 
 def manual_settle_bet(cur, conn, bet_id, score_str, forced_status=None):
     """

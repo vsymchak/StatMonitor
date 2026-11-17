@@ -1,8 +1,8 @@
 # Візуальна архітектура системи StatMonitor
 
 > **Проєкт**: StatMonitor — інтелектуальна система спортивного моніторингу прогрузів, віртуального трейдингу (Paper Trading), спостережливості (Web Dashboard) та предиктивної AI-аналітики.  
-> **Версія**: 3.0 (Повна реалізація SDD: 17 з 17 кроків Shipped · Multi-Sport Matrix + Telegram Bot + Rate-Limiter + Dynamic Scheduler + Web Dashboard + 50 Unit Tests)  
-> **Оновлено**: 16.11.2026
+> **Версія**: 3.1 (Еволюція: Точні медіанні коефіцієнти Benchmark БК + Інтерактивне редагування PENDING ставок у Web UI/TG/CLI + 68 Unit Tests)  
+> **Оновлено**: 17.11.2026
 
 ---
 
@@ -39,6 +39,7 @@ flowchart TD
 
     subgraph CoreEngine["🧠 4. Ядро обробки (StatMonitor Core & Package)"]
         MainPy["main.py (Лаконічний оркестратор)"]:::core
+        RecalcPy["recalc_odds.py<br>CLI перерахунку та редагування ставок"]:::core
         
         subgraph StatMonitorPkg["📦 statmonitor/ (Модульний пакет)"]
             ModPipeline["pipeline.py<br>Конвеєр перевірки та алертингу"]:::pkg
@@ -46,10 +47,10 @@ flowchart TD
             ModLimiter["limiter.py<br>HOT/WARM/COLD ліги & Eco-режими"]:::pkg
             ModDB["database.py<br>Пул з'єднань та адаптація схеми"]:::pkg
             ModAI["ai.py<br>Gemini клієнт + Search Grounding"]:::pkg
-            ModPaper["paper_trading.py<br>Стейкінг, розрахунок результатів"]:::pkg
+            ModPaper["paper_trading.py<br>Стейкінг, розрахунок, медіана БК, edit_odds"]:::pkg
             ModChart["chart.py<br>Matplotlib тренди в пам'яті"]:::pkg
             ModNotify["notifier.py<br>Telegram HTML delivery & chunking"]:::pkg
-            ModBot["bot.py<br>Двосторонній асистент /status /bank /run_now"]:::pkg
+            ModBot["bot.py<br>Двосторонній асистент /status /bank /edit_odds"]:::pkg
             ModLeague["league_config.py<br>Завантаження матриці ліг config/leagues.json"]:::pkg
             ModConfig["config.py<br>Константи, часовий пояс, ліги"]:::pkg
         end
@@ -65,10 +66,10 @@ flowchart TD
 
     subgraph Storage["💾 6. Сховище даних (Supabase PostgreSQL)"]
         DB[("PostgreSQL 15+<br>public schema")]:::data
-        T_Migrations["schema_migrations"]:::data
+        T_Migrations["schema_migrations (001-005)"]:::data
         T_Events["events (індекс на commence_time)"]:::data
         T_Odds["odds_history (індекси за часом та маркетом)"]:::data
-        V_Alerts["v_odds_alerts (Optimized Window View)"]:::data
+        V_Alerts["v_odds_alerts (Optimized 96h Window View)"]:::data
         T_AI["ai_match_analysis"]:::data
         T_Bets["paper_bets (індекс за статусом і часом)"]:::data
         T_Sched["scheduler_plan (дедуплікація точок)"]:::data
@@ -76,11 +77,11 @@ flowchart TD
         T_Beat["system_heartbeat"]:::data
     end
 
-    subgraph TestSuite["🧪 7. Шар якості та тестування (50 unit-тестів)"]
+    subgraph TestSuite["🧪 7. Шар якості та тестування (68 unit-тестів)"]
         TestLeague["test_league_config.py (5 тестів)<br>Матриця ліг, валідація, пороги"]:::test
-        TestBot["test_bot.py (12 тестів)<br>Команди /bank /status /bets, RBAC, оновлення"]:::test
+        TestBot["test_bot.py (13 тестів)<br>Команди /bank /status /bets /edit_odds, RBAC"]:::test
         TestLimiter["test_rate_limiter.py (6 тестів)<br>HOT/WARM/COLD, Eco-режими, квоти"]:::test
-        TestEval["test_eval_picks.py (17 тестів)<br>format_pick, eval_outcome, extract_short_pick"]:::test
+        TestEval["test_eval_picks.py (33 тести)<br>format_pick, eval_outcome, median_odds, edit_odds"]:::test
         TestModules["test_modules.py (6 тестів)<br>Ізоляція та цілісність statmonitor/"]:::test
         TestSched["test_scheduler.py<br>Кластеризація, точки, маркування EXECUTED"]:::test
         TestWatch["test_watchdog.py<br>Пульс, затримки, дедуплікація"]:::test
@@ -88,8 +89,8 @@ flowchart TD
     end
 
     subgraph Delivery["📲 8. Рівень сповіщень та користувацького UI"]
-        Telegram["Telegram Bot API<br>Канал/Чат користувача"]:::notify
-        StreamlitUI["Streamlit Cloud Dashboard<br>(dashboard.py)<br>RBAC: Admin vs Read-Only<br>Графік капіталу Plotly, AI-картки"]:::ui
+        Telegram["Telegram Bot API<br>Канал/Чат користувача<br>Команди: /bank /bets /edit_odds /settle"]:::notify
+        StreamlitUI["Streamlit Cloud Dashboard<br>(dashboard.py)<br>RBAC: Admin vs Read-Only<br>Графік капіталу Plotly, AI-картки<br>Редагування коефіцієнтів"]:::ui
     end
 
     %% Потоки тригерів
@@ -245,7 +246,11 @@ erDiagram
 * **Ковзний архів**: дані котирувань автоматично очищаються після 4 днів (`INTERVAL '4 days'`).
 
 ### Рівень 3: Аналітика, AI та віртуальний банк (Intelligence Layer)
-* **Оптимізована детекція прогрузів (`v_odds_alerts`)**: віконні функції `FIRST_VALUE` та `LAST_VALUE` за останні 48 годин для миттєвого розрахунку падіння від першого до останнього котирування в діапазоні $1.40 - 4.00$.
+* **Оптимізована детекція прогрузів (`v_odds_alerts`)**: віконні функції `FIRST_VALUE` та `LAST_VALUE` за ковзним вікном 96 годин (міграція `003_v_odds_alerts.sql` та розширення) для миттєвого розрахунку падіння від першого до останнього котирування в діапазоні $1.40 - 4.00$.
+* **Точний розрахунок медіанних коефіцієнтів та ліній (Крок 18)**:
+  - `resolve_alert_from_history`: відновлює точну активну лінію та значення point з історії, якщо у перегляді воно було відсутнє (`NULL`).
+  - `get_market_median_odds`: розраховує надійну медіану серед провідних бенчмарк-букмекерів (Pinnacle, Betfair, Unibet, BetOnline) у межах допуску $\pm 0.05$ point, виключаючи викривлені або одиночні викиди.
+  - Утиліта пакетного перерахунку `recalc_odds.py` для оновлення коефіцієнтів існуючих відкритих або розрахованих ставок.
 * **Каскадний Gemini AI з Google Search Grounding (`statmonitor.ai`)**:
   - Каскад моделей: `gemini-3.5-flash-lite` $\rightarrow$ `gemini-2.5-flash-lite` $\rightarrow$ `gemini-2.5-flash` $\rightarrow$ `gemini-3.8-flash`.
   - Підключено інструмент `google_search` для пошуку свіжих новин, лазарету, дискваліфікацій та інсайдів у режимі реального часу.
@@ -253,7 +258,8 @@ erDiagram
   - Функція `extract_short_pick`: нормалізація назви ставки, відсікання кефів (`за 2.10`, `@ 1.95`), балансування дужок.
 * **Paper Bank (10 000 грн) (`statmonitor.paper_trading`)**:
   - Автоматичний стейкінг: 4% на коефіцієнти $\le 1.75$, 3% на $\le 2.35$, 2% на високі.
-  - Автоматичний розрахунок за фінальними рахунками (`WON`, `LOST`, `VOID`).
+  - Ручне та автоматичне редагування коефіцієнтів (`update_pending_bet_odds`) для нерозрахованих ставок (Крок 19).
+  - Гнучкий ручний розрахунок (`manual_settle_bet`) та автоматичний за фінальними рахунками (`WON`, `LOST`, `VOID`).
   - Щоденний звіт з розрахунком ROI о 08:00 за Києвом.
 
 ### Рівень 4: Надійність, Watchdog, міграції та планувальник (Reliability Layer)
@@ -261,9 +267,11 @@ erDiagram
   - Чітке розділення обов'язків: `config`, `database`, `notifier`, `fetcher`, `chart`, `ai`, `paper_trading`, `pipeline`.
   - Зворотна сумісність: `main.py` залишається центральною точкою входу.
 * **Версіоновані міграції БД (`migrate.py`)**:
-  - Каталог `migrations/` (`001_base_schema.sql`, `002_performance_indexes.sql`, `003_v_odds_alerts.sql`).
+  - Каталог `migrations/` (`001_base_schema.sql` ... `005_nullable_legacy_odds_columns.sql`).
   - Ідемпотентний раннер з журналом у `schema_migrations`.
   - Цільові B-Tree індекси на `odds_history`, `events`, `paper_bets`.
+* **Автоматизований тестовий комплекс (`tests/` та кореневі тести)**:
+  - 68 модульних тестів (100% проходження за $< 0.1$ с) без зовнішніх мережевих викликів.
 * **Динамічний планувальник (`scheduler.py`)**:
   - Кластеризація подій ($\Delta \le 25$ хв).
   - Формування контрольних точок за 15 хв до гри (`PRE_MATCH` для фіксації Closing Line) та через 115 хв (`SETTLE` для розрахунку ставок).
@@ -278,10 +286,12 @@ erDiagram
 ### Рівень 5: Спостережливість та доставка (Observability & Delivery)
 * **Інтерактивний веб-дашборд (`dashboard.py` на Streamlit Cloud)**:
   - **RBAC безпека**: Гостьовий режим (Read-Only) без кнопок керування проти режиму адміністратора (`?key=...` або форма входу).
+  - **Інтерактивне редагування коефіцієнтів (Крок 19)**: випадаюче меню для активних ставок у кабінеті адміністратора з автоматичним перерахунком потенційної виплати.
   - Інтерактивний графік зростання банку Plotly (Paper Bank Balance Growth).
   - Вкладка розкладу та живого пульсу системи.
   - Вкладка карток глибокої AI-аналітики з Markdown-розміткою.
-* **Telegram Bot API (`statmonitor.notifier`)**:
+* **Telegram Bot API (`statmonitor.notifier` / `bot.py`)**:
   - Графіки Matplotlib у пам'яті (`io.BytesIO`) за київським часом.
   - Автоматичне розбиття великих зведень на блоки $\le 3800$ символів.
   - Захист від помилок форматування HTML з fallback на звичайний текст.
+  - Інтерактивні команди адміністратора: `/bank`, `/bets`, `/edit_odds <ID> <коеф>`, `/settle <ID> <результат> <рахунок>`.

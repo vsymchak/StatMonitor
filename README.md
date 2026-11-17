@@ -7,8 +7,8 @@
 ## 🗺 Документація та архітектура
 
 * 🏛 **[Візуальна архітектура системи (docs/architecture.md)](docs/architecture.md)** — детальна C4-схема компонентів, модульний пакет `statmonitor/`, потік даних від тригеру до Telegram та Web UI, діаграма бази даних (ERD).
-* 📊 **[Діаграма дорожньої карти SDD (docs/roadmap-diagram.md)](docs/roadmap-diagram.md)** — візуальний прогрес виконання завдань по хвилях (Wave 1–6).
-* 📋 **[Реєстр дорожньої карти (docs/roadmap.md)](docs/roadmap.md)](docs/roadmap.md)** — повний список 17 кроків еволюції системи за методологією Spec-Driven Development (17 з 17 кроків реалізовано · 100% Shipped 🎉).
+* 📊 **[Діаграма дорожньої карти SDD (docs/roadmap-diagram.md)](docs/roadmap-diagram.md)** — візуальний прогрес виконання завдань по хвилях (Wave 1–7).
+* 📋 **[Реєстр дорожньої карти (docs/roadmap.md)](docs/roadmap.md)** — повний список 19 кроків еволюції системи за методологією Spec-Driven Development (19 з 19 кроків реалізовано · 100% Shipped 🎉).
 
 ---
 
@@ -25,8 +25,9 @@
 9. **Високоточний гібридний тригер**: виклик воркфлоу секунда в секунду через **Cloudflare Worker** (`statmonitor.symchak.workers.dev`) + **Cron-job.org**, плюс резервний cron у GitHub Actions (`15,45 * * * *`).
 10. **Динамічний планувальник (`scheduler.py`)**: автоматичний розрахунок контрольних точок за 15 хв до початку матчів (Closing Line Value), через 115 хв для розрахунку ставок, автофіксація статусу `EXECUTED` та захист від дублікатів.
 11. **Watchdog пульсу (`sys_watchdog.py`)**: автоматичний контроль запізнень черг та алерти в Telegram при затримках $> 25$ хв із розумною фільтрацією повторів.
-12. **Версіоновані міграції БД (`migrate.py`)**: DDL-схема, журнал `schema_migrations`, B-Tree індекси на `odds_history`, `events`, `paper_bets`, `sports_poll_log` та оптимізована в'юшка `v_odds_alerts`.
-13. **Вичерпний набір тестів (50 unit-тестів)**: тести матриці ліг (`test_league_config.py`), бота (`test_bot.py`), лімітера (`test_rate_limiter.py`), парсингу й розрахунку маркетів (`test_eval_picks.py`), цілісності модулів (`test_modules.py`), планувальника, watchdog, міграцій та дашборду.
+12. **Версіоновані міграції БД (`migrate.py`)**: DDL-схема, журнал `schema_migrations`, B-Tree індекси на `odds_history`, `events`, `paper_bets`, `sports_poll_log` та оптимізована в'юшка `v_odds_alerts` (міграції `001`–`005`).
+13. **Точні бенчмарк-коефіцієнти та ручне редагування (Wave 7, Кроки 18–19)**: розрахунок медіани провідних букмекерів (Pinnacle/Betfair/Unibet), пакетний перерахунок `recalc_odds.py`, редагування коефіцієнтів у Streamlit Web Dashboard, Telegram-боті (`/edit_odds <ID> <коеф>`) та CLI.
+14. **Вичерпний набір тестів (68 unit-тестів)**: тести матриці ліг (`test_league_config.py`), бота (`test_bot.py`), лімітера (`test_rate_limiter.py`), парсингу, розрахунку маркетів та медіани (`test_eval_picks.py`), цілісності модулів (`test_modules.py`), планувальника, watchdog, міграцій та дашборду.
 
 ---
 
@@ -40,4 +41,4 @@
 * **Візуалізація трендів**: Matplotlib (рендеринг у пам'яті без дисків)
 * **Канал сповіщень**: Telegram Bot API (HTML-розмітка, чанкінг $\le 3800$ симв.)
 * **Оркестрація**: GitHub Actions + Cloudflare Workers
-* **Тестування**: `unittest` (27 тест-кейсів, час виконання < 0.01 с)
+* **Тестування**: `unittest` (68 тест-кейсів, час виконання < 0.05 с)
