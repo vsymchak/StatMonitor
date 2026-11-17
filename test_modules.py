@@ -73,5 +73,47 @@ class TestModularDecomposition(unittest.TestCase):
         self.assertTrue(hasattr(main, "settle_and_report"))
         self.assertTrue(hasattr(main, "run_pipeline"))
 
+    def test_pipeline_active_bets_deduplication(self):
+        from unittest.mock import MagicMock, patch
+        import statmonitor.pipeline as pipe
+
+        mock_cur = MagicMock()
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cur
+
+        mock_cur.description = [
+            ("event_id",), ("sport",), ("match_name",), ("commence_time",), ("bookmaker",),
+            ("market_key",), ("outcome_name",), ("point",), ("start_odds",), ("current_odds",),
+            ("drop_pct",), ("start_time",), ("last_time",)
+        ]
+
+        now = datetime.now(timezone.utc)
+        row1 = ("ev_1", "soccer_epl", "Arsenal - Chelsea", now, "pinnacle", "h2h", "Arsenal", None, 2.2, 1.8, -18.0, now, now)
+        row2 = ("ev_2", "soccer_epl", "Liverpool - City", now, "pinnacle", "h2h", "Liverpool", None, 2.5, 2.0, -20.0, now, now)
+
+        mock_cur.fetchall.side_effect = [
+            [row1, row2],
+            [("ev_1",)],
+            [], [], [], []
+        ]
+
+        with patch("statmonitor.pipeline.get_db", return_value=mock_conn), \
+             patch("statmonitor.pipeline.ensure_tables"), \
+             patch("statmonitor.pipeline.settle_and_report"), \
+             patch("statmonitor.pipeline.resolve_alert_from_history", return_value=(None, None, None, None)), \
+             patch("statmonitor.pipeline.get_cols", return_value={"event_id", "outcome", "price", "recorded_at"}), \
+             patch("statmonitor.pipeline.build_chart", return_value=b"fake_chart"), \
+             patch("statmonitor.pipeline.analyze_gemini", return_value="Аналіз"), \
+             patch("statmonitor.pipeline.send_tg"), \
+             patch("statmonitor.pipeline.send_photo") as mock_send_photo, \
+             patch("statmonitor.pipeline.place_paper_bet"):
+            pipe.check_alerts_and_notify({"soccer_epl": "EPL"})
+
+            # ev_1 should be skipped, only ev_2 should proceed to photo/alert notification
+            self.assertEqual(mock_send_photo.call_count, 1)
+            caption = mock_send_photo.call_args[0][1]
+            self.assertIn("Liverpool - City", caption)
+            self.assertNotIn("Arsenal - Chelsea", caption)
+
 if __name__ == "__main__":
     unittest.main()

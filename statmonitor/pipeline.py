@@ -109,8 +109,20 @@ def check_alerts_and_notify(sports_map, t_start=None):
     for it in items[:40]:
         grouped.setdefault(it["event_id"], []).append(it)
 
+    # 4. Виключення матчів, на які вже зроблена активна ставка (SPEC-27 Anti-Spam Pipeline)
+    active_events = set()
+    try:
+        cur.execute("SELECT event_id FROM paper_bets WHERE status='PENDING';")
+        active_events = {r[0] for r in cur.fetchall() if r[0]}
+    except Exception as e:
+        print(f"Помилка отримання активних ставок: {e}")
+
     summary_rows = []
     for ev_id, grp in list(grouped.items())[:15]:
+        if ev_id in active_events:
+            print(f"ℹ️ Пропуск {grp[0].get('match')}: на цей матч уже є активна ставка у Paper Bank (захист від повторного аналізу та спаму).")
+            continue
+
         f = grp[0]
         title = sports_map.get(f["sport"], f["sport"])
         c_str = fmt_kyiv(f["c_time"])
