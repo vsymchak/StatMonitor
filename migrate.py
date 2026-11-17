@@ -4,10 +4,12 @@ import glob
 import argparse
 import psycopg2
 
+from statmonitor.config import SUPABASE_DB_URL
+
 DEFAULT_MIGRATIONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "migrations")
 
 def get_db_connection(db_url=None):
-    url = db_url or os.environ.get("SUPABASE_DB_URL")
+    url = db_url or SUPABASE_DB_URL or os.environ.get("SUPABASE_DB_URL")
     if not url:
         return None, "SUPABASE_DB_URL не вказано."
     try:

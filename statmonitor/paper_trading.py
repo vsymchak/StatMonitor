@@ -1,8 +1,270 @@
 import re
 import requests
+import statistics
 from datetime import datetime
 from statmonitor.config import INITIAL_BANKROLL, API_KEY, API_KEY_RESERVE, KYIV_TZ
 from statmonitor.notifier import send_tg
+
+# Еталонні букмекерські контори для розрахунку медіанного коефіцієнта (SPEC-18)
+BENCHMARK_BOOKMAKERS = {
+    "pinnacle",
+    "betfair_ex_eu",
+    "betfair",
+    "unibet_eu",
+    "unibet",
+    "marathonbet",
+}
+
+def parse_pick_label(pick_lbl, match_name=""):
+    """
+    Розбирає лейбл ставки (наприклад, 'Ф2 (+4.5)', 'ТБ 2.5', 'П1 (Arsenal)')
+    на складові: (market_key, outcome_name, point).
+    """
+    if not pick_lbl:
+        return None, None, None
+    p = str(pick_lbl).strip()
+    parts = [x.strip() for x in str(match_name).split(" - ", 1)]
+    h_t = parts[0] if len(parts) >= 1 else ""
+    a_t = parts[1] if len(parts) >= 2 else ""
+
+    # 1. Totals (ТБ / ТМ / Over / Under)
+    m_tb = re.search(r"(?:^|\b|\()(?:тб|over)\s*\(?([0-9.]+)\)?", p, re.I)
+    if m_tb:
+        return "totals", "Over", float(m_tb.group(1))
+    m_tm = re.search(r"(?:^|\b|\()(?:тм|under)\s*\(?([0-9.]+)\)?", p, re.I)
+    if m_tm:
+        return "totals", "Under", float(m_tm.group(1))
+
+    # 2. Spreads / Фора
+    m_f1 = re.search(r"(?:^|\b|\()(?:ф1|фора\s*1)\s*\(?([+-]?[0-9.]+)\)?", p, re.I)
+    if m_f1:
+        return "spreads", h_t, float(m_f1.group(1))
+    m_f2 = re.search(r"(?:^|\b|\()(?:ф2|фора\s*2)\s*\(?([+-]?[0-9.]+)\)?", p, re.I)
+    if m_f2:
+        return "spreads", a_t, float(m_f2.group(1))
+
+    m_fo = re.search(r"фора\s+(.+?)\s*\(?([+-]?[0-9.]+)\)?", p, re.I)
+    if m_fo:
+        team_part = m_fo.group(1).strip()
+        pt = float(m_fo.group(2))
+        if h_t and (team_part.lower() == h_t.lower() or team_part.lower() in h_t.lower()):
+            return "spreads", h_t, pt
+        if a_t and (team_part.lower() == a_t.lower() or team_part.lower() in a_t.lower()):
+            return "spreads", a_t, pt
+        return "spreads", team_part, pt
+
+    # 3. Moneyline (H2H)
+    if re.search(r"(?:^|\b|\()п1(?:\b|\)|$)", p, re.I) or (h_t and h_t.lower() in p.lower() and not re.search(r"[+-][0-9]", p)):
+        return "h2h", h_t, None
+    if re.search(r"(?:^|\b|\()п2(?:\b|\)|$)", p, re.I) or (a_t and a_t.lower() in p.lower() and not re.search(r"[+-][0-9]", p)):
+        return "h2h", a_t, None
+    if re.search(r"(?:^|\b|\()[хx](?:\b|\)|$)", p, re.I) or "нічия" in p.lower() or "draw" in p.lower():
+        return "h2h", "Draw", None
+
+    return None, None, None
+
+def resolve_alert_from_history(cur, event_id, bookmaker, price, outcome=None):
+    """
+    Якщо v_odds_alerts не містить точного point або market_key,
+    перевіряє в odds_history за event_id, bookmaker і price,
+    чи це справді h2h, чи фора spreads / тотал totals.
+    Повертає кортеж: (market_key, point, outcome_name, price)
+    """
+    if not cur or not event_id:
+        return None, None, outcome, price
+    try:
+        p_val = float(price) if price is not None else 0.0
+
+        # 1. Пошук з урахуванням outcome_name, якщо передано
+        if outcome:
+            cur.execute("""
+                SELECT market_key, point, outcome_name, price
+                FROM odds_history
+                WHERE event_id = %s
+                  AND bookmaker = %s
+                  AND (LOWER(TRIM(outcome_name)) = LOWER(TRIM(%s)) OR outcome_name ILIKE %s)
+                  AND (price = %s OR ABS(price - %s) <= 0.01)
+                ORDER BY recorded_at DESC
+                LIMIT 1;
+            """, (event_id, bookmaker, outcome, outcome, p_val, p_val))
+            row = cur.fetchone()
+            if row:
+                return row[0], (float(row[1]) if row[1] is not None else None), row[2], float(row[3])
+
+        # 2. Пошук суто за event_id, bookmaker та ціною
+        cur.execute("""
+            SELECT market_key, point, outcome_name, price
+            FROM odds_history
+            WHERE event_id = %s
+              AND bookmaker = %s
+              AND (price = %s OR ABS(price - %s) <= 0.01)
+            ORDER BY recorded_at DESC
+            LIMIT 1;
+        """, (event_id, bookmaker, p_val, p_val))
+        row = cur.fetchone()
+        if row:
+            return row[0], (float(row[1]) if row[1] is not None else None), row[2], float(row[3])
+    except Exception as e:
+        print(f"resolve_alert_from_history err: {e}")
+
+    return None, None, outcome, price
+
+def get_market_median_odds(cur, event_id, pick_label, match_name="", fallback_odds=None, at_time=None):
+    """
+    Обчислює реальний медіанний коефіцієнт ринку або еталонних БК (pinnacle, betfair_ex_eu, unibet_eu, marathonbet)
+    на основі записів в odds_history для конкретного маркету, результату та фори/тоталу.
+    Якщо вказано at_time, враховує коефіцієнти, актуальні на цей момент часу (для перерахунку розрахованих матчів).
+    """
+    mkt, out_name, pt = parse_pick_label(pick_label, match_name)
+    fb = float(fallback_odds) if fallback_odds is not None else 1.0
+    if not cur or not event_id or not mkt:
+        return fb
+
+    try:
+        # Якщо назва матчу була неповною, підтягуємо з events
+        if not out_name and match_name:
+            cur.execute("SELECT match_name FROM events WHERE id=%s LIMIT 1;", (event_id,))
+            ev_row = cur.fetchone()
+            if ev_row and ev_row[0]:
+                match_name = ev_row[0]
+                mkt, out_name, pt = parse_pick_label(pick_label, match_name)
+
+        params = [event_id, mkt]
+
+        # Побудова фільтрації за маркетом та результатом
+        outcome_filter = ""
+        if mkt == "totals":
+            outcome_filter = "AND LOWER(outcome_name) = LOWER(%s)"
+            params.append(out_name)
+        elif mkt == "spreads":
+            outcome_filter = "AND (LOWER(TRIM(outcome_name)) = LOWER(TRIM(%s)) OR outcome_name ILIKE %s)"
+            params.extend([out_name, out_name])
+        elif mkt == "h2h":
+            if out_name == "Draw":
+                outcome_filter = "AND (LOWER(outcome_name) IN ('draw', 'draws') OR outcome_name ILIKE '%draw%' OR outcome_name ILIKE '%нічия%')"
+            else:
+                outcome_filter = "AND (LOWER(TRIM(outcome_name)) = LOWER(TRIM(%s)) OR outcome_name ILIKE %s)"
+                params.extend([out_name, out_name])
+
+        point_filter = ""
+        if pt is not None:
+            point_filter = "AND ABS(point - %s) < 0.01"
+            params.append(pt)
+        else:
+            point_filter = "AND (point IS NULL OR point = 0)" if mkt == "h2h" else "AND point IS NULL"
+
+        time_filter = ""
+        if at_time is not None:
+            time_filter = "AND recorded_at <= %s AND recorded_at >= %s - INTERVAL '48 hours'"
+            params.extend([at_time, at_time])
+        else:
+            time_filter = "AND recorded_at >= NOW() - INTERVAL '48 hours'"
+
+        query = f"""
+            SELECT bookmaker, price
+            FROM (
+                SELECT bookmaker, price,
+                       ROW_NUMBER() OVER (PARTITION BY bookmaker ORDER BY recorded_at DESC) as rn
+                FROM odds_history
+                WHERE event_id = %s
+                  AND market_key = %s
+                  {outcome_filter}
+                  {point_filter}
+                  {time_filter}
+            ) sub
+            WHERE rn = 1;
+        """
+        cur.execute(query, tuple(params))
+        rows = cur.fetchall()
+
+        # Якщо на момент at_time записів не знайдено, спробуємо знайти найближчі
+        if not rows and at_time is not None:
+            query_relaxed = f"""
+                SELECT bookmaker, price
+                FROM (
+                    SELECT bookmaker, price,
+                           ROW_NUMBER() OVER (PARTITION BY bookmaker ORDER BY recorded_at DESC) as rn
+                    FROM odds_history
+                    WHERE event_id = %s
+                      AND market_key = %s
+                      {outcome_filter}
+                      {point_filter}
+                      AND recorded_at >= %s - INTERVAL '48 hours'
+                      AND recorded_at <= %s + INTERVAL '6 hours'
+                ) sub
+                WHERE rn = 1;
+            """
+            cur.execute(query_relaxed, tuple(params[:-2] + [at_time, at_time]))
+            rows = cur.fetchall()
+
+        if not rows:
+            return fb
+
+        bm_prices = [float(p) for bm, p in rows if bm.lower() in BENCHMARK_BOOKMAKERS and float(p) > 1.0]
+        all_prices = [float(p) for _, p in rows if float(p) > 1.0]
+
+        if bm_prices:
+            return round(float(statistics.median(bm_prices)), 2)
+        elif all_prices:
+            return round(float(statistics.median(all_prices)), 2)
+    except Exception as e:
+        print(f"get_market_median_odds err: {e}")
+
+    return fb
+
+def recalculate_historical_paper_bets(cur, conn):
+    """
+    Переглядає всі уже створені/розраховані ставки в paper_bets,
+    підтягує з odds_history реальний медіанний коефіцієнт ринку/еталонних БК на момент ставки,
+    оновлює odds та перераховує profit_uah для виграшних ставок.
+    """
+    if not cur or not conn:
+        return []
+
+    cur.execute("""
+        SELECT id, event_id, match_name, pick_label, odds, stake_uah, status, profit_uah, created_at, commence_time
+        FROM paper_bets
+        ORDER BY id ASC;
+    """)
+    rows = cur.fetchall()
+    updated = []
+
+    for row in rows:
+        bid, eid, m_name, pick_lbl, old_odds, stake, st, old_prof, cr_at, c_time = row
+        old_k = float(old_odds)
+        ref_time = cr_at or c_time
+        real_k = get_market_median_odds(cur, eid, pick_lbl, m_name, fallback_odds=old_k, at_time=ref_time)
+
+        if abs(real_k - old_k) > 0.01:
+            stk = float(stake)
+            new_prof = float(old_prof)
+            if st == "WON":
+                new_prof = round(stk * (real_k - 1.0), 2)
+            elif st == "LOST":
+                new_prof = round(-stk, 2)
+            elif st == "VOID":
+                new_prof = 0.0
+
+            cur.execute("""
+                UPDATE paper_bets
+                SET odds = %s, profit_uah = %s
+                WHERE id = %s;
+            """, (real_k, new_prof, bid))
+
+            updated.append({
+                "id": bid,
+                "event_id": eid,
+                "match_name": m_name,
+                "pick_label": pick_lbl,
+                "old_odds": old_k,
+                "new_odds": real_k,
+                "status": st,
+                "old_profit": float(old_prof),
+                "new_profit": new_prof,
+            })
+
+    conn.commit()
+    return updated
 
 def format_pick(market, outcome, point, match_name):
     out_s = str(outcome).strip()

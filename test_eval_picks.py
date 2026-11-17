@@ -1,5 +1,13 @@
 import unittest
-from statmonitor.paper_trading import format_pick, eval_outcome
+from statmonitor.paper_trading import (
+    format_pick,
+    eval_outcome,
+    parse_pick_label,
+    resolve_alert_from_history,
+    get_market_median_odds,
+    recalculate_historical_paper_bets,
+    BENCHMARK_BOOKMAKERS,
+)
 from statmonitor.ai import extract_short_pick
 
 class TestFormatPick(unittest.TestCase):
@@ -148,6 +156,155 @@ class TestExtractShortPick(unittest.TestCase):
             "🎯 **Рекомендована ставка:** П2 (Chelsea) за 2.10\n"
         )
         self.assertEqual(extract_short_pick(ai_text, "fallback"), "П2 (Chelsea)")
+
+
+class TestParsePickLabel(unittest.TestCase):
+    """Тестування розбору ставок на маркет, сторону та фору/тотал (SPEC-18)."""
+
+    def test_parse_spreads(self):
+        mkt, out, pt = parse_pick_label("Ф2 (+4.5)", "Daniil Medvedev - Flavio Cobolli")
+        self.assertEqual(mkt, "spreads")
+        self.assertEqual(out, "Flavio Cobolli")
+        self.assertEqual(pt, 4.5)
+
+        mkt, out, pt = parse_pick_label("Ф1 (-3.5)", "Daniil Medvedev - Flavio Cobolli")
+        self.assertEqual(mkt, "spreads")
+        self.assertEqual(out, "Daniil Medvedev")
+        self.assertEqual(pt, -3.5)
+
+        mkt, out, pt = parse_pick_label("Фора Chelsea (+1.5)", "Arsenal - Chelsea")
+        self.assertEqual(mkt, "spreads")
+        self.assertEqual(out, "Chelsea")
+        self.assertEqual(pt, 1.5)
+
+    def test_parse_totals(self):
+        mkt, out, pt = parse_pick_label("ТБ 2.5", "Arsenal - Chelsea")
+        self.assertEqual(mkt, "totals")
+        self.assertEqual(out, "Over")
+        self.assertEqual(pt, 2.5)
+
+        mkt, out, pt = parse_pick_label("ТМ 210.5", "Lakers - Warriors")
+        self.assertEqual(mkt, "totals")
+        self.assertEqual(out, "Under")
+        self.assertEqual(pt, 210.5)
+
+    def test_parse_h2h(self):
+        mkt, out, pt = parse_pick_label("П1", "Arsenal - Chelsea")
+        self.assertEqual(mkt, "h2h")
+        self.assertEqual(out, "Arsenal")
+        self.assertIsNone(pt)
+
+        mkt, out, pt = parse_pick_label("П2 (Cobolli)", "Daniil Medvedev - Flavio Cobolli")
+        self.assertEqual(mkt, "h2h")
+        self.assertEqual(out, "Flavio Cobolli")
+        self.assertIsNone(pt)
+
+        mkt, out, pt = parse_pick_label("Х (Нічия)", "Arsenal - Chelsea")
+        self.assertEqual(mkt, "h2h")
+        self.assertEqual(out, "Draw")
+        self.assertIsNone(pt)
+
+
+class MockCursor:
+    def __init__(self, fetchall_data=None, fetchone_data=None):
+        self.fetchall_data = fetchall_data or []
+        self.fetchone_data = fetchone_data
+        self.queries = []
+
+    def execute(self, query, params=None):
+        self.queries.append((query, params))
+
+    def fetchall(self):
+        return self.fetchall_data
+
+    def fetchone(self):
+        return self.fetchone_data
+
+class MockConn:
+    def commit(self): pass
+    def rollback(self): pass
+
+
+class TestMarketMedianOdds(unittest.TestCase):
+    """Тестування розрахунку медіанних ринкових коефіцієнтів та добору з odds_history (SPEC-18)."""
+
+    def test_resolve_alert_from_history_found_spread(self):
+        # Якщо v_odds_alerts повернув без point за 1.72, з odds_history підтягується spreads -3.5
+        cur = MockCursor(fetchone_data=("spreads", -3.5, "Daniil Medvedev", 1.72))
+        mkt, pt, out, price = resolve_alert_from_history(cur, "ev_medvedev", "pinnacle", 1.72, "Daniil Medvedev")
+        self.assertEqual(mkt, "spreads")
+        self.assertEqual(pt, -3.5)
+        self.assertEqual(price, 1.72)
+
+    def test_resolve_alert_from_history_found_h2h(self):
+        # Якщо v_odds_alerts повернув без point за 1.28, з odds_history підтягується h2h
+        cur = MockCursor(fetchone_data=("h2h", None, "Daniil Medvedev", 1.28))
+        mkt, pt, out, price = resolve_alert_from_history(cur, "ev_medvedev", "pinnacle", 1.28, "Daniil Medvedev")
+        self.assertEqual(mkt, "h2h")
+        self.assertIsNone(pt)
+        self.assertEqual(price, 1.28)
+
+    def test_get_market_median_odds_with_benchmarks(self):
+        # Pinnacle: 1.57, Betfair: 1.58, Unibet: 1.59, Marathonbet: 1.58 -> Медіана: 1.58
+        cur = MockCursor(fetchall_data=[
+            ("pinnacle", 1.57),
+            ("betfair_ex_eu", 1.58),
+            ("unibet_eu", 1.59),
+            ("marathonbet", 1.58),
+            ("williamhill", 1.54),
+        ])
+        k = get_market_median_odds(cur, "ev_medvedev", "Ф2 (+4.5)", "Daniil Medvedev - Flavio Cobolli", fallback_odds=3.25)
+        self.assertEqual(k, 1.58)
+
+    def test_get_market_median_odds_all_bookmakers(self):
+        # Тільки звичайні БК без еталонних: [1.56, 1.58, 1.60] -> Медіана: 1.58
+        cur = MockCursor(fetchall_data=[
+            ("betclic", 1.56),
+            ("bwin", 1.58),
+            ("betonlineag", 1.60),
+        ])
+        k = get_market_median_odds(cur, "ev_medvedev", "Ф2 (+4.5)", "Daniil Medvedev - Flavio Cobolli", fallback_odds=3.25)
+        self.assertEqual(k, 1.58)
+
+    def test_get_market_median_odds_fallback(self):
+        # Немає даних в odds_history -> повертає fallback_odds
+        cur = MockCursor(fetchall_data=[])
+        k = get_market_median_odds(cur, "ev_medvedev", "Ф2 (+4.5)", "Daniil Medvedev - Flavio Cobolli", fallback_odds=1.58)
+        self.assertEqual(k, 1.58)
+
+    def test_recalculate_historical_paper_bets(self):
+        # Перевірка оновлення уже розрахованих матчів: Medvedev - Cobolli Ф2 (+4.5) з 3.25 перераховується на 1.58
+        conn = MockConn()
+        cur = MockCursor()
+
+        # Перший виклик SELECT для paper_bets, другий для odds_history
+        rows_bets = [
+            (1, "ev_medvedev", "Daniil Medvedev - Flavio Cobolli", "Ф2 (+4.5)", 3.25, 300.0, "WON", 675.0, None, None)
+        ]
+        rows_history = [
+            ("pinnacle", 1.57),
+            ("betfair_ex_eu", 1.58),
+            ("marathonbet", 1.58),
+        ]
+
+        def custom_fetchall():
+            q = cur.queries[-1][0]
+            if "paper_bets" in q and "SELECT" in q:
+                return rows_bets
+            elif "odds_history" in q:
+                return rows_history
+            return []
+
+        cur.fetchall = custom_fetchall
+
+        updated = recalculate_historical_paper_bets(cur, conn)
+        self.assertEqual(len(updated), 1)
+        u = updated[0]
+        self.assertEqual(u["id"], 1)
+        self.assertEqual(u["old_odds"], 3.25)
+        self.assertEqual(u["new_odds"], 1.58)
+        # Профіт для WON перераховується: 300 * (1.58 - 1.0) = 174.00 грн
+        self.assertEqual(u["new_profit"], 174.0)
 
 
 if __name__ == "__main__":

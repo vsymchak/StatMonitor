@@ -1,8 +1,8 @@
 # Дорожня карта розвитку StatMonitor (SDD Roadmap)
 
-> **Статус**: 17 з 17 кроків реалізовано (100% Shipped) · Дорожня карта повністю виконана 🎉  
+> **Статус**: 18 з 18 кроків реалізовано (100% Shipped) · Дорожня карта повністю виконана 🎉  
 > **Оновлено**: 16.11.2026  
-> **Фокус**: Повна зрілість платформи: Hybrid Cloud + Multi-sport Matrix + AI Analysis + Paper Bank + Web Dashboard + Interactive Bot
+> **Фокус**: Повна зрілість платформи: Hybrid Cloud + Multi-sport Matrix + AI Analysis + Paper Bank + Web Dashboard + Interactive Bot + Accurate Market Odds
 
 ---
 
@@ -132,3 +132,13 @@
 * **Статус**: 🟩 Shipped
 * **Опис**: Інтерактивний веб-дашборд на Streamlit (`dashboard.py` + `requirements.txt`) із візуалізацією капіталу (графік балансу), активними та розрахованими ставками, картками AI-вердиктів Gemini, монітором пульсу Watchdog та кнопкою запуску моніторингу через вебхук.
 * **Залежності**: потрібен крок 6, потрібен крок 7, потрібен крок 11
+
+---
+
+## 🟩 Wave 7: Точність ринкових даних (Market Accuracy & Verification)
+
+### 18. Accurate market median odds & point resolution
+* **Розмір**: M
+* **Статус**: 🟩 Shipped
+* **Опис**: Пряме дотягування точного `point` та `market_key` з `odds_history`, якщо в'юшка `v_odds_alerts` повертає NULL. Розрахунок медіанного коефіцієнта еталонних букмекерів (`BENCHMARK_BOOKMAKERS`: Pinnacle, Betfair, Unibet, Marathonbet) для вибору AI (`short_pick`) перед фіксацією в `paper_bets` та зведеннях Telegram. Механізм перерахунку історичних ставок (`recalc_odds.py` / `main.py --recalc-bets`).
+* **Залежності**: потрібен крок 6, потрібен крок 13, потрібен крок 14

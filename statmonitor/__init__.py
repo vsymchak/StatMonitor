@@ -44,6 +44,11 @@ from statmonitor.paper_trading import (
     place_paper_bet,
     eval_outcome,
     settle_and_report,
+    parse_pick_label,
+    resolve_alert_from_history,
+    get_market_median_odds,
+    recalculate_historical_paper_bets,
+    BENCHMARK_BOOKMAKERS,
 )
 from statmonitor.pipeline import (
     check_alerts_and_notify,
@@ -108,4 +113,9 @@ __all__ = [
     "get_active_sports_map",
     "get_active_target_sports",
     "get_league_thresholds",
+    "parse_pick_label",
+    "resolve_alert_from_history",
+    "get_market_median_odds",
+    "recalculate_historical_paper_bets",
+    "BENCHMARK_BOOKMAKERS",
 ]

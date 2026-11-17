@@ -103,22 +103,42 @@ def fetch_and_save_odds(sports_map=None):
             execute_values(cur, f"INSERT INTO events ({id_c}, sport, match_name, commence_time) VALUES %s ON CONFLICT ({id_c}) DO UPDATE SET commence_time=EXCLUDED.commence_time;", [(e[0], e[1], f"{e[2]} - {e[3]}", e[4]) for e in events_batch])
 
     oh_cols = get_cols(cur, "odds_history")
-    sc = {
-        "event_id": pick(oh_cols, ("event_id", "match_id")),
-        "bookmaker": pick(oh_cols, ("bookmaker", "bm")),
-        "market": pick(oh_cols, ("market_key", "market", "mkt")),
-        "outcome": pick(oh_cols, ("outcome_name", "outcome", "selection", "name")),
-        "point": pick(oh_cols, ("point", "handicap", "line")),
-        "price": pick(oh_cols, ("price", "odds", "value")),
-        "time": pick(oh_cols, ("recorded_at", "created_at", "timestamp")),
-    }
-    if odds_raw and sc["outcome"] and sc["price"]:
-        keys = [k for k in ("event_id", "bookmaker", "market", "outcome", "point", "price", "time") if sc[k]]
-        cols_sql = ", ".join(sc[k] for k in keys)
-        execute_values(cur, f"INSERT INTO odds_history ({cols_sql}) VALUES %s;", [tuple(x[k] for k in keys) for x in odds_raw])
+    col_map = []
+    if "event_id" in oh_cols: col_map.append(("event_id", "event_id"))
+    elif "match_id" in oh_cols: col_map.append(("match_id", "event_id"))
 
-    if sc["time"]:
-        cur.execute(f"DELETE FROM odds_history WHERE {sc['time']} < NOW() - INTERVAL '4 days';")
+    if "bookmaker" in oh_cols: col_map.append(("bookmaker", "bookmaker"))
+    elif "bm" in oh_cols: col_map.append(("bm", "bookmaker"))
+
+    if "market_key" in oh_cols: col_map.append(("market_key", "market"))
+    elif "market" in oh_cols: col_map.append(("market", "market"))
+
+    # Підтримуємо обидві назви (outcome_name та legacy outcome)
+    if "outcome_name" in oh_cols: col_map.append(("outcome_name", "outcome"))
+    if "outcome" in oh_cols: col_map.append(("outcome", "outcome"))
+
+    if "point" in oh_cols: col_map.append(("point", "point"))
+    elif "handicap" in oh_cols: col_map.append(("handicap", "point"))
+
+    # Підтримуємо обидві назви (price та legacy odds_value)
+    if "price" in oh_cols: col_map.append(("price", "price"))
+    if "odds_value" in oh_cols: col_map.append(("odds_value", "price"))
+    elif "odds" in oh_cols: col_map.append(("odds", "price"))
+
+    time_col = None
+    if "recorded_at" in oh_cols:
+        col_map.append(("recorded_at", "time"))
+        time_col = "recorded_at"
+    elif "created_at" in oh_cols:
+        col_map.append(("created_at", "time"))
+        time_col = "created_at"
+
+    if odds_raw and col_map:
+        cols_sql = ", ".join(c[0] for c in col_map)
+        execute_values(cur, f"INSERT INTO odds_history ({cols_sql}) VALUES %s;", [tuple(x[c[1]] for c in col_map) for x in odds_raw])
+
+    if time_col:
+        cur.execute(f"DELETE FROM odds_history WHERE {time_col} < NOW() - INTERVAL '4 days';")
     cur.execute("DELETE FROM events WHERE commence_time < NOW() - INTERVAL '4 days';")
     conn.commit()
     cur.close()

@@ -7,7 +7,13 @@ from statmonitor.database import get_db, get_cols, pick, pick_v, ensure_tables
 from statmonitor.notifier import send_tg, send_photo, esc, fmt_kyiv
 from statmonitor.chart import build_chart
 from statmonitor.ai import analyze_gemini, extract_short_pick
-from statmonitor.paper_trading import format_pick, place_paper_bet, settle_and_report
+from statmonitor.paper_trading import (
+    format_pick,
+    place_paper_bet,
+    settle_and_report,
+    resolve_alert_from_history,
+    get_market_median_odds,
+)
 
 def check_alerts_and_notify(sports_map, t_start=None):
     print("4. Перевірка алертів і відправка...")
@@ -57,6 +63,23 @@ def check_alerts_and_notify(sports_map, t_start=None):
         pt = pick_v(d, ("point", "handicap", "line"))
         out = pick_v(d, ("outcome_name", "outcome", "selection", "side", "name"), "")
         sp_key = pick_v(d, ("sport", "sport_key"), r[1])
+        ev_id = pick_v(d, ("event_id", "id", "match_id"), r[0])
+        bm = pick_v(d, ("bookmaker", "bm"), r[4])
+        mkt = pick_v(d, ("market_key", "market"))
+
+        # 1. Добирати market і point напряму з odds_history (SPEC-18):
+        # якщо v_odds_alerts не віддає point, перевіряємо в odds_history за event_id, bookmaker і price
+        if pt is None:
+            res_mkt, res_pt, res_out, res_price = resolve_alert_from_history(cur, ev_id, bm, curr_k, out)
+            if res_pt is not None:
+                pt = res_pt
+                mkt = res_mkt or "spreads"
+                if res_out:
+                    out = res_out
+                if res_price:
+                    curr_k = res_price
+            elif res_mkt:
+                mkt = res_mkt
 
         # Динамічні пороги коефіцієнтів для ліги (SPEC-16)
         thresh = get_league_thresholds(sp_key)
@@ -67,13 +90,13 @@ def check_alerts_and_notify(sports_map, t_start=None):
         if re.search(r"\d+\.(?:25|75)\b", str(out)):
             continue
         items.append({
-            "event_id": pick_v(d, ("event_id", "id", "match_id"), r[0]),
-            "sport": pick_v(d, ("sport", "sport_key"), r[1]),
+            "event_id": ev_id,
+            "sport": sp_key,
             "match": pick_v(d, ("match_name", "match"), r[2]),
             "c_time": pick_v(d, ("commence_time", "match_time"), r[3]),
-            "bm": pick_v(d, ("bookmaker", "bm"), r[4]),
+            "bm": bm,
             "outcome": out,
-            "market": pick_v(d, ("market_key", "market")),
+            "market": mkt,
             "point": float(pt) if pt is not None else None,
             "start_k": float(pick_v(d, ("start_odds", "initial_odds", "open_odds", "first_odds", "start_price"), 0) or 0),
             "curr_k": curr_k,
@@ -127,10 +150,13 @@ def check_alerts_and_notify(sports_map, t_start=None):
             send_tg(f"🧠 <b>AI-аналіз: {esc(f['match'])}</b>\n\n{ai_verdict}")
 
         short_pick = extract_short_pick(ai_verdict, top_pick)
-        place_paper_bet(cur, conn, ev_id, f["sport"], f["match"], f["c_time"], short_pick, f["curr_k"])
+
+        # 2. Розрахунок РЕАЛЬНОГО медіанного коефіцієнта ринку або еталонних БК (SPEC-18)
+        real_odds = get_market_median_odds(cur, ev_id, short_pick, f["match"], fallback_odds=f["curr_k"])
+        place_paper_bet(cur, conn, ev_id, f["sport"], f["match"], f["c_time"], short_pick, real_odds)
 
         dt_sort = f["c_time"] if hasattr(f["c_time"], "tzinfo") and f["c_time"].tzinfo else (f["c_time"].replace(tzinfo=timezone.utc) if hasattr(f["c_time"], "replace") else datetime.now(timezone.utc))
-        summary_rows.append({"dt": dt_sort, "time": c_str, "match": f["match"], "title": title, "pick": short_pick, "odds": f"{f['curr_k']:.2f}"})
+        summary_rows.append({"dt": dt_sort, "time": c_str, "match": f["match"], "title": title, "pick": short_pick, "odds": f"{real_odds:.2f}"})
 
     print(f"5. Відправка зведення ({len(summary_rows)} подій)...")
     if summary_rows:

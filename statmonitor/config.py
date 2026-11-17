@@ -1,6 +1,30 @@
 import os
 from datetime import timezone, timedelta
 
+# Автоматичне завантаження з файлу .env (якщо присутній)
+def _load_env_file():
+    candidates = [
+        ".env",
+        os.path.join(os.path.dirname(__file__), "..", ".env"),
+    ]
+    for c in candidates:
+        if os.path.isfile(c):
+            try:
+                with open(c, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            k, v = line.split("=", 1)
+                            k = k.strip()
+                            v = v.strip().strip('"').strip("'")
+                            if k not in os.environ:
+                                os.environ[k] = v
+            except Exception:
+                pass
+            break
+
+_load_env_file()
+
 try:
     from zoneinfo import ZoneInfo
     KYIV_TZ = ZoneInfo("Europe/Kyiv")

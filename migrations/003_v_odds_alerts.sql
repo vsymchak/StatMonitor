@@ -3,6 +3,7 @@
 -- Оптимізоване аналітичне представлення v_odds_alerts (SPEC-14)
 -- ==============================================================================
 
+DROP VIEW IF EXISTS v_odds_alerts CASCADE;
 CREATE OR REPLACE VIEW v_odds_alerts AS
 WITH ranked_odds AS (
     SELECT 
