@@ -306,6 +306,36 @@ class TestMarketMedianOdds(unittest.TestCase):
         # Профіт для WON перераховується: 300 * (1.58 - 1.0) = 174.00 грн
         self.assertEqual(u["new_profit"], 174.0)
 
+    def test_recalculate_syncs_ai_pick(self):
+        """Перевіряє, що якщо ставка була П2, а ШІ дав вердикт Ф2 (+4.5), вона синхронізується"""
+        cur = MockCursor()
+        conn = MockConn()
+        rows_bets = [
+            (28, "ev_med", "Daniil Medvedev - Flavio Cobolli", "П2", 3.89, 78.4, "PENDING", 0.0, None, None,
+             "📌 Коротка ставка: Ф2 (+4.5)\n🎯 Рекомендована ставка: Утримати фору")
+        ]
+        rows_history = [
+            ("pinnacle", 1.66),
+            ("betfair_ex_eu", 1.68),
+        ]
+
+        def custom_fetchall():
+            q = cur.queries[-1][0]
+            if "paper_bets" in q and "SELECT" in q:
+                return rows_bets
+            elif "odds_history" in q:
+                return rows_history
+            return []
+
+        cur.fetchall = custom_fetchall
+        updated = recalculate_historical_paper_bets(cur, conn)
+        self.assertEqual(len(updated), 1)
+        u = updated[0]
+        self.assertEqual(u["id"], 28)
+        self.assertEqual(u["old_pick"], "П2")
+        self.assertEqual(u["pick_label"], "Ф2 (+4.5)")
+        self.assertEqual(u["new_odds"], 1.67)
+
 
 if __name__ == "__main__":
     unittest.main()

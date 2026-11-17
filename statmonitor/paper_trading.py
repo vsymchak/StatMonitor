@@ -177,7 +177,7 @@ def get_market_median_odds(cur, event_id, pick_label, match_name="", fallback_od
         cur.execute(query, tuple(params))
         rows = cur.fetchall()
 
-        # Якщо на момент at_time записів не знайдено, спробуємо знайти найближчі
+        # Якщо на момент at_time записів не знайдено, спробуємо розширене вікно навколо ref_time
         if not rows and at_time is not None:
             query_relaxed = f"""
                 SELECT bookmaker, price
@@ -189,12 +189,40 @@ def get_market_median_odds(cur, event_id, pick_label, match_name="", fallback_od
                       AND market_key = %s
                       {outcome_filter}
                       {point_filter}
-                      AND recorded_at >= %s - INTERVAL '48 hours'
-                      AND recorded_at <= %s + INTERVAL '6 hours'
+                      AND recorded_at >= %s - INTERVAL '7 days'
+                      AND recorded_at <= %s + INTERVAL '24 hours'
                 ) sub
                 WHERE rn = 1;
             """
             cur.execute(query_relaxed, tuple(params[:-2] + [at_time, at_time]))
+            rows = cur.fetchall()
+
+        # Якщо все ще немає записів (наприклад, минулий матч без передачі at_time або великий часовий розрив)
+        if not rows:
+            query_any_time = f"""
+                SELECT bookmaker, price
+                FROM (
+                    SELECT bookmaker, price,
+                           ROW_NUMBER() OVER (PARTITION BY bookmaker ORDER BY recorded_at DESC) as rn
+                    FROM odds_history
+                    WHERE event_id = %s
+                      AND market_key = %s
+                      {outcome_filter}
+                      {point_filter}
+                ) sub
+                WHERE rn = 1;
+            """
+            base_params = [params[0], params[1]]
+            if outcome_filter:
+                if mkt == "spreads":
+                    base_params.extend([out_name, out_name])
+                elif mkt == "totals":
+                    base_params.append(out_name)
+                elif mkt == "h2h" and out_name != "Draw":
+                    base_params.extend([out_name, out_name])
+            if pt is not None:
+                base_params.append(pt)
+            cur.execute(query_any_time, tuple(base_params))
             rows = cur.fetchall()
 
         if not rows:
@@ -215,27 +243,50 @@ def get_market_median_odds(cur, event_id, pick_label, match_name="", fallback_od
 def recalculate_historical_paper_bets(cur, conn):
     """
     Переглядає всі уже створені/розраховані ставки в paper_bets,
+    якщо для матчу є аналіз ШІ — синхронізує pick_label з AI short_pick,
     підтягує з odds_history реальний медіанний коефіцієнт ринку/еталонних БК на момент ставки,
     оновлює odds та перераховує profit_uah для виграшних ставок.
     """
     if not cur or not conn:
         return []
 
+    try:
+        from statmonitor.ai import extract_short_pick
+    except ImportError:
+        extract_short_pick = lambda txt, fb: fb
+
     cur.execute("""
-        SELECT id, event_id, match_name, pick_label, odds, stake_uah, status, profit_uah, created_at, commence_time
-        FROM paper_bets
-        ORDER BY id ASC;
+        SELECT pb.id, pb.event_id, pb.match_name, pb.pick_label, pb.odds, pb.stake_uah, pb.status, pb.profit_uah, pb.created_at, pb.commence_time, ai.verdict_text
+        FROM paper_bets pb
+        LEFT JOIN ai_match_analysis ai ON pb.event_id = ai.event_id
+        ORDER BY pb.id ASC;
     """)
     rows = cur.fetchall()
     updated = []
 
     for row in rows:
-        bid, eid, m_name, pick_lbl, old_odds, stake, st, old_prof, cr_at, c_time = row
+        if len(row) >= 11:
+            bid, eid, m_name, pick_lbl, old_odds, stake, st, old_prof, cr_at, c_time, ai_txt = row[:11]
+        else:
+            bid, eid, m_name, pick_lbl, old_odds, stake, st, old_prof, cr_at, c_time = row[:10]
+            ai_txt = None
         old_k = float(old_odds)
         ref_time = cr_at or c_time
-        real_k = get_market_median_odds(cur, eid, pick_lbl, m_name, fallback_odds=old_k, at_time=ref_time)
 
-        if abs(real_k - old_k) > 0.01:
+        # Синхронізація з вердиктом ШІ, якщо ШІ надав конкретну рекомендацію
+        effective_pick = pick_lbl
+        if ai_txt:
+            ai_pick = extract_short_pick(ai_txt, fallback=pick_lbl)
+            if ai_pick and not any(w in ai_pick.lower() for w in ("пропустити", "утриматися")):
+                effective_pick = ai_pick
+
+        real_k = get_market_median_odds(cur, eid, effective_pick, m_name, fallback_odds=old_k, at_time=ref_time)
+
+        changed = False
+        if effective_pick != pick_lbl or abs(real_k - old_k) > 0.01:
+            changed = True
+
+        if changed:
             stk = float(stake)
             new_prof = float(old_prof)
             if st == "WON":
@@ -247,15 +298,16 @@ def recalculate_historical_paper_bets(cur, conn):
 
             cur.execute("""
                 UPDATE paper_bets
-                SET odds = %s, profit_uah = %s
+                SET pick_label = %s, odds = %s, profit_uah = %s
                 WHERE id = %s;
-            """, (real_k, new_prof, bid))
+            """, (effective_pick, real_k, new_prof, bid))
 
             updated.append({
                 "id": bid,
                 "event_id": eid,
                 "match_name": m_name,
-                "pick_label": pick_lbl,
+                "old_pick": pick_lbl,
+                "pick_label": effective_pick,
                 "old_odds": old_k,
                 "new_odds": real_k,
                 "status": st,
@@ -288,8 +340,15 @@ def place_paper_bet(cur, conn, ev_id, sport, match, c_time, pick_lbl, odds):
     try:
         if any(w in pick_lbl.lower() for w in ("пропустити", "утриматися")):
             return False
-        cur.execute("SELECT 1 FROM paper_bets WHERE event_id=%s;", (ev_id,))
-        if cur.fetchone():
+        cur.execute("SELECT id, status, pick_label FROM paper_bets WHERE event_id=%s;", (ev_id,))
+        existing = cur.fetchone()
+        if existing:
+            bid, st, curr_lbl = existing
+            # Якщо ставка ще PENDING і ШІ уточнив вибір (наприклад, фора замість чистої перемоги), оновлюємо
+            if st == "PENDING" and curr_lbl != pick_lbl and odds > 1.0:
+                cur.execute("UPDATE paper_bets SET pick_label=%s, odds=%s WHERE id=%s;", (pick_lbl, float(odds), bid))
+                conn.commit()
+                return True
             return False
         cur.execute("SELECT COALESCE(SUM(profit_uah),0), COALESCE(SUM(CASE WHEN status='PENDING' THEN stake_uah ELSE 0 END),0) FROM paper_bets;")
         prof, locked = cur.fetchone()
