@@ -35,7 +35,8 @@ def cmd_start_help():
         "📋 <b>Доступні команди:</b>\n"
         "  • <b>/status</b> — Стан сервісу, пульс Watchdog, квоти ліг\n"
         "  • <b>/bank</b> — Фінансовий баланс, вільний капітал, ROI\n"
-        "  • <b>/bets</b> — Активні ставки у грі (PENDING)\n"
+        "  • <b>/bets</b> — Активні ставки у грі (PENDING) з їхніми ID\n"
+        "  • <b>/edit_odds &lt;ID&gt; &lt;коеф&gt;</b> — Змінити коефіцієнт нерозрахованої ставки\n"
         "  • <b>/today</b> — Результати розрахованих ставок за день\n"
         "  • <b>/schedule</b> — Контрольні точки найближчих перевірок\n"
         "  • <b>/run_now</b> — Негайний позачерговий запуск сканування\n"
@@ -126,7 +127,7 @@ def cmd_bank(cur):
 
 def cmd_bets(cur):
     cur.execute("""
-        SELECT match_name, sport, pick_label, odds, stake_uah, commence_time 
+        SELECT id, match_name, sport, pick_label, odds, stake_uah, commence_time 
         FROM paper_bets 
         WHERE status='PENDING' 
         ORDER BY commence_time ASC;
@@ -137,14 +138,20 @@ def cmd_bets(cur):
 
     lines = [f"🎯 <b>АКТИВНІ СТАВКИ В ГРІ ({len(rows)}):</b>\n"]
     for i, r in enumerate(rows, 1):
-        m_name, sport, pick_lbl, odds, stake, c_time = r
+        if len(r) >= 7:
+            bid, m_name, sport, pick_lbl, odds, stake, c_time = r[:7]
+            id_prefix = f"[ID #{bid}] "
+        else:
+            m_name, sport, pick_lbl, odds, stake, c_time = r[:6]
+            id_prefix = ""
         c_str = fmt_kyiv(c_time)
         lines.append(
-            f"<b>{i}. {esc(m_name)}</b>\n"
+            f"<b>{i}. {id_prefix}{esc(m_name)}</b>\n"
             f"   🕒 Старт: <code>{c_str}</code>\n"
             f"   🎯 Вибір: <b>{esc(pick_lbl)}</b> (Коеф: <code>{float(odds):.2f}</code>)\n"
             f"   💵 Ставка: <code>{float(stake):.2f} грн</code>\n"
         )
+    lines.append("✏️ <i>Щоб змінити коефіцієнт ставки:</i> <code>/edit_odds &lt;ID&gt; &lt;новий_коеф&gt;</code>")
     return "\n".join(lines)
 
 def cmd_today(cur):
@@ -219,7 +226,8 @@ def handle_command(cmd_text, chat_id, cur, conn):
         )
 
     # Очищуємо команду від зайвих пробілів та @bot_name
-    raw = cmd_text.strip().split()[0].lower() if cmd_text else ""
+    parts = cmd_text.strip().split() if cmd_text else []
+    raw = parts[0].lower() if parts else ""
     cmd = raw.split("@")[0].lstrip("/")
 
     if cmd in ("start", "help", ""):
@@ -230,6 +238,41 @@ def handle_command(cmd_text, chat_id, cur, conn):
         return cmd_bank(cur), DEFAULT_KEYBOARD
     elif cmd == "bets":
         return cmd_bets(cur), DEFAULT_KEYBOARD
+    elif cmd in ("edit_odds", "edit_bet", "set_odds"):
+        if len(parts) < 3:
+            return (
+                "ℹ️ <b>Формат команди редагування коефіцієнта:</b>\n"
+                "<code>/edit_odds &lt;ID_ставки&gt; &lt;новий_коефіцієнт&gt;</code>\n\n"
+                "<i>Приклад:</i> <code>/edit_odds 28 1.58</code>\n\n"
+                "💡 <i>Введіть /bets, щоб переглянути список активних ставок та їхні ID.</i>",
+                DEFAULT_KEYBOARD,
+            )
+        try:
+            bet_id = int(parts[1])
+            new_k = float(parts[2].replace(",", "."))
+        except ValueError:
+            return (
+                "⚠️ <b>Помилка аргументів:</b> ID ставки має бути цілим числом, а коефіцієнт — числом (наприклад: <code>/edit_odds 28 1.58</code>).",
+                DEFAULT_KEYBOARD,
+            )
+        from statmonitor.paper_trading import update_pending_bet_odds
+        ok, msg, old_k = update_pending_bet_odds(cur, conn, bet_id, new_k)
+        if ok:
+            cur.execute("SELECT match_name, pick_label, stake_uah, odds FROM paper_bets WHERE id=%s;", (bet_id,))
+            row = cur.fetchone()
+            m_name, pk, stk, k = row
+            pot_prof = round(float(stk) * (float(k) - 1.0), 2)
+            resp = (
+                "✅ <b>Коефіцієнт успішно змінено!</b>\n\n"
+                f"⚽ <b>Матч:</b> {esc(m_name)}\n"
+                f"🎯 <b>Вибір:</b> <code>{esc(pk)}</code>\n"
+                f"💰 <b>Ставка:</b> <code>{float(stk):.2f} грн</code>\n"
+                f"📉 <b>Коефіцієнт:</b> <code>{old_k:.2f}</code> ➔ <b><code>{float(k):.2f}</code></b>\n"
+                f"💵 <b>Очікуваний виграш:</b> <b><code>+{pot_prof:.2f} грн</code></b>"
+            )
+            return resp, DEFAULT_KEYBOARD
+        else:
+            return f"❌ <b>Помилка оновлення:</b>\n{esc(msg)}", DEFAULT_KEYBOARD
     elif cmd == "today":
         return cmd_today(cur), DEFAULT_KEYBOARD
     elif cmd == "schedule":

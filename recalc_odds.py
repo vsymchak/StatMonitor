@@ -5,9 +5,35 @@ CLI скрипт для перерахунку коефіцієнтів у вж�
 
 import sys
 from statmonitor.database import get_db, ensure_tables
-from statmonitor.paper_trading import recalculate_historical_paper_bets
+from statmonitor.paper_trading import recalculate_historical_paper_bets, update_pending_bet_odds
 
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] in ("--edit-odds", "--edit-bet", "-e"):
+        if len(sys.argv) < 4:
+            print("Використання: python recalc_odds.py --edit-odds <ID_ставки> <новий_коефіцієнт> [DB_URL]")
+            sys.exit(1)
+        try:
+            b_id = int(sys.argv[2])
+            n_k = float(sys.argv[3])
+        except ValueError:
+            print("❌ ID ставки має бути цілим числом, а коефіцієнт — числом.")
+            sys.exit(1)
+        db_url = sys.argv[4] if len(sys.argv) > 4 and not sys.argv[4].startswith("-") else None
+        conn = get_db(db_url=db_url)
+        if not conn:
+            print("❌ Помилка підключення до бази даних.")
+            sys.exit(1)
+        cur = conn.cursor()
+        ensure_tables(cur, conn)
+        ok, msg, _ = update_pending_bet_odds(cur, conn, b_id, n_k)
+        if ok:
+            print(f"✅ {msg}")
+        else:
+            print(f"❌ {msg}")
+        cur.close()
+        conn.close()
+        return
+
     print("🔄 Запуск перевірки та перерахунку коефіцієнтів у paper_bets...")
     db_url = None
     if len(sys.argv) > 1 and not sys.argv[1].startswith("-"):

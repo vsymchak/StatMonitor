@@ -345,6 +345,44 @@ class TestMarketMedianOdds(unittest.TestCase):
         self.assertIn("WON", msg)
         self.assertIn("52.53", msg)
 
+    def test_update_pending_bet_odds_success(self):
+        from statmonitor.paper_trading import update_pending_bet_odds
+        cur = MockCursor(fetchone_data=(28, "Daniil Medvedev - Flavio Cobolli", "Ф2 (+4.5)", 3.25, 100.0, "PENDING"))
+        conn = MockConn()
+        ok, msg, old_k = update_pending_bet_odds(cur, conn, 28, 1.58)
+        self.assertTrue(ok)
+        self.assertEqual(old_k, 3.25)
+        self.assertIn("1.58", msg)
+        self.assertIn("58.0", msg)
+
+    def test_update_pending_bet_odds_invalid_range(self):
+        from statmonitor.paper_trading import update_pending_bet_odds
+        cur = MockCursor()
+        conn = MockConn()
+        ok, msg, old_k = update_pending_bet_odds(cur, conn, 28, 0.95)
+        self.assertFalse(ok)
+        self.assertIn("Неприпустимий коефіцієнт", msg)
+
+        ok2, msg2, _ = update_pending_bet_odds(cur, conn, 28, "invalid")
+        self.assertFalse(ok2)
+        self.assertIn("Некоректний формат", msg2)
+
+    def test_update_pending_bet_odds_reject_settled(self):
+        from statmonitor.paper_trading import update_pending_bet_odds
+        cur = MockCursor(fetchone_data=(28, "Daniil Medvedev - Flavio Cobolli", "Ф2 (+4.5)", 1.67, 100.0, "WON"))
+        conn = MockConn()
+        ok, msg, old_k = update_pending_bet_odds(cur, conn, 28, 1.80)
+        self.assertFalse(ok)
+        self.assertIn("вже має статус 'WON'", msg)
+
+    def test_update_pending_bet_odds_not_found(self):
+        from statmonitor.paper_trading import update_pending_bet_odds
+        cur = MockCursor(fetchone_data=None)
+        conn = MockConn()
+        ok, msg, _ = update_pending_bet_odds(cur, conn, 9999, 1.80)
+        self.assertFalse(ok)
+        self.assertIn("не знайдено", msg)
+
 
 if __name__ == "__main__":
     unittest.main()

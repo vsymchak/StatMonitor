@@ -38,6 +38,7 @@ from statmonitor import (
     resolve_alert_from_history,
     get_market_median_odds,
     recalculate_historical_paper_bets,
+    update_pending_bet_odds,
 )
 
 def run_pipeline():
@@ -64,9 +65,37 @@ def run_recalc(db_url=None):
     cur.close()
     conn.close()
 
+def run_edit_odds(bet_id, new_odds, db_url=None):
+    """Оновлення коефіцієнта для нерозрахованої ставки."""
+    conn = get_db(db_url=db_url)
+    if not conn:
+        print("❌ Помилка підключення до бази даних.")
+        return
+    cur = conn.cursor()
+    ensure_tables(cur, conn)
+    ok, msg, old_k = update_pending_bet_odds(cur, conn, bet_id, new_odds)
+    if ok:
+        print(f"✅ {msg}")
+    else:
+        print(f"❌ {msg}")
+    cur.close()
+    conn.close()
+
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] in ("--recalc-bets", "--recalc", "-r"):
         custom_url = sys.argv[2] if len(sys.argv) > 2 and not sys.argv[2].startswith("-") else None
         run_recalc(db_url=custom_url)
+    elif len(sys.argv) > 1 and sys.argv[1] in ("--edit-odds", "--edit-bet", "-e"):
+        if len(sys.argv) < 4:
+            print("Використання: python main.py --edit-odds <ID_ставки> <новий_коефіцієнт> [DB_URL]")
+            sys.exit(1)
+        try:
+            b_id = int(sys.argv[2])
+            n_k = float(sys.argv[3])
+        except ValueError:
+            print("❌ ID ставки має бути цілим числом, а коефіцієнт — числом.")
+            sys.exit(1)
+        custom_url = sys.argv[4] if len(sys.argv) > 4 and not sys.argv[4].startswith("-") else None
+        run_edit_odds(b_id, n_k, db_url=custom_url)
     else:
         run_pipeline()

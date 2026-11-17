@@ -415,8 +415,37 @@ def run_streamlit_app():
                 if df_all is not None and not df_all.empty:
                     pending_df = df_all[df_all["status"] == "PENDING"]
                     if not pending_df.empty:
-                        disp_cols = [c for c in ["sport", "match_name", "pick_label", "odds", "stake_uah", "commence_time"] if c in pending_df.columns]
+                        disp_cols = [c for c in ["id", "sport", "match_name", "pick_label", "odds", "stake_uah", "commence_time"] if c in pending_df.columns]
                         st.dataframe(pending_df[disp_cols], use_container_width=True, hide_index=True)
+
+                        with st.expander("✏️ Редагувати коефіцієнт ставки (Edit Odds)"):
+                            bet_options = {}
+                            for _, r_bet in pending_df.iterrows():
+                                b_lbl = f"ID #{r_bet['id']} | {r_bet.get('match_name', '')} ({r_bet.get('pick_label', '')}) — Поточний: {float(r_bet.get('odds', 0)):.2f}"
+                                bet_options[b_lbl] = r_bet["id"]
+
+                            sel_lbl = st.selectbox("Оберіть нерозраховану ставку:", list(bet_options.keys()), key="sel_pending_bet")
+                            sel_id = bet_options[sel_lbl]
+                            curr_odds_val = float(pending_df[pending_df["id"] == sel_id]["odds"].iloc[0])
+
+                            new_k_input = st.number_input(
+                                "Новий коефіцієнт (New Odds):",
+                                min_value=1.01,
+                                max_value=50.00,
+                                value=curr_odds_val,
+                                step=0.01,
+                                format="%.2f",
+                                key="num_new_odds",
+                            )
+
+                            if st.button("💾 Оновити коефіцієнт", key="btn_save_odds", use_container_width=True):
+                                from statmonitor.paper_trading import update_pending_bet_odds
+                                ok, msg, _ = update_pending_bet_odds(cur, conn, sel_id, new_k_input)
+                                if ok:
+                                    st.success(f"✅ {msg}")
+                                    st.rerun()
+                                else:
+                                    st.error(f"❌ {msg}")
                     else:
                         st.info("Наразі немає відкритих ставок у грі.")
                 else:

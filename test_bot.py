@@ -168,5 +168,33 @@ class TestBot(unittest.TestCase):
         self.assertIn("StatMonitor AI Assistant", res)
         mock_send.assert_called_once()
 
+    @patch("statmonitor.bot.TG_CHAT_ID", "123456789")
+    def test_handle_command_edit_odds_usage(self):
+        cur = MockCursor()
+        conn = MockConn()
+        resp, markup = handle_command("/edit_odds", 123456789, cur, conn)
+        self.assertIn("Формат команди", resp)
+        self.assertIn("/edit_odds", resp)
+        self.assertIn("новий_коефіцієнт", resp)
+
+    @patch("statmonitor.bot.TG_CHAT_ID", "123456789")
+    def test_handle_command_edit_odds_invalid_args(self):
+        cur = MockCursor()
+        conn = MockConn()
+        resp, markup = handle_command("/edit_odds abc def", 123456789, cur, conn)
+        self.assertIn("Помилка аргументів", resp)
+
+    @patch("statmonitor.bot.TG_CHAT_ID", "123456789")
+    @patch("statmonitor.paper_trading.update_pending_bet_odds")
+    def test_handle_command_edit_odds_success(self, mock_update):
+        mock_update.return_value = (True, "OK", 3.25)
+        cur = MockCursor(fetchone_data=("Medvedev - Cobolli", "Ф2 (+4.5)", 100.0, 1.58))
+        conn = MockConn()
+        resp, markup = handle_command("/edit_odds 28 1.58", 123456789, cur, conn)
+        self.assertIn("Коефіцієнт успішно змінено", resp)
+        self.assertIn("Medvedev - Cobolli", resp)
+        self.assertIn("1.58", resp)
+        self.assertIn("58.00 грн", resp)
+
 if __name__ == "__main__":
     unittest.main()

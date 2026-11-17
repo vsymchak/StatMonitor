@@ -395,6 +395,52 @@ def eval_outcome(pick_lbl, match_name, h_sc, a_sc):
         return "WON" if h_sc == a_sc else "LOST"
     return None
 
+def update_pending_bet_odds(cur, conn, bet_id, new_odds):
+    """
+    Оновлює коефіцієнт для нерозрахованої ставки (status = 'PENDING').
+    Повертає кортеж (success: bool, message: str, old_odds: float | None).
+    """
+    if not cur or not conn:
+        return False, "База даних недоступна", None
+
+    try:
+        k = float(new_odds)
+        if k <= 1.0 or k > 100.0:
+            return False, f"Неприпустимий коефіцієнт: {new_odds}. Очікується значення від 1.01 до 100.0.", None
+    except (ValueError, TypeError):
+        return False, f"Некоректний формат коефіцієнта: '{new_odds}'. Очікується десяткове число (наприклад, 1.75).", None
+
+    try:
+        cur.execute("""
+            SELECT id, match_name, pick_label, odds, stake_uah, status
+            FROM paper_bets
+            WHERE id = %s;
+        """, (bet_id,))
+        row = cur.fetchone()
+        if not row:
+            return False, f"Ставку #{bet_id} не знайдено в базі даних.", None
+
+        bid, m_name, pk, old_k_raw, stake, st = row
+        old_k = float(old_k_raw)
+
+        if st != "PENDING":
+            return False, f"Неможливо змінити коефіцієнт: ставка #{bid} ({m_name}) вже має статус '{st}'. Редагування дозволено тільки для нерозрахованих ставок (PENDING).", old_k
+
+        cur.execute("""
+            UPDATE paper_bets
+            SET odds = %s
+            WHERE id = %s AND status = 'PENDING';
+        """, (k, bid))
+        conn.commit()
+
+        pot_profit = round(float(stake) * (k - 1.0), 2)
+        msg = f"Коефіцієнт для ставки #{bid} ({m_name} | {pk}) успішно змінено з {old_k:.2f} на {k:.2f}. Новий потенційний профіт: +{pot_profit:.2f} грн."
+        return True, msg, old_k
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        return False, f"Помилка бази даних під час оновлення коефіцієнта: {e}", None
+
 def manual_settle_bet(cur, conn, bet_id, score_str, forced_status=None):
     """
     Дозволяє вручну розрахувати ставку (наприклад, для тенісних матчів з форою по геймах,
