@@ -23,7 +23,7 @@ WITH ranked_odds AS (
             ORDER BY oh.recorded_at DESC
         ) AS rn_last
     FROM odds_history oh
-    WHERE oh.recorded_at >= NOW() - INTERVAL '48 hours'
+    WHERE oh.recorded_at >= NOW() - INTERVAL '96 hours'
 ),
 bounds AS (
     SELECT 
