@@ -106,9 +106,10 @@ class TestAnalytics(unittest.TestCase):
             {"pick_label": "Тотал більше (2.5)", "status": "WON", "stake_uah": 200, "profit_uah": 200},
             {"pick_label": "Total Under (2.5)", "status": "WON", "stake_uah": 200, "profit_uah": 180},
             {"pick_label": "Arsenal", "status": "LOST", "stake_uah": 100, "profit_uah": -100},
+            {"pick_label": "Обидві заб'ють: Так", "status": "WON", "stake_uah": 300, "profit_uah": 270},
         ]
         mb = calculate_market_breakdown(bets)
-        self.assertEqual(len(mb), 2)
+        self.assertEqual(len(mb), 3)
         # Перший за прибутком - Тотали (+380 грн)
         self.assertEqual(mb[0]["market_group"], "Тотали")
         self.assertEqual(mb[0]["bets_count"], 2)
@@ -116,9 +117,15 @@ class TestAnalytics(unittest.TestCase):
         self.assertEqual(mb[0]["profit_uah"], 380.0)
         self.assertEqual(mb[0]["roi_pct"], 95.0)
 
-        # Другий - 1X2 (-100 грн)
-        self.assertEqual(mb[1]["market_group"], "1X2 / Переможець")
-        self.assertEqual(mb[1]["profit_uah"], -100.0)
+        # Другий - Обидві заб'ють (+270 грн)
+        self.assertEqual(mb[1]["market_group"], "Обидві заб'ють")
+        self.assertEqual(mb[1]["bets_count"], 1)
+        self.assertEqual(mb[1]["profit_uah"], 270.0)
+        self.assertEqual(mb[1]["roi_pct"], 90.0)
+
+        # Третій - 1X2 (-100 грн)
+        self.assertEqual(mb[2]["market_group"], "1X2 / Переможець")
+        self.assertEqual(mb[2]["profit_uah"], -100.0)
 
 if __name__ == "__main__":
     unittest.main()

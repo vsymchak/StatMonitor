@@ -47,6 +47,15 @@ class TestFormatPick(unittest.TestCase):
         self.assertEqual(format_pick("h2h", "Draw", None, "Arsenal - Chelsea"), "Х (Нічия)")
         self.assertEqual(format_pick("h2h", "draw", None, "Arsenal - Chelsea"), "Х (Нічия)")
 
+    def test_btts_formatting(self):
+        # SPEC-23: Both Teams to Score (BTTS)
+        self.assertEqual(format_pick("btts", "Yes", None, "Arsenal - Chelsea"), "Обидві заб'ють: Так")
+        self.assertEqual(format_pick("btts", "No", None, "Arsenal - Chelsea"), "Обидві заб'ють: Ні")
+        self.assertEqual(format_pick("btts", "yes", None, "Arsenal - Chelsea"), "Обидві заб'ють: Так")
+        self.assertEqual(format_pick("btts", "no", None, "Arsenal - Chelsea"), "Обидві заб'ють: Ні")
+        self.assertEqual(format_pick("btts", "ОЗ: Так", None, "Arsenal - Chelsea"), "ОЗ: Так")
+        self.assertEqual(format_pick("btts", "Обидві заб'ють: Так", None, "Arsenal - Chelsea"), "Обидві заб'ють: Так")
+
     def test_null_match_name_safety(self):
         # Перевірка захисту від AttributeError при None замість назви матчу
         self.assertEqual(format_pick("totals", "Over", 2.5, None), "ТБ 2.5")
@@ -114,8 +123,26 @@ class TestEvalOutcome(unittest.TestCase):
         self.assertEqual(eval_outcome("Х (Нічия)", "Arsenal - Chelsea", 2, 1), "LOST")
         self.assertEqual(eval_outcome("Нічия", "Arsenal - Chelsea", 0, 0), "WON")
 
+    def test_btts_both_teams_to_score(self):
+        # SPEC-23: Розрахунок ринку Обидві заб'ють (BTTS: Yes / No)
+        # Обидві заб'ють: Так
+        self.assertEqual(eval_outcome("Обидві заб'ють: Так", "Arsenal - Chelsea", 2, 1), "WON")
+        self.assertEqual(eval_outcome("Обидві заб'ють (Так)", "Arsenal - Chelsea", 1, 1), "WON")
+        self.assertEqual(eval_outcome("ОЗ: Так", "Arsenal - Chelsea", 1, 2), "WON")
+        self.assertEqual(eval_outcome("BTTS Yes", "Arsenal - Chelsea", 1, 1), "WON")
+        self.assertEqual(eval_outcome("Обидві заб'ють: Так", "Arsenal - Chelsea", 2, 0), "LOST")
+        self.assertEqual(eval_outcome("ОЗ: Так", "Arsenal - Chelsea", 0, 0), "LOST")
+
+        # Обидві заб'ють: Ні
+        self.assertEqual(eval_outcome("Обидві заб'ють: Ні", "Arsenal - Chelsea", 2, 0), "WON")
+        self.assertEqual(eval_outcome("Обидві заб'ють (Ні)", "Arsenal - Chelsea", 0, 1), "WON")
+        self.assertEqual(eval_outcome("ОЗ: Ні", "Arsenal - Chelsea", 0, 0), "WON")
+        self.assertEqual(eval_outcome("BTTS No", "Arsenal - Chelsea", 1, 0), "WON")
+        self.assertEqual(eval_outcome("Обидві заб'ють: Ні", "Arsenal - Chelsea", 1, 1), "LOST")
+        self.assertEqual(eval_outcome("ОЗ: Ні", "Arsenal - Chelsea", 2, 1), "LOST")
+
     def test_unrecognized_pick_returns_none(self):
-        self.assertIsNone(eval_outcome("Обидві заб'ють (Так)", "Arsenal - Chelsea", 1, 1))
+        self.assertIsNone(eval_outcome("Незрозумілий текст без ставок", "Arsenal - Chelsea", 1, 1))
         self.assertIsNone(eval_outcome("", "Arsenal - Chelsea", 1, 1))
 
 
@@ -212,6 +239,45 @@ class TestParsePickLabel(unittest.TestCase):
         self.assertEqual(mkt, "h2h")
         self.assertEqual(out, "Draw")
         self.assertIsNone(pt)
+
+    def test_parse_btts(self):
+        # SPEC-23: Розбір ставок ринку Обидві заб'ють (BTTS)
+        mkt, out, pt = parse_pick_label("Обидві заб'ють: Так", "Arsenal - Chelsea")
+        self.assertEqual(mkt, "btts")
+        self.assertEqual(out, "Yes")
+        self.assertIsNone(pt)
+
+        mkt, out, pt = parse_pick_label("Обидві заб'ють: Ні", "Arsenal - Chelsea")
+        self.assertEqual(mkt, "btts")
+        self.assertEqual(out, "No")
+        self.assertIsNone(pt)
+
+        mkt, out, pt = parse_pick_label("ОЗ: Так", "Arsenal - Chelsea")
+        self.assertEqual(mkt, "btts")
+        self.assertEqual(out, "Yes")
+
+        mkt, out, pt = parse_pick_label("ОЗ: Ні", "Arsenal - Chelsea")
+        self.assertEqual(mkt, "btts")
+        self.assertEqual(out, "No")
+
+        mkt, out, pt = parse_pick_label("BTTS Yes", "Arsenal - Chelsea")
+        self.assertEqual(mkt, "btts")
+        self.assertEqual(out, "Yes")
+
+        mkt, out, pt = parse_pick_label("BTTS No", "Arsenal - Chelsea")
+        self.assertEqual(mkt, "btts")
+        self.assertEqual(out, "No")
+
+    def test_clean_totals_filtering(self):
+        # SPEC-23: Стандартні тотали (цілі та половинні) дозволені
+        clean_totals = [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 215.5]
+        for pt in clean_totals:
+            self.assertEqual(round(abs(pt * 100)) % 50, 0, f"Clean total {pt} має бути дозволено")
+
+        # Четвертні азіатські спреди відсікаються
+        quarter_totals = [0.25, 0.75, 1.25, 1.75, 2.25, 2.75, 3.25, 3.75]
+        for pt in quarter_totals:
+            self.assertNotEqual(round(abs(pt * 100)) % 50, 0, f"Quarter total {pt} має відсікатися")
 
 
 class MockCursor:

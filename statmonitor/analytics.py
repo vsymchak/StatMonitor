@@ -3,6 +3,7 @@ StatMonitor - Модуль розширеної аналітики ефекти�
 Розрахунок Max Drawdown, серій виграшів/програшів (streaks), сегментація по лігах та маркетах.
 """
 
+import re
 from decimal import Decimal
 from statmonitor.config import INITIAL_BANKROLL
 
@@ -30,7 +31,7 @@ def classify_market_group(pick_label):
         return "Тотали"
     if any(k in lbl for k in ("фора", "handicap", "spread")) or ("+" in lbl or "-" in lbl and "(" in lbl):
         return "Фори"
-    if any(k in lbl for k in ("обидві", "btts", "обе забьют")):
+    if any(k in lbl for k in ("обидві", "btts", "обе забьют", "оз:", "оз -", "оз (")) or re.search(r"(?:^|\b|\()оз(?:\b|\)|$)", lbl):
         return "Обидві заб'ють"
     return "1X2 / Переможець"
 

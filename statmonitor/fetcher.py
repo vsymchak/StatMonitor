@@ -181,8 +181,16 @@ def fetch_and_save_odds(sports_map=None):
     for sp in selected_sports:
         if not cur_key:
             break
+        try:
+            from statmonitor.league_config import get_league_thresholds
+            league_thresh = get_league_thresholds(sp)
+            mkt_list = league_thresh.get("markets", ["h2h", "totals", "spreads"])
+        except Exception:
+            mkt_list = ["h2h", "totals", "spreads", "btts"] if sp.startswith("soccer_") else ["h2h", "totals", "spreads"]
+        mkt_str = ",".join(mkt_list)
+
         url = f"https://api.the-odds-api.com/v4/sports/{sp}/odds/"
-        params = {"apiKey": cur_key, "regions": "eu", "markets": "h2h,totals,spreads", "commenceTimeTo": to_str}
+        params = {"apiKey": cur_key, "regions": "eu", "markets": mkt_str, "commenceTimeTo": to_str}
         try:
             r = requests.get(url, params=params, timeout=12)
             rem_credits = r.headers.get("x-requests-remaining", rem_credits)
@@ -204,11 +212,20 @@ def fetch_and_save_odds(sports_map=None):
                 events_batch.append((ev["id"], sp, ev.get("home_team", ""), ev.get("away_team", ""), ev["commence_time"]))
                 for bm in ev.get("bookmakers", []):
                     for mkt in bm.get("markets", []):
+                        mkt_key = mkt.get("key", "")
                         for out in mkt.get("outcomes", []):
                             if out.get("price") is not None:
+                                pt_val = out.get("point")
+                                # SPEC-23: Clean Totals Filtering (відсікання азіатських четвертних тоталів .25 / .75)
+                                if mkt_key == "totals" and pt_val is not None:
+                                    try:
+                                        if round(abs(float(pt_val) * 100)) % 50 != 0:
+                                            continue
+                                    except (ValueError, TypeError):
+                                        pass
                                 odds_raw.append({
-                                    "event_id": ev["id"], "bookmaker": bm["key"], "market": mkt["key"],
-                                    "outcome": out.get("name", ""), "point": out.get("point"),
+                                    "event_id": ev["id"], "bookmaker": bm["key"], "market": mkt_key,
+                                    "outcome": out.get("name", ""), "point": pt_val,
                                     "price": out["price"], "time": now_utc
                                 })
         except Exception as e:

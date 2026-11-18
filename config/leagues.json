@@ -10,7 +10,7 @@
       "min_drop_pct": 5.0,
       "min_odds": 1.40,
       "max_odds": 4.00,
-      "markets": ["h2h", "totals", "spreads"]
+      "markets": ["h2h", "totals", "spreads", "btts"]
     },
     {
       "key": "soccer_spain_la_liga",
@@ -20,7 +20,7 @@
       "min_drop_pct": 5.0,
       "min_odds": 1.40,
       "max_odds": 4.00,
-      "markets": ["h2h", "totals", "spreads"]
+      "markets": ["h2h", "totals", "spreads", "btts"]
     },
     {
       "key": "soccer_italy_serie_a",
@@ -30,7 +30,7 @@
       "min_drop_pct": 5.0,
       "min_odds": 1.40,
       "max_odds": 4.00,
-      "markets": ["h2h", "totals", "spreads"]
+      "markets": ["h2h", "totals", "spreads", "btts"]
     },
     {
       "key": "soccer_germany_bundesliga",
@@ -40,7 +40,7 @@
       "min_drop_pct": 5.0,
       "min_odds": 1.40,
       "max_odds": 4.00,
-      "markets": ["h2h", "totals", "spreads"]
+      "markets": ["h2h", "totals", "spreads", "btts"]
     },
     {
       "key": "soccer_france_ligue_one",
@@ -50,7 +50,7 @@
       "min_drop_pct": 5.0,
       "min_odds": 1.40,
       "max_odds": 4.00,
-      "markets": ["h2h", "totals", "spreads"]
+      "markets": ["h2h", "totals", "spreads", "btts"]
     },
     {
       "key": "soccer_ukraine_premier_league",
@@ -60,7 +60,7 @@
       "min_drop_pct": 5.0,
       "min_odds": 1.40,
       "max_odds": 4.00,
-      "markets": ["h2h", "totals", "spreads"]
+      "markets": ["h2h", "totals", "spreads", "btts"]
     },
     {
       "key": "soccer_poland_ekstraklasa",
@@ -70,7 +70,7 @@
       "min_drop_pct": 5.0,
       "min_odds": 1.40,
       "max_odds": 4.00,
-      "markets": ["h2h", "totals", "spreads"]
+      "markets": ["h2h", "totals", "spreads", "btts"]
     },
     {
       "key": "soccer_uefa_champs_league",
@@ -80,7 +80,7 @@
       "min_drop_pct": 5.0,
       "min_odds": 1.40,
       "max_odds": 4.00,
-      "markets": ["h2h", "totals", "spreads"]
+      "markets": ["h2h", "totals", "spreads", "btts"]
     },
     {
       "key": "soccer_uefa_europa_league",
@@ -90,7 +90,7 @@
       "min_drop_pct": 5.0,
       "min_odds": 1.40,
       "max_odds": 4.00,
-      "markets": ["h2h", "totals", "spreads"]
+      "markets": ["h2h", "totals", "spreads", "btts"]
     },
     {
       "key": "soccer_uefa_conference_league",
@@ -100,7 +100,7 @@
       "min_drop_pct": 5.0,
       "min_odds": 1.40,
       "max_odds": 4.00,
-      "markets": ["h2h", "totals", "spreads"]
+      "markets": ["h2h", "totals", "spreads", "btts"]
     },
     {
       "key": "soccer_uefa_europa_conference_league",
@@ -110,7 +110,7 @@
       "min_drop_pct": 5.0,
       "min_odds": 1.40,
       "max_odds": 4.00,
-      "markets": ["h2h", "totals", "spreads"]
+      "markets": ["h2h", "totals", "spreads", "btts"]
     },
     {
       "key": "soccer_uefa_nations_league",
@@ -120,7 +120,7 @@
       "min_drop_pct": 5.0,
       "min_odds": 1.40,
       "max_odds": 4.00,
-      "markets": ["h2h", "totals", "spreads"]
+      "markets": ["h2h", "totals", "spreads", "btts"]
     },
     {
       "key": "basketball_nba",

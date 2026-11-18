@@ -35,6 +35,12 @@ def parse_pick_label(pick_lbl, match_name=""):
     h_t = parts[0] if len(parts) >= 1 else ""
     a_t = parts[1] if len(parts) >= 2 else ""
 
+    # 0. Both Teams to Score (BTTS / Обидві заб'ють / ОЗ - SPEC-23)
+    if re.search(r"(?:^|\b|\()(?:оз|обидві\s+заб'ють|btts)\s*[:\-]?\s*(?:так|yes|\+)(?:\b|\)|$)", p, re.I) or p.lower() in ("btts yes", "оз: так", "оз - так", "обидві заб'ють: так", "обидві заб'ють (так)"):
+        return "btts", "Yes", None
+    if re.search(r"(?:^|\b|\()(?:оз|обидві\s+заб'ють|btts)\s*[:\-]?\s*(?:ні|no|\-)(?:\b|\)|$)", p, re.I) or p.lower() in ("btts no", "оз: ні", "оз - ні", "обидві заб'ють: ні", "обидві заб'ють (ні)"):
+        return "btts", "No", None
+
     # 1. Totals (ТБ / ТМ / Over / Under)
     m_tb = re.search(r"(?:^|\b|\()(?:тб|over)\s*\(?([0-9.]+)\)?", p, re.I)
     if m_tb:
@@ -144,6 +150,9 @@ def get_market_median_odds(cur, event_id, pick_label, match_name="", fallback_od
         if mkt == "totals":
             outcome_filter = "AND LOWER(outcome_name) = LOWER(%s)"
             params.append(out_name)
+        elif mkt == "btts":
+            outcome_filter = "AND (LOWER(outcome_name) = LOWER(%s) OR (LOWER(%s) = 'yes' AND LOWER(outcome_name) IN ('yes', 'так')) OR (LOWER(%s) = 'no' AND LOWER(outcome_name) IN ('no', 'ні')))"
+            params.extend([out_name, out_name, out_name])
         elif mkt == "spreads":
             outcome_filter = "AND (LOWER(TRIM(outcome_name)) = LOWER(TRIM(%s)) OR outcome_name ILIKE %s)"
             params.extend([out_name, out_name])
@@ -159,7 +168,7 @@ def get_market_median_odds(cur, event_id, pick_label, match_name="", fallback_od
             point_filter = "AND ABS(point - %s) < 0.01"
             params.append(pt)
         else:
-            point_filter = "AND (point IS NULL OR point = 0)" if mkt == "h2h" else "AND point IS NULL"
+            point_filter = "AND (point IS NULL OR point = 0)" if mkt in ("h2h", "btts") else "AND point IS NULL"
 
         time_filter = ""
         if at_time is not None:
@@ -412,12 +421,14 @@ def capture_closing_lines(cur, conn):
 def format_pick(market, outcome, point, match_name):
     try:
         out_s = str(outcome or "").strip()
-        if re.match(r"^(?:П1|П2|Х|Ф1|Ф2|ТБ|ТМ)\b", out_s):
+        if re.match(r"^(?:П1|П2|Х|Ф1|Ф2|ТБ|ТМ|ОЗ|Обидві заб'ють)\b", out_s, re.I):
             return out_s
         m_name = str(match_name or "").strip()
         parts = [p.strip() for p in m_name.split(" - ", 1)] if " - " in m_name else ([m_name] if m_name else [])
         h_t, a_t = (parts[0], parts[1]) if len(parts) == 2 else ("", "")
         mkt = str(market or "").lower()
+        if mkt == "btts" or out_s.lower() in ("yes", "no"):
+            return "Обидві заб'ють: Так" if out_s.lower() in ("yes", "так") else "Обидві заб'ють: Ні"
         if mkt == "totals" or out_s.lower() in ("over", "under"):
             pt = f"{float(point):g}" if point is not None else ""
             return f"{'ТБ' if out_s.lower() == 'over' else 'ТМ'} {pt}".strip()
@@ -507,10 +518,17 @@ def place_paper_bet(cur, conn, ev_id, sport, match, c_time, pick_lbl, odds, drop
         return False
 
 def eval_outcome(pick_lbl, match_name, h_sc, a_sc):
-    p = str(pick_lbl or "").lower()
+    p = str(pick_lbl or "").lower().strip()
     m_name = str(match_name or "").strip()
     parts = [x.strip().lower() for x in m_name.split(" - ", 1)] if " - " in m_name else []
     h_t, a_t = (parts[0], parts[1]) if len(parts) == 2 else ("", "")
+
+    # 0. Both Teams to Score (BTTS / Обидві заб'ють / ОЗ - SPEC-23)
+    if re.search(r"(?:^|\b|\()(?:оз|обидві\s+заб'ють|btts)\s*[:\-\s]\s*(?:так|yes|\+)(?:\b|\)|$)", p) or p in ("btts yes", "оз: так", "оз - так", "обидві заб'ють: так", "обидві заб'ють (так)"):
+        return "WON" if (h_sc > 0 and a_sc > 0) else "LOST"
+    if re.search(r"(?:^|\b|\()(?:оз|обидві\s+заб'ють|btts)\s*[:\-\s]\s*(?:ні|no|\-)(?:\b|\)|$)", p) or p in ("btts no", "оз: ні", "оз - ні", "обидві заб'ють: ні", "обидві заб'ють (ні)"):
+        return "WON" if (h_sc == 0 or a_sc == 0) else "LOST"
+
     m_tb = re.search(r"(?:тб|over)\s*\(?([0-9.]+)\)?", p)
     if m_tb:
         ln = float(m_tb.group(1))
