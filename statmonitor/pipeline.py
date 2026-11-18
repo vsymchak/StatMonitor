@@ -6,7 +6,7 @@ from statmonitor.config import KYIV_TZ
 from statmonitor.database import get_db, get_cols, pick, pick_v, ensure_tables
 from statmonitor.notifier import send_tg, send_photo, esc, fmt_kyiv
 from statmonitor.chart import build_chart
-from statmonitor.ai import analyze_gemini, extract_short_pick
+from statmonitor.ai import analyze_gemini, extract_short_pick, extract_confidence_score
 from statmonitor.paper_trading import (
     format_pick,
     place_paper_bet,
@@ -178,14 +178,31 @@ def check_alerts_and_notify(sports_map, t_start=None):
         # SPEC-30: Текстовий AI-вердикт більше не спамиться окремим довгим повідомленням у Telegram.
         # Він збережений у базі і відображається у Web Dashboard.
 
+        # SPEC-21: Оцінка сили сигналу Gemini (Confidence Score 1-10) та Value Filtering
+        conf_score, risk_lvl = extract_confidence_score(ai_verdict)
+        if conf_score is not None:
+            try:
+                cur.execute(
+                    "UPDATE ai_match_analysis SET confidence_score=%s, risk_level=%s WHERE event_id=%s;",
+                    (conf_score, risk_lvl, ev_id),
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+
         short_pick = extract_short_pick(ai_verdict, top_pick)
 
         # 2. Розрахунок РЕАЛЬНОГО медіанного коефіцієнта ринку або еталонних БК (SPEC-18)
         real_odds = get_market_median_odds(cur, ev_id, short_pick, f["match"], fallback_odds=f["curr_k"])
-        place_paper_bet(cur, conn, ev_id, f["sport"], f["match"], f["c_time"], short_pick, real_odds, drop_pct=f.get("drop"))
+        placed = place_paper_bet(
+            cur, conn, ev_id, f["sport"], f["match"], f["c_time"], short_pick, real_odds,
+            drop_pct=f.get("drop"), confidence=conf_score, risk_level=risk_lvl
+        )
 
-        dt_sort = f["c_time"] if hasattr(f["c_time"], "tzinfo") and f["c_time"].tzinfo else (f["c_time"].replace(tzinfo=timezone.utc) if hasattr(f["c_time"], "replace") else datetime.now(timezone.utc))
-        summary_rows.append({"dt": dt_sort, "time": c_str, "match": f["match"], "title": title, "pick": short_pick, "odds": f"{real_odds:.2f}"})
+        if placed:
+            dt_sort = f["c_time"] if hasattr(f["c_time"], "tzinfo") and f["c_time"].tzinfo else (f["c_time"].replace(tzinfo=timezone.utc) if hasattr(f["c_time"], "replace") else datetime.now(timezone.utc))
+            conf_tag = f" ⭐ {conf_score}/10" if conf_score is not None else ""
+            summary_rows.append({"dt": dt_sort, "time": c_str, "match": f["match"], "title": title, "pick": f"{short_pick}{conf_tag}", "odds": f"{real_odds:.2f}"})
 
     print(f"5. Відправка зведення ({len(summary_rows)} подій)...")
     if summary_rows:

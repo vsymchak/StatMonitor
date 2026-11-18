@@ -162,7 +162,7 @@ def cmd_bets(cur):
 
     try:
         cur.execute("""
-            SELECT id, match_name, sport, pick_label, odds, stake_uah, commence_time, kelly_pct 
+            SELECT id, match_name, sport, pick_label, odds, stake_uah, commence_time, kelly_pct, confidence_score, risk_level 
             FROM paper_bets 
             WHERE status='PENDING' 
             ORDER BY commence_time ASC;
@@ -171,21 +171,37 @@ def cmd_bets(cur):
     except Exception:
         try:
             cur.execute("""
-                SELECT id, match_name, sport, pick_label, odds, stake_uah, commence_time 
+                SELECT id, match_name, sport, pick_label, odds, stake_uah, commence_time, kelly_pct 
                 FROM paper_bets 
                 WHERE status='PENDING' 
                 ORDER BY commence_time ASC;
             """)
             rows = cur.fetchall()
         except Exception:
-            rows = []
+            try:
+                cur.execute("""
+                    SELECT id, match_name, sport, pick_label, odds, stake_uah, commence_time 
+                    FROM paper_bets 
+                    WHERE status='PENDING' 
+                    ORDER BY commence_time ASC;
+                """)
+                rows = cur.fetchall()
+            except Exception:
+                rows = []
 
     if not rows:
         return "ℹ️ <b>Наразі немає активних ставок у грі.</b>\nВсі попередні парі розраховано або очікується новий сигнал."
 
     lines = [f"🎯 <b>АКТИВНІ СТАВКИ В ГРІ ({len(rows)}):</b>\n"]
     for i, r in enumerate(rows, 1):
-        if len(r) >= 8:
+        conf_badge = ""
+        if len(r) >= 10:
+            bid, m_name, sport, pick_lbl, odds, stake, c_time, k_pct, c_score, r_lvl = r[:10]
+            id_prefix = f"[ID #{bid}] "
+            if c_score is not None:
+                r_txt = f", {r_lvl} Risk" if r_lvl else ""
+                conf_badge = f"\n   ⭐ AI Confidence: <b>{c_score}/10</b> (<i>{r_txt.lstrip(', ')}</i>)"
+        elif len(r) >= 8:
             bid, m_name, sport, pick_lbl, odds, stake, c_time, k_pct = r[:8]
             id_prefix = f"[ID #{bid}] "
         elif len(r) >= 7:
@@ -209,7 +225,7 @@ def cmd_bets(cur):
             f"<b>{i}. {id_prefix}{esc(m_name)}</b>\n"
             f"   🕒 Старт (Київ): <code>{c_str}</code>\n"
             f"   🎯 Вибір: <b>{esc(pick_lbl)}</b> (Коеф: <code>{float(odds):.2f}</code>)\n"
-            f"   💵 Ставка: <code>{float(stake):.2f} грн</code>{pct_badge}\n"
+            f"   💵 Ставка: <code>{float(stake):.2f} грн</code>{pct_badge}{conf_badge}\n"
         )
     lines.append("✏️ <i>Щоб змінити коефіцієнт ставки:</i> <code>/edit_odds &lt;ID&gt; &lt;новий_коеф&gt;</code>")
     return "\n".join(lines)

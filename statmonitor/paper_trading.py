@@ -464,6 +464,9 @@ def calculate_kelly_fraction(odds, drop_pct=None, confidence=None, fraction=0.25
     if drop_pct is not None and float(drop_pct) > 0:
         d = min(float(drop_pct), 40.0)
         edge = 0.03 + (d / 100.0) * 0.30
+        if confidence is not None:
+            c = max(1.0, min(10.0, float(confidence)))
+            edge *= (0.5 + (c / 10.0) * 0.5)
     elif confidence is not None:
         c = max(1.0, min(10.0, float(confidence)))
         edge = 0.02 + (c / 10.0) * 0.06
@@ -476,10 +479,21 @@ def calculate_kelly_fraction(odds, drop_pct=None, confidence=None, fraction=0.25
     clamped = max(min_pct, min(max_pct, frac_kelly))
     return round(clamped, 4)
 
-def place_paper_bet(cur, conn, ev_id, sport, match, c_time, pick_lbl, odds, drop_pct=None, confidence=None):
+def place_paper_bet(cur, conn, ev_id, sport, match, c_time, pick_lbl, odds, drop_pct=None, confidence=None, risk_level=None):
     try:
         if any(w in pick_lbl.lower() for w in ("пропустити", "утриматися")):
             return False
+
+        # SPEC-21: Автоматичний фільтр валую за оцінкою сили сигналу (Confidence Score >= 7/10)
+        if confidence is not None:
+            try:
+                conf_val = int(confidence)
+                if conf_val < 7:
+                    print(f"ℹ️ Ставку на {match} ({pick_lbl}) відхилено через низький AI Confidence Score ({conf_val}/10 < 7/10).")
+                    return False
+            except (ValueError, TypeError):
+                pass
+
         # Строга заборона зміни активних або існуючих ставок:
         # Ставка фіксується один раз і є незмінною для всіх автоматичних процесів!
         cur.execute("SELECT 1 FROM paper_bets WHERE event_id=%s;", (ev_id,))
@@ -499,16 +513,29 @@ def place_paper_bet(cur, conn, ev_id, sport, match, c_time, pick_lbl, odds, drop
 
         try:
             cur.execute(
-                "INSERT INTO paper_bets (event_id, sport, match_name, commence_time, pick_label, odds, stake_uah, kelly_pct) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING;",
-                (ev_id, sport, match, c_time, pick_lbl, k, stake, kelly_pct),
+                """
+                INSERT INTO paper_bets (
+                    event_id, sport, match_name, commence_time, pick_label, odds, stake_uah, kelly_pct, confidence_score, risk_level
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT DO NOTHING;
+                """,
+                (ev_id, sport, match, c_time, pick_lbl, k, stake, kelly_pct, confidence, risk_level),
             )
         except Exception:
             if conn:
                 conn.rollback()
-            cur.execute(
-                "INSERT INTO paper_bets (event_id, sport, match_name, commence_time, pick_label, odds, stake_uah) VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING;",
-                (ev_id, sport, match, c_time, pick_lbl, k, stake),
-            )
+            try:
+                cur.execute(
+                    "INSERT INTO paper_bets (event_id, sport, match_name, commence_time, pick_label, odds, stake_uah, kelly_pct) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING;",
+                    (ev_id, sport, match, c_time, pick_lbl, k, stake, kelly_pct),
+                )
+            except Exception:
+                if conn:
+                    conn.rollback()
+                cur.execute(
+                    "INSERT INTO paper_bets (event_id, sport, match_name, commence_time, pick_label, odds, stake_uah) VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING;",
+                    (ev_id, sport, match, c_time, pick_lbl, k, stake),
+                )
         conn.commit()
         return True
     except Exception as e:

@@ -13,7 +13,8 @@ def analyze_gemini(match, title, c_str, drops):
         f"Проведи глибокий аналіз матчу українською мовою з урахуванням складів, поточної форми, свіжих новин та прихованих причин руху котирувань.\n"
         f"Формат відповіді (строго за цими розділами, до 1100 символів):\n"
         f"📌 **Коротка ставка:** (тільки маркет без слів про коефіцієнт: П1, Ф2 (+1.5), ТМ 2.5 або Пропустити)\n"
-        f"🎯 **Рекомендована ставка:** (чітка рекомендація: брати чи пропустити, і чому)\n\n"
+        f"🎯 **Рекомендована ставка:** (чітка рекомендація: брати чи пропустити, і чому)\n"
+        f"⭐ **Оцінка впевненості (Confidence Score):** [число від 1 до 10]/10 (Рівень ризику: Low / Medium / High)\n\n"
         f"🏥 **Склади та кадрові втрати:** (травми, дискваліфікації лідерів, очікувана ротація чи підтверджені склади)\n"
         f"🔥 **Поточна форма та тонус:** (серії команд, тонус ключових бомбардирів/воротарів, втома через календар)\n"
         f"🗣️ **Інсайди, чутки та суть прогрузу:** (чому саме сюди йдуть великі гроші: інсайд про проблеми, зміна тактики чи пастка бука)\n"
@@ -74,3 +75,60 @@ def extract_short_pick(ai_verdict, fallback):
                     if rec:
                         return rec
     return fallback
+
+def extract_confidence_score(ai_verdict):
+    """
+    SPEC-21: Витягує оцінку сили сигналу (Confidence Score 1-10) та рівень ризику (LOW, MEDIUM, HIGH) з вердикту Gemini.
+    Повертає кортеж (score: int | None, risk_level: str | None).
+    """
+    if not ai_verdict:
+        return None, None
+    
+    text = str(ai_verdict)
+    
+    # Якщо вердикт прямо рекомендує пропустити/утриматися, фіксуємо низьку оцінку та високий ризик
+    if any(w in text.lower() for w in ("пропустити матч", "рекомендація: пропустити", "краще пропустити", "утриматися від ставки")):
+        return 3, "HIGH"
+
+    # Очищуємо від HTML тегів та Markdown asterisks для надійного парсингу
+    clean = re.sub(r"<[^>]+>", "", text)
+    clean = re.sub(r"[*_]", "", clean)
+
+    # Регулярний вираз для пошуку "Оцінка впевненості (Confidence Score): 8/10", "8 з 10"
+    m_score = re.search(
+        r"(?:оцінка\s+впевненості(?:\s*\([^)]*\))?|confidence\s*(?:score)?|впевненість|сила\s+сигналу)\s*[:\-]?\s*([0-9]{1,2})\s*(?:/|з|\s*out\s*of\s*)?\s*(?:10)?",
+        clean,
+        re.I
+    )
+    score = None
+    if m_score:
+        try:
+            val = int(m_score.group(1))
+            if 1 <= val <= 10:
+                score = val
+        except ValueError:
+            pass
+
+    # Пошук рівня ризику: Low / Medium / High
+    risk = None
+    m_risk = re.search(r"(?:рівень\s+ризику|ризик|risk(?:\s*level)?)\s*[:\-]?\s*(low|medium|high|низький|середній|високий)", clean, re.I)
+    if m_risk:
+        r_str = m_risk.group(1).lower()
+        if "low" in r_str or "низьк" in r_str:
+            risk = "LOW"
+        elif "med" in r_str or "середн" in r_str:
+            risk = "MEDIUM"
+        elif "high" in r_str or "висок" in r_str:
+            risk = "HIGH"
+
+    # Автокласифікація ризику, якщо вказано лише числовий бал
+    if score is not None and not risk:
+        if score >= 8:
+            risk = "LOW"
+        elif score >= 6:
+            risk = "MEDIUM"
+        else:
+            risk = "HIGH"
+
+    return score, risk
+

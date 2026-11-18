@@ -1,6 +1,6 @@
 # Дорожня карта розвитку StatMonitor (SDD Roadmap)
 
-> **Статус**: 28 з 31 кроків реалізовано (28 Shipped, 3 Planned) · Еволюція Waves 8, 9 & 10 🎉  
+> **Статус**: 29 з 31 кроків реалізовано (29 Shipped, 2 Planned) · Еволюція Waves 8, 9 & 10 🎉  
 > **Оновлено**: 18.11.2026  
 > **Фокус**: Cloudflare Edge Cron (Zero Delay) + Scheduler Noise Elimination & Night Silence + Odds Quota & Tennis Discovery
 
@@ -161,7 +161,7 @@
 
 ### 21. AI Confidence Score & Value Filtering
 * **Розмір**: S
-* **Статус**: 🟪 Idea
+* **Статус**: 🟩 Shipped
 * **Опис**: Оцінка сили сигналу прогрузу нейромережею Gemini за шкалою 1–10 (Confidence Score) та класифікація ризику (Low / Medium / High). Впровадження автоматичного фільтра: відкриття парі у Paper Bank лише для матчів з оцінкою $\ge 7/10$ та наявністю фундаментальних факторів (травми, ротація, інсайди).
 * **Залежності**: потрібен крок 5, потрібен крок 6
 

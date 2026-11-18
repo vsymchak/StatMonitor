@@ -45,6 +45,7 @@ from statmonitor.chart import (
 from statmonitor.ai import (
     analyze_gemini,
     extract_short_pick,
+    extract_confidence_score,
 )
 from statmonitor.paper_trading import (
     format_pick,
@@ -125,6 +126,7 @@ __all__ = [
     "build_chart",
     "analyze_gemini",
     "extract_short_pick",
+    "extract_confidence_score",
     "format_pick",
     "place_paper_bet",
     "calculate_kelly_fraction",

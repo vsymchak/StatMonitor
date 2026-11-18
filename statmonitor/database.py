@@ -63,6 +63,10 @@ def ensure_tables(cur, conn):
             ALTER TABLE paper_bets ADD COLUMN IF NOT EXISTS clv_pct NUMERIC(6,2);
             ALTER TABLE paper_bets ADD COLUMN IF NOT EXISTS beat_closing_line BOOLEAN;
             ALTER TABLE paper_bets ADD COLUMN IF NOT EXISTS closing_recorded_at TIMESTAMPTZ;
+            ALTER TABLE paper_bets ADD COLUMN IF NOT EXISTS confidence_score INTEGER;
+            ALTER TABLE paper_bets ADD COLUMN IF NOT EXISTS risk_level TEXT;
+            ALTER TABLE ai_match_analysis ADD COLUMN IF NOT EXISTS confidence_score INTEGER;
+            ALTER TABLE ai_match_analysis ADD COLUMN IF NOT EXISTS risk_level TEXT;
             CREATE TABLE IF NOT EXISTS paper_daily_reports (
                 report_date DATE PRIMARY KEY, sent_at TIMESTAMPTZ DEFAULT NOW()
             );

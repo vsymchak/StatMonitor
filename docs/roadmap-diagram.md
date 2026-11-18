@@ -1,6 +1,6 @@
 # Візуальна діаграма дорожньої карти (Roadmap diagram)
 
-**28 з 31 кроків реалізовано (28 Shipped, 3 Planned)** · Детальний опис: [roadmap.md](roadmap.md)
+**29 з 31 кроків реалізовано (29 Shipped, 2 Planned)** · Детальний опис: [roadmap.md](roadmap.md)
 
 > 🟩 **Реалізовано (Shipped)** · 🟧 **У розробці (In Progress)** · 🟪 **Заплановано (Idea)** · ⬜ **Концепт (Fog)**  
 > Колонки — це послідовні хвилі виконання (**Execution Waves**). Стрілка показує залежність («потрібен для»).
@@ -54,7 +54,7 @@ flowchart LR
 
     subgraph Wave8["Хвиля 8: Розумний беттинг та маркети"]
         20["20 · Відстеження CLV & Beat Line<br><small>Closing Line Value, +EV</small><br><b>M</b>"]:::shipped
-        21["21 · AI Confidence Score<br><small>Шкала 1-10, фільтр валую</small><br><b>S</b>"]:::idea
+        21["21 · AI Confidence Score<br><small>Шкала 1-10, фільтр валую</small><br><b>S</b>"]:::shipped
         22["22 · Динамічний стейкінг Келлі<br><small>Fractional Kelly 0.25</small><br><b>S</b>"]:::shipped
         23["23 · Обидві заб'ють & тотали<br><small>BTTS (Yes/No), цілі тотали</small><br><b>M</b>"]:::shipped
         27["27 · Дедуплікація & Anti-Spam<br><small>Пропуск активних ставок</small><br><b>S</b>"]:::shipped
@@ -171,7 +171,7 @@ flowchart LR
 | **18** | **Точні медіанні коефіцієнти** | `M` | 🟩 Shipped | Добирання точного `point` з `odds_history`, розрахунок медіани еталонних БК (Pinnacle/Betfair/Unibet) та перерахунок історичних ставок. |
 | **19** | **Редагування коефіцієнтів** | `S` | 🟩 Shipped | Зміна коефіцієнта для ставок у статусі `PENDING` через Streamlit Dashboard (адмін-режим), Telegram-бот (`/edit_odds`) та CLI. |
 | **20** | **Відстеження CLV & Beat Line** | `M` | 🟩 Shipped | Фіксація Closing Line бенчмарків (Pinnacle/Betfair) перед матчем, розрахунок CLV % та Beat the Line % для доказу математичної переваги (+EV). |
-| **21** | **AI Confidence Score & фільтр** | `S` | 🟪 Idea | Оцінка впевненості 1–10 від Gemini AI та автоматичний фільтр відбору ставок у Paper Bank лише з високим значенням валую ($\ge 7$). |
+| **21** | **AI Confidence Score & фільтр** | `S` | 🟩 Shipped | Оцінка впевненості 1–10 від Gemini AI та автоматичний фільтр відбору ставок у Paper Bank лише з високим значенням валую ($\ge 7$). |
 | **22** | **Динамічний стейкінг Келлі** | `S` | 🟩 Shipped | Дробовий критерій Келлі ($0.25 \times \text{Kelly}$) з межами 1–5% та відображенням % банку в активних ставках UI та TG. |
 | **23** | **Обидві заб'ють (BTTS) & цілі тотали** | `M` | 🟩 Shipped | Підтримка ринку Both Teams to Score (Yes/No) у футболі та фільтрація тоталів виключно до стандартних цілих і половинних ліній. |
 | **24** | **Аналітика ROI ліг & Drawdown** | `M` | 🟩 Shipped | Сегментація ROI за турнірами на Web Dashboard, розрахунок максимального просідання капіталу (Max Drawdown %), серій (Streaks) та фільтри. |

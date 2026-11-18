@@ -1036,8 +1036,10 @@ def run_streamlit_app():
 
             recent_disp["Результат"] = recent_disp.apply(_format_result, axis=1)
             recent_disp["CLV (+EV)"] = recent_disp.apply(_format_clv, axis=1)
+            if "confidence_score" in recent_disp.columns:
+                recent_disp["ШІ Сигнал"] = recent_disp["confidence_score"].apply(lambda v: f"⭐ {int(v)}/10" if pd.notna(v) and v else "—")
 
-            cols_show = [c for c in ["Час", "Турнір", "Подія", "Маркет", "Коеф.", "CLV (+EV)", "Сума", "Результат"] if c in recent_disp.columns]
+            cols_show = [c for c in ["Час", "Турнір", "Подія", "Маркет", "Коеф.", "ШІ Сигнал", "CLV (+EV)", "Сума", "Результат"] if c in recent_disp.columns]
             st.dataframe(recent_disp[cols_show], use_container_width=True, hide_index=True)
         else:
             st.info("Немає ставок за обраними фільтрами.")
@@ -1063,7 +1065,9 @@ def run_streamlit_app():
 
                 pending_df["% банку (Келлі)"] = pending_df.apply(get_kelly_badge, axis=1)
                 pending_df["Час (Київ)"] = pending_df["commence_time"].apply(format_kyiv_time)
-                disp_p_cols = [c for c in ["id", "sport", "match_name", "pick_label", "odds", "stake_uah", "% банку (Келлі)", "Час (Київ)"] if c in pending_df.columns]
+                if "confidence_score" in pending_df.columns:
+                    pending_df["ШІ Сигнал"] = pending_df["confidence_score"].apply(lambda v: f"⭐ {int(v)}/10" if pd.notna(v) and v else "—")
+                disp_p_cols = [c for c in ["id", "sport", "match_name", "pick_label", "odds", "stake_uah", "% банку (Келлі)", "ШІ Сигнал", "Час (Київ)"] if c in pending_df.columns]
                 st.dataframe(pending_df[disp_p_cols], use_container_width=True, hide_index=True)
 
                 if is_admin:
@@ -1244,7 +1248,14 @@ def run_streamlit_app():
                 raw_t = row.get(time_col) if time_col else None
                 t_str = f" ({format_kyiv_time(raw_t)})" if raw_t else ""
 
-                with st.expander(f"⚽ {m_name}{sp_tag}{t_str}", expanded=(idx < 2)):
+                c_score = row.get("confidence_score")
+                r_lvl = row.get("risk_level")
+                score_badge = ""
+                if c_score is not None and not (pd is not None and pd.isna(c_score)):
+                    r_str = f" • {r_lvl} Risk" if r_lvl and str(r_lvl) != "nan" else ""
+                    score_badge = f" [⭐ {int(c_score)}/10{r_str}]"
+
+                with st.expander(f"⚽ {m_name}{sp_tag}{score_badge}{t_str}", expanded=(idx < 2)):
                     body = row.get(text_col, "") if text_col else ""
                     clean_body = format_verdict_markdown(body)
                     if clean_body:
