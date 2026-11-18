@@ -1,5 +1,6 @@
 import os
 import sys
+import math
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 import html
@@ -768,119 +769,199 @@ def run_streamlit_app():
             else pd.DataFrame()
         )
 
-        # 4. ОСНОВНА СІТКА З ГРАФІКАМИ (7:5)
+        # 4. ОСНОВНА СІТКА З ГРАФІКАМИ (7:5) — Дизайн у стилі Gemini Mockup
         col_chart_left, col_chart_right = st.columns([7, 5])
 
-        # Ліва колонка (60%): Динаміка капіталу (Line Chart з градієнтом)
+        # Ліва колонка (60%): Динаміка капіталу (Line Chart зі spline та градієнтом)
         with col_chart_left:
+            st.markdown("""
+                <div style="background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; padding: 12px 14px 6px 14px; box-shadow: 0 1px 2px rgba(0,0,0,0.02); margin-bottom: 8px;">
+            """, unsafe_allow_html=True)
+
             if not settled_for_charts.empty and "settled_at" in settled_for_charts.columns:
-                chart_df = settled_for_charts.dropna(subset=["settled_at"]).sort_values(by="settled_at", ascending=True)
+                chart_df = settled_for_charts.dropna(subset=["settled_at"]).sort_values(by="settled_at", ascending=True).copy()
                 if not chart_df.empty:
                     chart_df["profit_uah"] = chart_df["profit_uah"].astype(float)
                     chart_df["cum_profit"] = chart_df["profit_uah"].cumsum()
                     chart_df["balance"] = float(INITIAL_BANKROLL) + chart_df["cum_profit"]
 
-                    # Форматування дати для осі X
-                    chart_df["time_label"] = chart_df["settled_at"].apply(format_kyiv_time)
+                    # Парсимо в локальний київський час
+                    def parse_to_kyiv(val):
+                        if isinstance(val, str):
+                            val = datetime.fromisoformat(val.replace("Z", "+00:00"))
+                        if not hasattr(val, "tzinfo") or not val.tzinfo:
+                            val = val.replace(tzinfo=timezone.utc)
+                        return val.astimezone(KYIV_TZ)
+
+                    chart_df["dt_kyiv"] = chart_df["settled_at"].apply(parse_to_kyiv)
+                    first_dt = chart_df["dt_kyiv"].iloc[0]
+                    start_dt = first_dt - timedelta(hours=8)
+
+                    # Створюємо стартову точку 10,000 грн для плавного органічного початку
+                    start_point = pd.DataFrame([{
+                        "dt_kyiv": start_dt,
+                        "balance": float(INITIAL_BANKROLL),
+                        "profit_uah": 0.0,
+                        "cum_profit": 0.0
+                    }])
+                    full_chart_df = pd.concat([start_point, chart_df], ignore_index=True)
+                    full_chart_df["date_label"] = full_chart_df["dt_kyiv"].apply(lambda d: d.strftime("%d.%m"))
+                    full_chart_df["time_label"] = full_chart_df["dt_kyiv"].apply(lambda d: d.strftime("%d.%m %H:%M"))
+
+                    # Відсоток від старту для бейджа
+                    last_balance = full_chart_df["balance"].iloc[-1]
+                    growth_pct = ((last_balance - INITIAL_BANKROLL) / INITIAL_BANKROLL) * 100.0
+                    growth_badge = f"+{growth_pct:.1f}% від старту" if growth_pct >= 0 else f"{growth_pct:.1f}% від старту"
+
+                    st.markdown(f"""
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 13px; font-weight: 700; color: #1E293B;">📈 Динаміка капіталу (Paper Bank Balance Growth)</span>
+                                <span style="font-size: 10.5px; font-weight: 600; background: #EFF6FF; color: #2563EB; padding: 2px 7px; border-radius: 6px;">{growth_badge}</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 12px; font-size: 11px; color: #64748B;">
+                                <span style="display: flex; align-items: center; gap: 4px;"><span style="width: 7px; height: 7px; border-radius: 50%; background: #2563EB; display: inline-block;"></span> Баланс (грн)</span>
+                                <span style="display: flex; align-items: center; gap: 4px;"><span style="width: 14px; height: 0; border-top: 1.5px dashed #94A3B8; display: inline-block;"></span> Старт: 10,000 ₴</span>
+                            </div>
+                        </div>
+                    """, unsafe_allow_html=True)
+
+                    # Розрахунок вертикального діапазону осі Y (масштаб 10k–14k з кроком 500)
+                    all_b = full_chart_df["balance"].tolist()
+                    min_b = min(all_b)
+                    max_b = max(all_b)
+                    y_min = math.floor(min(min_b, 10000.0) / 500) * 500
+                    y_max = math.ceil(max(max_b, 10000.0) / 500) * 500 + 500
+                    if (y_max - y_min) < 2000:
+                        y_max = y_min + 2500
+                    tick_vals = list(range(int(y_min), int(y_max) + 500, 500))
+                    tick_text = [f"{v/1000:.1f}k" for v in tick_vals]
 
                     fig_bal = go.Figure()
 
-                    # Базова лінія старту (10,000 грн)
+                    # Базова лінія старту (10,000 ₴)
                     fig_bal.add_trace(go.Scatter(
-                        x=chart_df["time_label"],
-                        y=[INITIAL_BANKROLL] * len(chart_df),
+                        x=full_chart_df["date_label"],
+                        y=[INITIAL_BANKROLL] * len(full_chart_df),
                         mode="lines",
-                        name="Старт (10,000 ₴)",
-                        line=dict(color="#94A3B8", width=1.5, dash="dot"),
+                        line=dict(color="#CBD5E1", width=1.5, dash="dash"),
                         hoverinfo="skip"
                     ))
 
-                    # Крива балансу з заливкою
+                    # Плавна крива балансу (Spline) з м'якою напівпрозорою заливкою
                     fig_bal.add_trace(go.Scatter(
-                        x=chart_df["time_label"],
-                        y=chart_df["balance"],
+                        x=full_chart_df["date_label"],
+                        y=full_chart_df["balance"],
                         mode="lines+markers",
-                        name="Баланс (грн)",
-                        line=dict(color="#2563EB", width=2.5),
-                        marker=dict(size=5, color="#2563EB", line=dict(color="#FFFFFF", width=1.5)),
+                        line=dict(color="#2563EB", width=2.4, shape="spline", smoothing=0.35),
+                        marker=dict(size=6, color="#2563EB", line=dict(color="#FFFFFF", width=1.8)),
                         fill="tozeroy",
-                        fillcolor="rgba(37, 99, 235, 0.08)",
-                        hovertemplate="<b>%{x}</b><br>Баланс: %{y:,.2f} ₴<extra></extra>"
+                        fillcolor="rgba(37, 99, 235, 0.10)",
+                        customdata=full_chart_df["time_label"],
+                        hovertemplate="<b>%{customdata}</b><br>Баланс: %{y:,.2f} ₴<extra></extra>"
                     ))
 
                     fig_bal.update_layout(
-                        title=dict(
-                            text="<b>📈 Динаміка капіталу (Paper Bank Balance Growth)</b>",
-                            font=dict(size=13, color="#1E293B", family="Inter")
-                        ),
                         template="plotly_white",
-                        height=310,
-                        margin=dict(l=10, r=10, t=35, b=10),
+                        height=255,
+                        margin=dict(l=45, r=15, t=10, b=25),
                         showlegend=False,
                         plot_bgcolor="#FFFFFF",
                         paper_bgcolor="#FFFFFF",
                         xaxis=dict(
                             showgrid=False,
-                            tickfont=dict(size=10, color="#64748B", family="Inter"),
+                            linecolor="#E2E8F0",
+                            tickfont=dict(size=10.5, color="#64748B", family="Inter"),
                         ),
                         yaxis=dict(
+                            range=[y_min, y_max],
+                            tickvals=tick_vals,
+                            ticktext=tick_text,
                             showgrid=True,
-                            gridcolor="#F1F5F9",
-                            tickfont=dict(size=10, color="#64748B", family="Inter"),
-                            tickformat=",.0f"
+                            gridcolor="#EEF2F6",
+                            gridwidth=1,
+                            tickfont=dict(size=10.5, color="#64748B", family="Inter"),
+                            zeroline=False
                         )
                     )
-                    st.plotly_chart(fig_bal, use_container_width=True)
+                    st.plotly_chart(fig_bal, use_container_width=True, config={"displayModeBar": False})
                 else:
                     st.info("ℹ️ Немає розрахованих ставок за обраними фільтрами для графіка капіталу.")
             else:
                 st.info("ℹ️ Немає розрахованих ставок за обраними фільтрами для графіка капіталу.")
+            st.markdown("</div>", unsafe_allow_html=True)
 
         # Права колонка (40%): ROI за турнірами (Horizontal Bar Chart)
         with col_chart_right:
+            st.markdown("""
+                <div style="background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; padding: 12px 14px 6px 14px; box-shadow: 0 1px 2px rgba(0,0,0,0.02); margin-bottom: 8px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+                        <span style="font-size: 13px; font-weight: 700; color: #1E293B;">🏆 ROI за турнірами (%)</span>
+                        <span style="font-size: 11px; color: #94A3B8;">Сортування: за дохідністю</span>
+                    </div>
+            """, unsafe_allow_html=True)
+
             league_stats = calculate_league_breakdown(all_settled, sports_map=s_map)
             if league_stats:
-                l_df = pd.DataFrame(league_stats).sort_values(by="roi_pct", ascending=True)
+                # Сортування: найприбутковіша ліга вгорі
+                l_df = pd.DataFrame(league_stats).sort_values(by="roi_pct", ascending=False)
 
-                # Кольори барів
-                colors = ["#10B981" if v >= 0 else "#EF4444" for v in l_df["roi_pct"]]
+                # Кольори окремих ліг з макета Gemini (Смарагдовий, Індиго, Синій, Червоний)
+                pos_palette = ['#10B981', '#6366F1', '#3B82F6', '#06B6D4', '#8B5CF6']
+                colors = []
+                p_idx = 0
+                for v in l_df["roi_pct"]:
+                    if v < 0:
+                        colors.append("#EF4444")
+                    else:
+                        colors.append(pos_palette[p_idx % len(pos_palette)])
+                        p_idx += 1
+
+                max_roi = float(l_df["roi_pct"].max()) if not l_df.empty else 50.0
+                min_roi = float(l_df["roi_pct"].min()) if not l_df.empty else 0.0
+                x_min = min(-12.0, min_roi - 8.0)
+                x_max = max(75.0, max_roi + 15.0)
 
                 fig_roi = go.Figure(go.Bar(
                     x=l_df["roi_pct"],
                     y=l_df["league_title"],
                     orientation="h",
-                    marker=dict(color=colors, cornerradius=6),
-                    text=[f"{v:+.1f}%" for v in l_df["roi_pct"]],
+                    width=0.42,
+                    marker=dict(color=colors, cornerradius=5),
+                    text=[(f"{v:+.1f}%" if v != 0 else "0.0%") for v in l_df["roi_pct"]],
                     textposition="outside",
-                    textfont=dict(size=10.5, family="Inter", color="#334155"),
+                    cliponaxis=False,
+                    textfont=dict(size=11, family="Inter", color="#334155"),
                     hovertemplate="<b>%{y}</b><br>ROI: %{x:+.1f}%<extra></extra>"
                 ))
 
                 fig_roi.update_layout(
-                    title=dict(
-                        text="<b>🏆 ROI за турнірами (%)</b>",
-                        font=dict(size=13, color="#1E293B", family="Inter")
-                    ),
                     template="plotly_white",
-                    height=310,
-                    margin=dict(l=10, r=40, t=35, b=10),
+                    height=255,
+                    margin=dict(l=155, r=45, t=10, b=25),
                     showlegend=False,
                     plot_bgcolor="#FFFFFF",
                     paper_bgcolor="#FFFFFF",
                     xaxis=dict(
+                        range=[x_min, x_max],
                         showgrid=True,
-                        gridcolor="#F1F5F9",
-                        tickfont=dict(size=10, color="#64748B", family="Inter"),
+                        gridcolor="#EEF2F6",
+                        zeroline=True,
+                        zerolinecolor="#CBD5E1",
+                        zerolinewidth=1.5,
+                        tickfont=dict(size=10.5, color="#64748B", family="Inter"),
                         ticksuffix="%"
                     ),
                     yaxis=dict(
+                        autorange="reversed",
                         showgrid=False,
-                        tickfont=dict(size=10.5, color="#1E293B", family="Inter")
+                        tickfont=dict(size=11, color="#334155", family="Inter")
                     )
                 )
-                st.plotly_chart(fig_roi, use_container_width=True)
+                st.plotly_chart(fig_roi, use_container_width=True, config={"displayModeBar": False})
             else:
                 st.info("ℹ️ Очікування розрахунку ставок для побудови ROI по лігах.")
+            st.markdown("</div>", unsafe_allow_html=True)
 
         # 5. НИЖНЯ СМУГА: МІНІ-ЖУРНАЛ ОСТАННІХ СТАВОК (High-Density Table)
         st.markdown("""
