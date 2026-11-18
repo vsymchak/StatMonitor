@@ -8,7 +8,7 @@
 
 * 🏛 **[Візуальна архітектура системи (docs/architecture.md)](docs/architecture.md)** — детальна C4-схема компонентів, модульний пакет `statmonitor/`, потік даних від тригеру до Telegram та Web UI, діаграма бази даних (ERD).
 * 📊 **[Діаграма дорожньої карти SDD (docs/roadmap-diagram.md)](docs/roadmap-diagram.md)** — візуальний прогрес виконання завдань по хвилях (Wave 1–9).
-* 📋 **[Реєстр дорожньої карти (docs/roadmap.md)](docs/roadmap.md)** — повний список 30 кроків еволюції системи за методологією Spec-Driven Development (25 реалізовано, 5 заплановано у Waves 8 & 9).
+* 📋 **[Реєстр дорожньої карти (docs/roadmap.md)](docs/roadmap.md)** — повний список 30 кроків еволюції системи за методологією Spec-Driven Development (26 реалізовано, 4 заплановано у Waves 8 & 9).
 
 ---
 

@@ -1,6 +1,6 @@
 # Дорожня карта розвитку StatMonitor (SDD Roadmap)
 
-> **Статус**: 24 з 29 кроків реалізовано (24 Shipped, 5 Planned) · Еволюція Waves 8 & 9 🎉  
+> **Статус**: 26 з 30 кроків реалізовано (26 Shipped, 4 Planned) · Еволюція Waves 8 & 9 🎉  
 > **Оновлено**: 18.11.2026  
 > **Фокус**: Cloudflare Edge Cron (Zero Delay) + Scheduler Noise Elimination & Night Silence + Odds Quota & Tennis Discovery
 
