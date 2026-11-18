@@ -235,16 +235,16 @@ def fetch_data(db_url):
                 ALTER TABLE ai_match_analysis ADD COLUMN IF NOT EXISTS risk_level TEXT;
                 UPDATE paper_bets 
                 SET confidence_score = CASE 
-                    WHEN kelly_pct >= 3.5 THEN 9
-                    WHEN kelly_pct >= 2.5 THEN 8
+                    WHEN kelly_pct >= 3.5 OR odds <= 1.50 THEN 9
+                    WHEN kelly_pct >= 2.5 OR odds <= 2.20 THEN 8
                     ELSE 7
                 END,
                 risk_level = CASE 
-                    WHEN kelly_pct >= 3.5 THEN 'LOW'
-                    WHEN kelly_pct >= 2.5 THEN 'MEDIUM'
-                    ELSE 'MEDIUM'
+                    WHEN kelly_pct >= 3.5 OR odds <= 1.50 THEN 'LOW'
+                    WHEN kelly_pct >= 2.5 OR odds <= 2.20 THEN 'MEDIUM'
+                    ELSE 'HIGH'
                 END
-                WHERE confidence_score IS NULL AND status = 'PENDING';
+                WHERE status = 'PENDING';
             """)
         except Exception:
             pass
@@ -1058,12 +1058,20 @@ def run_streamlit_app():
                 return "—"
 
             def _get_ai_score_badge(r):
+                k_pct = r.get("kelly_pct")
+                k_odds = float(r.get("odds", 2.0) or 2.0)
+                
+                # 1. Якщо у БД вже є значення, відмінне від однакового дефолту 8
                 cs = r.get("confidence_score")
                 if cs is not None and not (pd is not None and pd.isna(cs)):
                     try:
-                        return f"⭐ {int(cs)}/10"
+                        val_cs = int(cs)
+                        if val_cs != 8:
+                            return f"⭐ {val_cs}/10"
                     except Exception:
                         pass
+
+                # 2. Якщо в ai_df є збережений вердикт з конкретною оцінкою
                 eid = r.get("event_id")
                 if eid and df_ai is not None and hasattr(df_ai, "empty") and not df_ai.empty and "event_id" in df_ai.columns:
                     match_ai = df_ai[df_ai["event_id"] == eid]
@@ -1074,27 +1082,24 @@ def run_streamlit_app():
                                 if txt:
                                     from statmonitor.ai import extract_confidence_score
                                     sc, _ = extract_confidence_score(txt)
-                                    if sc is not None:
+                                    if sc is not None and sc != 8:
                                         return f"⭐ {sc}/10"
-                # Динамічний розрахунок для історичних ставок без збереженої оцінки за силою сигналу Келлі та коефіцієнтом
-                if r.get("status") == "PENDING":
-                    k_pct = r.get("kelly_pct")
-                    k_odds = float(r.get("odds", 2.0) or 2.0)
-                    if k_pct is not None and not (pd is not None and pd.isna(k_pct)):
-                        val = float(k_pct)
-                        if val >= 3.5:
-                            return "⭐ 9/10"
-                        elif val >= 2.5:
-                            return "⭐ 8/10"
-                        else:
-                            return "⭐ 7/10"
-                    elif k_odds <= 1.55:
+
+                # 3. Динамічний розрахунок за реальною математичною силою сигналу Келлі та коефіцієнтом
+                if k_pct is not None and not (pd is not None and pd.isna(k_pct)):
+                    val = float(k_pct)
+                    if val >= 3.5 or k_odds <= 1.50:
                         return "⭐ 9/10"
-                    elif k_odds <= 2.20:
+                    elif val >= 2.5:
                         return "⭐ 8/10"
                     else:
                         return "⭐ 7/10"
-                return "—"
+                elif k_odds <= 1.50:
+                    return "⭐ 9/10"
+                elif k_odds <= 2.20:
+                    return "⭐ 8/10"
+                else:
+                    return "⭐ 7/10"
 
             recent_disp["Результат"] = recent_disp.apply(_format_result, axis=1)
             recent_disp["CLV (+EV)"] = recent_disp.apply(_format_clv, axis=1)
