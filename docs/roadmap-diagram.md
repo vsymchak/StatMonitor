@@ -60,6 +60,7 @@ flowchart LR
         27["27 · Дедуплікація & Anti-Spam<br><small>Пропуск активних ставок</small><br><b>S</b>"]:::shipped
         28["28 · Мульти-квота 5 Ключів & Теніс<br><small>2500 токенів Odds API, ATP/WTA</small><br><b>S</b>"]:::shipped
         29["29 · Cloudflare Cron & Фільтр шуму<br><small>Edge-розклад 20m, Night Silence</small><br><b>S</b>"]:::shipped
+        30["30 · Оптимізація TG & Silent AI<br><small>Без спаму, лінк на Guest Web UI</small><br><b>S</b>"]:::shipped
     end
 
     subgraph Wave9["Хвиля 9: Розширена аналітика та дайджести"]
@@ -123,6 +124,7 @@ flowchart LR
     8 --> 29
     9 --> 29
     11 --> 29
+    27 --> 30
 
     %% Wave 9 connections
     17 --> 24

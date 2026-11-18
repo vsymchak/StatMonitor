@@ -18,6 +18,7 @@ from statmonitor.config import (
     TG_BOT_TOKEN,
     TG_CHAT_ID,
     GEMINI_API_KEY,
+    DASHBOARD_URL,
 )
 from statmonitor.database import (
     get_db,

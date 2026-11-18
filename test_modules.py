@@ -105,7 +105,7 @@ class TestModularDecomposition(unittest.TestCase):
              patch("statmonitor.pipeline.get_cols", return_value={"event_id", "outcome", "price", "recorded_at"}), \
              patch("statmonitor.pipeline.build_chart", return_value=b"fake_chart"), \
              patch("statmonitor.pipeline.analyze_gemini", return_value="Аналіз"), \
-             patch("statmonitor.pipeline.send_tg"), \
+             patch("statmonitor.pipeline.send_tg") as mock_send_tg, \
              patch("statmonitor.pipeline.send_photo") as mock_send_photo, \
              patch("statmonitor.pipeline.place_paper_bet"):
             pipe.check_alerts_and_notify({"soccer_epl": "EPL"})
@@ -115,6 +115,17 @@ class TestModularDecomposition(unittest.TestCase):
             caption = mock_send_photo.call_args[0][1]
             self.assertIn("Liverpool - City", caption)
             self.assertNotIn("Arsenal - Chelsea", caption)
+
+            # SPEC-30: AI-аналіз не надсилається окремим повідомленням у Telegram
+            tg_calls = [c[0][0] for c in mock_send_tg.call_args_list if c[0]]
+            for msg in tg_calls:
+                self.assertNotIn("AI-аналіз: Liverpool - City", msg)
+
+            # SPEC-30: Підсумкове зведення містить посилання на гостьовий дашборд
+            summary_msg = [m for m in tg_calls if "ЗВЕДЕННЯ СТАВОК" in m]
+            self.assertTrue(len(summary_msg) > 0)
+            self.assertIn("Відкрити гостьовий дашборд", summary_msg[0])
+            self.assertIn("https://statmonitor.streamlit.app", summary_msg[0])
 
     def test_check_odds_api_quota(self):
         from statmonitor.fetcher import check_odds_api_quota

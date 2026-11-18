@@ -119,18 +119,25 @@ def check_alerts_and_notify(sports_map, t_start=None):
     for it in items[:40]:
         grouped.setdefault(it["event_id"], []).append(it)
 
-    # 4. Виключення матчів, на які вже зроблена активна ставка (SPEC-27 Anti-Spam Pipeline)
+    # 4. Виключення матчів, на які вже зроблена ставка або які вже аналізувалися (SPEC-27 & SPEC-30 Anti-Spam Pipeline)
     active_events = set()
     try:
-        cur.execute("SELECT event_id FROM paper_bets WHERE status='PENDING';")
-        active_events = {r[0] for r in cur.fetchall() if r[0]}
+        cur.execute("SELECT event_id FROM paper_bets WHERE event_id IS NOT NULL;")
+        for r in cur.fetchall():
+            if r[0]:
+                active_events.add(r[0])
+        q_recent_ai = f"SELECT event_id FROM ai_match_analysis WHERE {ai_tm} > NOW() - INTERVAL '24 hours';" if ai_tm else "SELECT event_id FROM ai_match_analysis;"
+        cur.execute(q_recent_ai)
+        for r in cur.fetchall():
+            if r[0]:
+                active_events.add(r[0])
     except Exception as e:
-        print(f"Помилка отримання активних ставок: {e}")
+        print(f"Помилка отримання активних/оброблених подій: {e}")
 
     summary_rows = []
     for ev_id, grp in list(grouped.items())[:15]:
         if ev_id in active_events:
-            print(f"ℹ️ Пропуск {grp[0].get('match')}: на цей матч уже є активна ставка у Paper Bank (захист від повторного аналізу та спаму).")
+            print(f"ℹ️ Пропуск {grp[0].get('match')}: на цей матч уже зафіксовано ставку або нещодавно проведено AI-аналіз (SPEC-30 Anti-Spam).")
             continue
 
         f = grp[0]
@@ -168,8 +175,8 @@ def check_alerts_and_notify(sports_map, t_start=None):
                     conn.rollback()
                 time.sleep(2)
 
-        if ai_verdict:
-            send_tg(f"🧠 <b>AI-аналіз: {esc(f['match'])}</b>\n\n{ai_verdict}")
+        # SPEC-30: Текстовий AI-вердикт більше не спамиться окремим довгим повідомленням у Telegram.
+        # Він збережений у базі і відображається у Web Dashboard.
 
         short_pick = extract_short_pick(ai_verdict, top_pick)
 
@@ -186,6 +193,14 @@ def check_alerts_and_notify(sports_map, t_start=None):
         lines = ["📋 <b>ЗВЕДЕННЯ СТАВОК (AI-ВЕРДИКТ)</b>"]
         for i, r in enumerate(summary_rows, 1):
             lines.append(f"<b>{i}. {esc(r['match'])}</b>\n   🕒 <code>{esc(r['time'])}</code> | <i>{esc(r['title'])}</i>\n   🎯 <b>{esc(r['pick'])}</b> — Коеф: <code>{r['odds']}</code>")
+
+        # Посилання на гостьовий дашборд (SPEC-30)
+        from statmonitor.config import DASHBOARD_URL
+        lines.append(
+            f"🌐 <b>Деталізована AI-аналітика (лазарет, форма, інсайди):</b>\n"
+            f"👉 <a href='{DASHBOARD_URL}'><b>Відкрити гостьовий дашборд</b></a>\n"
+            f"<i>(Повні звіти Gemini та динаміка ліній доступні для перегляду у гостьовому режимі)</i>"
+        )
         send_tg("\n\n".join(lines))
 
     # 6. Динамічний розклад контрольних точок (SPEC-08)
