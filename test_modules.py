@@ -119,29 +119,42 @@ class TestModularDecomposition(unittest.TestCase):
     def test_check_odds_api_quota(self):
         from statmonitor.fetcher import check_odds_api_quota
 
-        # 1. Обидва ключі активні
+        # 1. Три ключі активні (500 + 500 + 500 = 1500)
         mock_resp_p = MagicMock(status_code=200)
         mock_resp_p.headers = {"x-requests-remaining": "460", "x-requests-used": "40"}
         mock_resp_r = MagicMock(status_code=200)
         mock_resp_r.headers = {"x-requests-remaining": "500", "x-requests-used": "0"}
+        mock_resp_r1 = MagicMock(status_code=200)
+        mock_resp_r1.headers = {"x-requests-remaining": "500", "x-requests-used": "0"}
 
-        with patch("requests.get", side_effect=[mock_resp_p, mock_resp_r]):
-            quota = check_odds_api_quota(api_key="key_primary_123", api_key_reserve="key_reserve_456")
+        with patch("requests.get", side_effect=[mock_resp_p, mock_resp_r, mock_resp_r1]):
+            quota = check_odds_api_quota(api_key="key_primary_123", api_key_reserve="key_reserve_456", api_key_reserve1="key_reserve1_789")
             self.assertEqual(quota["primary"]["remaining"], 460)
             self.assertEqual(quota["primary"]["used"], 40)
             self.assertEqual(quota["reserve"]["remaining"], 500)
-            self.assertEqual(quota["total_remaining"], 960)
-            self.assertEqual(quota["total_limit"], 1000)
+            self.assertEqual(quota["reserve1"]["remaining"], 500)
+            self.assertEqual(quota["total_remaining"], 1460)
+            self.assertEqual(quota["total_limit"], 1500)
             self.assertEqual(quota["active_key"], "primary")
 
-        # 2. Основний вичерпано (402/429) -> резервний активний
+        # 2. Основний вичерпано (402/429) -> резервний 1 активний
         mock_resp_p_err = MagicMock(status_code=429)
-        with patch("requests.get", side_effect=[mock_resp_p_err, mock_resp_r]):
-            quota_rot = check_odds_api_quota(api_key="key_primary_123", api_key_reserve="key_reserve_456")
+        with patch("requests.get", side_effect=[mock_resp_p_err, mock_resp_r, mock_resp_r1]):
+            quota_rot = check_odds_api_quota(api_key="key_primary_123", api_key_reserve="key_reserve_456", api_key_reserve1="key_reserve1_789")
             self.assertEqual(quota_rot["primary"]["status"], "exhausted")
             self.assertEqual(quota_rot["primary"]["remaining"], 0)
             self.assertEqual(quota_rot["reserve"]["remaining"], 500)
+            self.assertEqual(quota_rot["reserve1"]["remaining"], 500)
             self.assertEqual(quota_rot["active_key"], "reserve")
+
+        # 3. Основний і перший резервний вичерпано -> резервний 2 (reserve1) активний
+        mock_resp_r_err = MagicMock(status_code=402)
+        with patch("requests.get", side_effect=[mock_resp_p_err, mock_resp_r_err, mock_resp_r1]):
+            quota_rot2 = check_odds_api_quota(api_key="key_primary_123", api_key_reserve="key_reserve_456", api_key_reserve1="key_reserve1_789")
+            self.assertEqual(quota_rot2["primary"]["status"], "exhausted")
+            self.assertEqual(quota_rot2["reserve"]["status"], "exhausted")
+            self.assertEqual(quota_rot2["reserve1"]["remaining"], 500)
+            self.assertEqual(quota_rot2["active_key"], "reserve1")
 
     def test_get_sports_map_tennis_dynamic_discovery(self):
         from statmonitor.fetcher import get_sports_map

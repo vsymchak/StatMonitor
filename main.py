@@ -11,6 +11,7 @@ from statmonitor import (
     TARGET_SPORTS,
     API_KEY,
     API_KEY_RESERVE,
+    API_KEY_RESERVE1,
     SUPABASE_DB_URL,
     TG_BOT_TOKEN,
     TG_CHAT_ID,

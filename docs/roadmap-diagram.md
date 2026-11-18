@@ -58,7 +58,7 @@ flowchart LR
         22["22 · Динамічний стейкінг Келлі<br><small>Fractional Kelly 0.25</small><br><b>S</b>"]:::shipped
         23["23 · Обидві заб'ють & тотали<br><small>BTTS (Yes/No), цілі тотали</small><br><b>M</b>"]:::idea
         27["27 · Дедуплікація & Anti-Spam<br><small>Пропуск активних ставок</small><br><b>S</b>"]:::shipped
-        28["28 · Мульти-квота & Теніс<br><small>Токени Odds API, ATP/WTA</small><br><b>S</b>"]:::shipped
+        28["28 · Мульти-квота 3 Ключі & Теніс<br><small>1500 токенів Odds API, ATP/WTA</small><br><b>S</b>"]:::shipped
         29["29 · Cloudflare Cron & Фільтр шуму<br><small>Edge-розклад 20m, Night Silence</small><br><b>S</b>"]:::shipped
     end
 

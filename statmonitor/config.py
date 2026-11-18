@@ -33,6 +33,7 @@ except Exception:
 
 API_KEY = os.environ.get("ODDS_API_KEY")
 API_KEY_RESERVE = os.environ.get("ODDS_API_KEY_RESERVE")
+API_KEY_RESERVE1 = os.environ.get("ODDS_API_KEY_RESERVE1")
 SUPABASE_DB_URL = os.environ.get("SUPABASE_DB_URL")
 DB_URL = SUPABASE_DB_URL
 TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN") or os.environ.get("TELEGRAM_BOT_TOKEN")

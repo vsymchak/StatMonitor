@@ -2,22 +2,24 @@ import requests
 from datetime import datetime, timezone, timedelta
 from psycopg2.extras import execute_values
 
-from statmonitor.config import API_KEY, API_KEY_RESERVE, SPORTS_MAP, TARGET_SPORTS
+from statmonitor.config import API_KEY, API_KEY_RESERVE, API_KEY_RESERVE1, SPORTS_MAP, TARGET_SPORTS
 from statmonitor.database import get_db, get_cols, pick, ensure_tables
 
-def check_odds_api_quota(api_key=None, api_key_reserve=None):
+def check_odds_api_quota(api_key=None, api_key_reserve=None, api_key_reserve1=None):
     """
-    Отримує баланс квоти The Odds API (залишок та використано) для основного та резервного ключів.
+    Отримує баланс квоти The Odds API (залишок та використано) для основного та резервних ключів (RESERVE, RESERVE1).
     Запит на endpoint /v4/sports/ не споживає квоту (cost = 0).
     """
     key_primary = api_key if api_key is not None else API_KEY
     key_reserve = api_key_reserve if api_key_reserve is not None else API_KEY_RESERVE
+    key_reserve1 = api_key_reserve1 if api_key_reserve1 is not None else API_KEY_RESERVE1
 
     result = {
         "primary": {"key_masked": None, "remaining": None, "used": None, "limit": 500, "status": "not_configured"},
         "reserve": {"key_masked": None, "remaining": None, "used": None, "limit": 500, "status": "not_configured"},
+        "reserve1": {"key_masked": None, "remaining": None, "used": None, "limit": 500, "status": "not_configured"},
         "total_remaining": 0,
-        "total_limit": 1000,
+        "total_limit": 1500,
         "active_key": "none",
         "last_checked": datetime.now(timezone.utc).isoformat(),
     }
@@ -30,77 +32,69 @@ def check_odds_api_quota(api_key=None, api_key_reserve=None):
     total_rem = 0
     total_lim = 0
 
-    # 1. Перевірка основного ключа
-    if key_primary:
-        result["primary"]["key_masked"] = _mask_key(key_primary)
+    def _check_key(k, slot_name, is_primary=False):
+        nonlocal total_rem, total_lim
+        if not k:
+            result[slot_name]["status"] = "not_configured"
+            return
+        result[slot_name]["key_masked"] = _mask_key(k)
         try:
-            r1 = requests.get("https://api.the-odds-api.com/v4/sports/", params={"apiKey": key_primary}, timeout=8)
-            if r1.status_code == 200:
-                rem1 = r1.headers.get("x-requests-remaining")
-                used1 = r1.headers.get("x-requests-used")
-                rem_val = int(float(rem1)) if rem1 is not None and str(rem1).replace(".", "").isdigit() else None
-                used_val = int(float(used1)) if used1 is not None and str(used1).replace(".", "").isdigit() else None
-                result["primary"]["remaining"] = rem_val
-                result["primary"]["used"] = used_val
+            r = requests.get("https://api.the-odds-api.com/v4/sports/", params={"apiKey": k}, timeout=8)
+            if r.status_code == 200:
+                rem = r.headers.get("x-requests-remaining")
+                used = r.headers.get("x-requests-used")
+                rem_val = int(float(rem)) if rem is not None and str(rem).replace(".", "").isdigit() else None
+                used_val = int(float(used)) if used is not None and str(used).replace(".", "").isdigit() else None
+                result[slot_name]["remaining"] = rem_val
+                result[slot_name]["used"] = used_val
                 if rem_val is not None:
                     limit_calc = (rem_val + used_val) if used_val is not None else 500
-                    result["primary"]["limit"] = max(500, limit_calc)
-                    result["primary"]["status"] = "active" if rem_val > 5 else "exhausted"
+                    result[slot_name]["limit"] = max(500, limit_calc)
+                    result[slot_name]["status"] = "active" if (is_primary and rem_val > 5) else ("active" if rem_val > 5 else "exhausted")
                     total_rem += rem_val
-                    total_lim += result["primary"]["limit"]
-            elif r1.status_code in (401, 402, 429):
-                result["primary"]["status"] = "exhausted" if r1.status_code in (402, 429) else "invalid_key"
-                result["primary"]["remaining"] = 0
+                    total_lim += result[slot_name]["limit"]
+            elif r.status_code in (401, 402, 429):
+                result[slot_name]["status"] = "exhausted" if r.status_code in (402, 429) else "invalid_key"
+                result[slot_name]["remaining"] = 0
             else:
-                result["primary"]["status"] = f"http_{r1.status_code}"
+                result[slot_name]["status"] = f"http_{r.status_code}"
         except Exception as e:
-            result["primary"]["status"] = f"error: {str(e)[:30]}"
-    else:
-        result["primary"]["status"] = "not_configured"
+            result[slot_name]["status"] = f"error: {str(e)[:30]}"
 
-    # 2. Перевірка резервного ключа
-    if key_reserve:
-        result["reserve"]["key_masked"] = _mask_key(key_reserve)
-        try:
-            r2 = requests.get("https://api.the-odds-api.com/v4/sports/", params={"apiKey": key_reserve}, timeout=8)
-            if r2.status_code == 200:
-                rem2 = r2.headers.get("x-requests-remaining")
-                used2 = r2.headers.get("x-requests-used")
-                rem_val = int(float(rem2)) if rem2 is not None and str(rem2).replace(".", "").isdigit() else None
-                used_val = int(float(used2)) if used2 is not None and str(used2).replace(".", "").isdigit() else None
-                result["reserve"]["remaining"] = rem_val
-                result["reserve"]["used"] = used_val
-                if rem_val is not None:
-                    limit_calc = (rem_val + used_val) if used_val is not None else 500
-                    result["reserve"]["limit"] = max(500, limit_calc)
-                    result["reserve"]["status"] = "standby" if (result["primary"]["status"] == "active") else ("active" if rem_val > 5 else "exhausted")
-                    total_rem += rem_val
-                    total_lim += result["reserve"]["limit"]
-            elif r2.status_code in (401, 402, 429):
-                result["reserve"]["status"] = "exhausted" if r2.status_code in (402, 429) else "invalid_key"
-                result["reserve"]["remaining"] = 0
-            else:
-                result["reserve"]["status"] = f"http_{r2.status_code}"
-        except Exception as e:
-            result["reserve"]["status"] = f"error: {str(e)[:30]}"
-    else:
-        result["reserve"]["status"] = "not_configured"
+    # 1. Основний ключ
+    _check_key(key_primary, "primary", is_primary=True)
+    # 2. Резервний ключ 1
+    _check_key(key_reserve, "reserve", is_primary=False)
+    # 3. Резервний ключ 2 (RESERVE1)
+    _check_key(key_reserve1, "reserve1", is_primary=False)
+
+    # Статуси черги резервів (standby, якщо попередній ключ ще має ресурси)
+    if result["primary"]["status"] == "active":
+        if result["reserve"]["status"] == "active":
+            result["reserve"]["status"] = "standby"
+        if result["reserve1"]["status"] == "active":
+            result["reserve1"]["status"] = "standby"
+    elif result["reserve"]["status"] == "active":
+        if result["reserve1"]["status"] == "active":
+            result["reserve1"]["status"] = "standby"
 
     result["total_remaining"] = total_rem
-    result["total_limit"] = total_lim if total_lim > 0 else 1000
+    result["total_limit"] = total_lim if total_lim > 0 else 1500
 
     # Визначаємо активний ключ
     if result["primary"]["status"] == "active":
         result["active_key"] = "primary"
-    elif result["reserve"]["status"] in ("active", "standby") and (result["reserve"]["remaining"] or 0) > 0:
+    elif (result["reserve"]["remaining"] or 0) > 5 and result["reserve"]["status"] in ("active", "standby"):
         result["active_key"] = "reserve"
+    elif (result["reserve1"]["remaining"] or 0) > 5 and result["reserve1"]["status"] in ("active", "standby"):
+        result["active_key"] = "reserve1"
     else:
         result["active_key"] = "none"
 
     return result
 
 def get_sports_map():
-    for k in [x for x in (API_KEY, API_KEY_RESERVE) if x]:
+    for k in [x for x in (API_KEY, API_KEY_RESERVE, API_KEY_RESERVE1) if x]:
         try:
             r = requests.get("https://api.the-odds-api.com/v4/sports/", params={"apiKey": k}, timeout=12)
             if r.status_code == 200:
@@ -157,20 +151,31 @@ def fetch_and_save_odds(sports_map=None):
         return 0, 0, "cached"
 
     events_batch, odds_raw = [], []
-    rem_credits, cur_key, using_res = "?", (API_KEY or API_KEY_RESERVE), (not API_KEY and bool(API_KEY_RESERVE))
+    keys_pool = [k for k in (API_KEY, API_KEY_RESERVE, API_KEY_RESERVE1) if k]
+    cur_key_idx = 0
+    cur_key = keys_pool[0] if keys_pool else None
+    rem_credits = "?"
 
     for sp in selected_sports:
+        if not cur_key:
+            break
         url = f"https://api.the-odds-api.com/v4/sports/{sp}/odds/"
         params = {"apiKey": cur_key, "regions": "eu", "markets": "h2h,totals,spreads", "commenceTimeTo": to_str}
         try:
             r = requests.get(url, params=params, timeout=12)
             rem_credits = r.headers.get("x-requests-remaining", rem_credits)
             rem_int = int(float(rem_credits)) if str(rem_credits).replace(".", "").isdigit() else 999
-            if (r.status_code in (401, 402, 429) or rem_int <= 1) and not using_res and API_KEY_RESERVE:
-                cur_key, using_res = API_KEY_RESERVE, True
+            
+            # Якщо ключ вичерпано або статус помилки — ротація на наступний ключ (RESERVE -> RESERVE1)
+            while (r.status_code in (401, 402, 429) or rem_int <= 1) and (cur_key_idx + 1 < len(keys_pool)):
+                cur_key_idx += 1
+                cur_key = keys_pool[cur_key_idx]
                 params["apiKey"] = cur_key
+                print(f"🔄 Ротація The Odds API: перемикання на резервний ключ #{cur_key_idx}...")
                 r = requests.get(url, params=params, timeout=12)
                 rem_credits = r.headers.get("x-requests-remaining", rem_credits)
+                rem_int = int(float(rem_credits)) if str(rem_credits).replace(".", "").isdigit() else 999
+
             if r.status_code != 200:
                 continue
             for ev in r.json():

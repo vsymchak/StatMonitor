@@ -2,7 +2,7 @@ import re
 import requests
 import statistics
 from datetime import datetime
-from statmonitor.config import INITIAL_BANKROLL, API_KEY, API_KEY_RESERVE, KYIV_TZ
+from statmonitor.config import INITIAL_BANKROLL, API_KEY, API_KEY_RESERVE, API_KEY_RESERVE1, KYIV_TZ
 from statmonitor.notifier import send_tg
 
 # Еталонні букмекерські контори для розрахунку медіанного коефіцієнта (SPEC-18)
@@ -543,16 +543,27 @@ def settle_and_report(cur, conn):
         pending = cur.fetchall()
         if pending:
             scores = {}
-            cur_k = API_KEY or API_KEY_RESERVE
+            keys_pool = [k for k in (API_KEY, API_KEY_RESERVE, API_KEY_RESERVE1) if k]
+            key_idx = 0
             for sp in {r[2] for r in pending}:
-                r = requests.get(f"https://api.the-odds-api.com/v4/sports/{sp}/scores/", params={"apiKey": cur_k, "daysFrom": 3}, timeout=12)
-                if r.status_code != 200 and API_KEY_RESERVE and cur_k != API_KEY_RESERVE:
-                    cur_k = API_KEY_RESERVE
-                    r = requests.get(f"https://api.the-odds-api.com/v4/sports/{sp}/scores/", params={"apiKey": cur_k, "daysFrom": 3}, timeout=12)
-                if r.status_code == 200:
-                    for ev in r.json():
-                        if ev.get("completed") and ev.get("scores"):
-                            scores[ev["id"]] = ev
+                success = False
+                while key_idx < len(keys_pool) and not success:
+                    cur_k = keys_pool[key_idx]
+                    try:
+                        r = requests.get(f"https://api.the-odds-api.com/v4/sports/{sp}/scores/", params={"apiKey": cur_k, "daysFrom": 3}, timeout=12)
+                        if r.status_code == 200:
+                            success = True
+                            for ev in r.json():
+                                if ev.get("completed") and ev.get("scores"):
+                                    scores[ev["id"]] = ev
+                        elif r.status_code in (401, 402, 429):
+                            print(f"Ключ #{key_idx + 1} вичерпано/помилка [{r.status_code}]. Ротація до наступного...")
+                            key_idx += 1
+                        else:
+                            break
+                    except Exception as req_e:
+                        print(f"Помилка запиту рахунків для {sp}: {req_e}")
+                        break
             for bid, eid, sp, m_name, pk, odds, st in pending:
                 ev = scores.get(eid)
                 if not ev:

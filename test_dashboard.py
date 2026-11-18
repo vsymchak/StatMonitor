@@ -67,8 +67,9 @@ class TestDashboard(unittest.TestCase):
                     "odds_quota": {
                         "primary": {"remaining": 450, "used": 50, "limit": 500, "status": "active"},
                         "reserve": {"remaining": 500, "used": 0, "limit": 500, "status": "standby"},
-                        "total_remaining": 950,
-                        "total_limit": 1000,
+                        "reserve1": {"remaining": 500, "used": 0, "limit": 500, "status": "standby"},
+                        "total_remaining": 1450,
+                        "total_limit": 1500,
                         "active_key": "primary"
                     }
                 }
@@ -78,7 +79,8 @@ class TestDashboard(unittest.TestCase):
             quota, source = get_dashboard_odds_quota(mock_hb)
             self.assertEqual(source, "heartbeat")
             self.assertIsNotNone(quota)
-            self.assertEqual(quota["total_remaining"], 950)
+            self.assertEqual(quota["total_remaining"], 1450)
+            self.assertEqual(quota["total_limit"], 1500)
             self.assertEqual(quota["active_key"], "primary")
 
     def test_get_dashboard_odds_quota_live(self):
@@ -86,15 +88,17 @@ class TestDashboard(unittest.TestCase):
         mock_quota = {
             "primary": {"remaining": 420, "used": 80, "limit": 500, "status": "active"},
             "reserve": {"remaining": 500, "used": 0, "limit": 500, "status": "standby"},
-            "total_remaining": 920,
-            "total_limit": 1000,
+            "reserve1": {"remaining": 500, "used": 0, "limit": 500, "status": "standby"},
+            "total_remaining": 1420,
+            "total_limit": 1500,
             "active_key": "primary",
         }
         with patch.dict("os.environ", {"ODDS_API_KEY": "test_key_12345"}):
             with patch("statmonitor.fetcher.check_odds_api_quota", return_value=mock_quota):
                 quota, source = get_dashboard_odds_quota(None)
                 self.assertEqual(source, "live")
-                self.assertEqual(quota["total_remaining"], 920)
+                self.assertEqual(quota["total_remaining"], 1420)
+                self.assertEqual(quota["total_limit"], 1500)
 
 if __name__ == "__main__":
     unittest.main()
