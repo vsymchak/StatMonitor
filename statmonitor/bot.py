@@ -29,6 +29,7 @@ def is_authorized(chat_id):
     return str(chat_id).strip() == str(TG_CHAT_ID).strip()
 
 def cmd_start_help():
+    from statmonitor.config import DASHBOARD_URL
     return (
         "🤖 <b>StatMonitor AI Assistant</b>\n\n"
         "Ваш персональний бот моніторингу коефіцієнтів, Smart Money та віртуального трейдингу.\n\n"
@@ -40,7 +41,8 @@ def cmd_start_help():
         "  • <b>/today</b> — Результати розрахованих ставок за день\n"
         "  • <b>/schedule</b> — Контрольні точки найближчих перевірок\n"
         "  • <b>/run_now</b> — Негайний позачерговий запуск сканування\n"
-        "  • <b>/help</b> — Показати це меню підказки"
+        "  • <b>/help</b> — Показати це меню підказки\n\n"
+        f"🌐 <b>Веб-дашборд:</b> <a href='{DASHBOARD_URL}'>Відкрити гостьовий дашборд</a>"
     )
 
 def cmd_status(cur):

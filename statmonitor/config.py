@@ -45,7 +45,7 @@ TG_CHAT_ID = os.environ.get("TG_CHAT_ID") or os.environ.get("TELEGRAM_CHAT_ID")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 INITIAL_BANKROLL = 10000.00
-DASHBOARD_URL = os.environ.get("DASHBOARD_URL") or "https://statmonitor.streamlit.app"
+DASHBOARD_URL = os.environ.get("DASHBOARD_URL") or "https://statmonitor-6zj9cutprcpvckgecdxrk4.streamlit.app"
 
 EXHAUSTED_MODELS = set()
 

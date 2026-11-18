@@ -125,7 +125,7 @@ class TestModularDecomposition(unittest.TestCase):
             summary_msg = [m for m in tg_calls if "ЗВЕДЕННЯ СТАВОК" in m]
             self.assertTrue(len(summary_msg) > 0)
             self.assertIn("Відкрити гостьовий дашборд", summary_msg[0])
-            self.assertIn("https://statmonitor.streamlit.app", summary_msg[0])
+            self.assertIn("https://statmonitor-6zj9cutprcpvckgecdxrk4.streamlit.app", summary_msg[0])
 
     def test_check_odds_api_quota(self):
         from statmonitor.fetcher import check_odds_api_quota
