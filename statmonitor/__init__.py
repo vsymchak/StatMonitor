@@ -91,6 +91,10 @@ from statmonitor.league_config import (
     get_active_sports_map,
     get_active_target_sports,
     get_league_thresholds,
+    fetch_db_leagues,
+    sync_leagues_to_db,
+    save_league_threshold,
+    reset_league_thresholds_to_default,
 )
 from statmonitor.digest import (
     generate_weekly_digest,
@@ -147,6 +151,10 @@ __all__ = [
     "get_active_sports_map",
     "get_active_target_sports",
     "get_league_thresholds",
+    "fetch_db_leagues",
+    "sync_leagues_to_db",
+    "save_league_threshold",
+    "reset_league_thresholds_to_default",
     "parse_pick_label",
     "resolve_alert_from_history",
     "get_market_median_odds",
