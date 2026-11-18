@@ -319,9 +319,26 @@ def run_streamlit_app():
         <style>
             @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
             
-            html, body, [class*="css"], [class*="st-"] {
-                font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
+            html, body, [data-testid="stAppViewContainer"], .main .block-container {
+                font-family: 'Inter', system-ui, -apple-system, sans-serif;
             }
+            
+            /* ЗАХИСТ СИСТЕМНИХ ІКОНОК STREAMLIT (Material Symbols / Icons) ВІД ПЕРЕКРИТТЯ ШРИФТОМ */
+            [data-testid="stIconMaterial"],
+            [data-testid="stExpanderToggleIcon"],
+            [class*="material-symbols"],
+            [class*="material-icons"],
+            span[translate="no"] {
+                font-family: 'Material Symbols Rounded', 'Material Icons', sans-serif !important;
+                font-style: normal !important;
+                letter-spacing: normal !important;
+                text-transform: none !important;
+                display: inline-block !important;
+                white-space: nowrap !important;
+                word-wrap: normal !important;
+                direction: ltr !important;
+            }
+
             [data-testid="stSidebar"] { display: none; }
             [data-testid="collapsedControl"] { display: none; }
             
@@ -393,13 +410,20 @@ def run_streamlit_app():
                 box-shadow: 0 1px 3px rgba(0,0,0,0.06) !important;
             }
             
-            /* Кнопки */
-            .stButton > button {
+            /* Кнопки та Popover */
+            .stButton > button, div[data-testid="stPopover"] > button {
                 border-radius: 8px !important;
                 font-size: 12px !important;
                 font-weight: 500 !important;
                 padding: 4px 12px !important;
                 transition: all 0.15s ease;
+            }
+
+            /* Expander заголовок відступи */
+            div[data-testid="stExpander"] details summary {
+                font-size: 13px !important;
+                font-weight: 600 !important;
+                color: #1E293B !important;
             }
         </style>
     """, unsafe_allow_html=True)
@@ -516,7 +540,7 @@ def run_streamlit_app():
                     except Exception as e:
                         st.error(f"Помилка виклику: {e}")
         else:
-            c_wd, c_login = st.columns([3, 2])
+            c_wd, c_login = st.columns([2.8, 1.4])
             with c_wd:
                 st.markdown(f"""
                     <div style="display: flex; align-items: center; gap: 6px; background: #ECFDF5; border: 1px solid #A7F3D0; color: #047857; font-size: 11px; font-weight: 600; padding: 5px 10px; border-radius: 9999px; margin-top: 4px;">
@@ -526,7 +550,7 @@ def run_streamlit_app():
                     </div>
                 """, unsafe_allow_html=True)
             with c_login:
-                login_container = st.popover("🔒 Вхід") if hasattr(st, "popover") else st.expander("🔒 Вхід")
+                login_container = st.popover("🔒 Вхід", use_container_width=True) if hasattr(st, "popover") else st.expander("🔒 Вхід")
                 with login_container:
                     entered_pass = st.text_input("Ключ адміністратора:", type="password", key="admin_pwd_field")
                     if st.button("Увійти", key="btn_admin_login", use_container_width=True):
