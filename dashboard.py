@@ -226,14 +226,25 @@ def fetch_data(db_url):
         conn.autocommit = True
         cur = conn.cursor()
 
-        # 0. Автоматичне оновлення схеми колонок та бекфіл (SPEC-21)
+        # 0. Автоматичне оновлення схеми колонок та розумний бекфіл (SPEC-21)
         try:
             cur.execute("""
                 ALTER TABLE paper_bets ADD COLUMN IF NOT EXISTS confidence_score INTEGER;
                 ALTER TABLE paper_bets ADD COLUMN IF NOT EXISTS risk_level TEXT;
                 ALTER TABLE ai_match_analysis ADD COLUMN IF NOT EXISTS confidence_score INTEGER;
                 ALTER TABLE ai_match_analysis ADD COLUMN IF NOT EXISTS risk_level TEXT;
-                UPDATE paper_bets SET confidence_score = 8, risk_level = 'LOW' WHERE confidence_score IS NULL AND status = 'PENDING';
+                UPDATE paper_bets 
+                SET confidence_score = CASE 
+                    WHEN kelly_pct >= 3.5 THEN 9
+                    WHEN kelly_pct >= 2.5 THEN 8
+                    ELSE 7
+                END,
+                risk_level = CASE 
+                    WHEN kelly_pct >= 3.5 THEN 'LOW'
+                    WHEN kelly_pct >= 2.5 THEN 'MEDIUM'
+                    ELSE 'MEDIUM'
+                END
+                WHERE confidence_score IS NULL AND status = 'PENDING';
             """)
         except Exception:
             pass
@@ -1065,8 +1076,24 @@ def run_streamlit_app():
                                     sc, _ = extract_confidence_score(txt)
                                     if sc is not None:
                                         return f"⭐ {sc}/10"
+                # Динамічний розрахунок для історичних ставок без збереженої оцінки за силою сигналу Келлі та коефіцієнтом
                 if r.get("status") == "PENDING":
-                    return "⭐ 8/10"
+                    k_pct = r.get("kelly_pct")
+                    k_odds = float(r.get("odds", 2.0) or 2.0)
+                    if k_pct is not None and not (pd is not None and pd.isna(k_pct)):
+                        val = float(k_pct)
+                        if val >= 3.5:
+                            return "⭐ 9/10"
+                        elif val >= 2.5:
+                            return "⭐ 8/10"
+                        else:
+                            return "⭐ 7/10"
+                    elif k_odds <= 1.55:
+                        return "⭐ 9/10"
+                    elif k_odds <= 2.20:
+                        return "⭐ 8/10"
+                    else:
+                        return "⭐ 7/10"
                 return "—"
 
             recent_disp["Результат"] = recent_disp.apply(_format_result, axis=1)
