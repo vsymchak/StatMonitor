@@ -70,6 +70,21 @@ class TestLeagueConfig(unittest.TestCase):
         self.assertEqual(th_def["min_odds"], 1.40)
         self.assertEqual(th_def["max_odds"], 4.00)
 
+        # Невідомий або динамічний тенісний турнір -> тенісний дефолт (min_odds: 1.35)
+        th_tennis = get_league_thresholds("tennis_atp_miami", mock_cfg)
+        self.assertEqual(th_tennis["min_drop_pct"], 5.0)
+        self.assertEqual(th_tennis["min_odds"], 1.35)
+        self.assertEqual(th_tennis["max_odds"], 4.00)
+        self.assertIn("totals", th_tennis["markets"])
+
+    def test_tennis_leagues_in_config(self):
+        cfg = load_leagues_config()
+        targets = get_active_target_sports(cfg)
+        self.assertIn("tennis_atp", targets)
+        self.assertIn("tennis_wta", targets)
+        self.assertIn("tennis_davis_cup", targets)
+        self.assertIn("tennis_atp_aus_open_singles", targets)
+
     def test_fallback_on_missing_or_corrupt_file(self):
         # 1. Неіснуючий файл
         cfg_missing = load_leagues_config("/path/to/non_existent_file.json")

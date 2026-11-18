@@ -192,7 +192,13 @@ def check_alerts_and_notify(sports_map, t_start=None):
     try:
         from sys_watchdog import record_heartbeat, ping_external_watchdog
         elapsed = round(time.time() - (t_start or time.time()), 2)
-        record_heartbeat(cur, conn, duration_sec=elapsed, status="OK", metadata={"events_checked": len(summary_rows)})
+        hb_meta = {"events_checked": len(summary_rows)}
+        try:
+            from statmonitor.fetcher import check_odds_api_quota
+            hb_meta["odds_quota"] = check_odds_api_quota()
+        except Exception as qe:
+            print(f"Quota check metadata err: {qe}")
+        record_heartbeat(cur, conn, duration_sec=elapsed, status="OK", metadata=hb_meta)
         ping_external_watchdog()
     except Exception as e:
         print(f"Watchdog record err: {e}")

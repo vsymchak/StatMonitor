@@ -1,6 +1,7 @@
 import unittest
 from datetime import datetime, timezone
-from dashboard import compute_metrics, INITIAL_BANKROLL, format_verdict_markdown, format_kyiv_time
+from unittest.mock import patch, MagicMock
+from dashboard import compute_metrics, INITIAL_BANKROLL, format_verdict_markdown, format_kyiv_time, get_dashboard_odds_quota
 
 class TestDashboard(unittest.TestCase):
     def test_format_verdict_markdown(self):
@@ -55,6 +56,45 @@ class TestDashboard(unittest.TestCase):
         self.assertEqual(m["win_rate"], 50.0)
         self.assertEqual(m["total_bets"], 4)
         self.assertEqual(m["pending"], 1)
+
+    def test_get_dashboard_odds_quota_from_heartbeat(self):
+        # 1. Fallback до heartbeat metadata (якщо live API не налаштовано)
+        mock_hb = [
+            {
+                "service_name": "StatMonitor",
+                "last_status": "OK",
+                "metadata": {
+                    "odds_quota": {
+                        "primary": {"remaining": 450, "used": 50, "limit": 500, "status": "active"},
+                        "reserve": {"remaining": 500, "used": 0, "limit": 500, "status": "standby"},
+                        "total_remaining": 950,
+                        "total_limit": 1000,
+                        "active_key": "primary"
+                    }
+                }
+            }
+        ]
+        with patch.dict("os.environ", {}, clear=True):
+            quota, source = get_dashboard_odds_quota(mock_hb)
+            self.assertEqual(source, "heartbeat")
+            self.assertIsNotNone(quota)
+            self.assertEqual(quota["total_remaining"], 950)
+            self.assertEqual(quota["active_key"], "primary")
+
+    def test_get_dashboard_odds_quota_live(self):
+        # 2. Live API перевірка за наявності ключів
+        mock_quota = {
+            "primary": {"remaining": 420, "used": 80, "limit": 500, "status": "active"},
+            "reserve": {"remaining": 500, "used": 0, "limit": 500, "status": "standby"},
+            "total_remaining": 920,
+            "total_limit": 1000,
+            "active_key": "primary",
+        }
+        with patch.dict("os.environ", {"ODDS_API_KEY": "test_key_12345"}):
+            with patch("statmonitor.fetcher.check_odds_api_quota", return_value=mock_quota):
+                quota, source = get_dashboard_odds_quota(None)
+                self.assertEqual(source, "live")
+                self.assertEqual(quota["total_remaining"], 920)
 
 if __name__ == "__main__":
     unittest.main()

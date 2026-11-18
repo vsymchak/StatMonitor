@@ -5,12 +5,118 @@ from psycopg2.extras import execute_values
 from statmonitor.config import API_KEY, API_KEY_RESERVE, SPORTS_MAP, TARGET_SPORTS
 from statmonitor.database import get_db, get_cols, pick, ensure_tables
 
+def check_odds_api_quota(api_key=None, api_key_reserve=None):
+    """
+    Отримує баланс квоти The Odds API (залишок та використано) для основного та резервного ключів.
+    Запит на endpoint /v4/sports/ не споживає квоту (cost = 0).
+    """
+    key_primary = api_key if api_key is not None else API_KEY
+    key_reserve = api_key_reserve if api_key_reserve is not None else API_KEY_RESERVE
+
+    result = {
+        "primary": {"key_masked": None, "remaining": None, "used": None, "limit": 500, "status": "not_configured"},
+        "reserve": {"key_masked": None, "remaining": None, "used": None, "limit": 500, "status": "not_configured"},
+        "total_remaining": 0,
+        "total_limit": 1000,
+        "active_key": "none",
+        "last_checked": datetime.now(timezone.utc).isoformat(),
+    }
+
+    def _mask_key(k):
+        if not k or len(k) < 6:
+            return "***"
+        return f"{k[:3]}...{k[-3:]}"
+
+    total_rem = 0
+    total_lim = 0
+
+    # 1. Перевірка основного ключа
+    if key_primary:
+        result["primary"]["key_masked"] = _mask_key(key_primary)
+        try:
+            r1 = requests.get("https://api.the-odds-api.com/v4/sports/", params={"apiKey": key_primary}, timeout=8)
+            if r1.status_code == 200:
+                rem1 = r1.headers.get("x-requests-remaining")
+                used1 = r1.headers.get("x-requests-used")
+                rem_val = int(float(rem1)) if rem1 is not None and str(rem1).replace(".", "").isdigit() else None
+                used_val = int(float(used1)) if used1 is not None and str(used1).replace(".", "").isdigit() else None
+                result["primary"]["remaining"] = rem_val
+                result["primary"]["used"] = used_val
+                if rem_val is not None:
+                    limit_calc = (rem_val + used_val) if used_val is not None else 500
+                    result["primary"]["limit"] = max(500, limit_calc)
+                    result["primary"]["status"] = "active" if rem_val > 5 else "exhausted"
+                    total_rem += rem_val
+                    total_lim += result["primary"]["limit"]
+            elif r1.status_code in (401, 402, 429):
+                result["primary"]["status"] = "exhausted" if r1.status_code in (402, 429) else "invalid_key"
+                result["primary"]["remaining"] = 0
+            else:
+                result["primary"]["status"] = f"http_{r1.status_code}"
+        except Exception as e:
+            result["primary"]["status"] = f"error: {str(e)[:30]}"
+    else:
+        result["primary"]["status"] = "not_configured"
+
+    # 2. Перевірка резервного ключа
+    if key_reserve:
+        result["reserve"]["key_masked"] = _mask_key(key_reserve)
+        try:
+            r2 = requests.get("https://api.the-odds-api.com/v4/sports/", params={"apiKey": key_reserve}, timeout=8)
+            if r2.status_code == 200:
+                rem2 = r2.headers.get("x-requests-remaining")
+                used2 = r2.headers.get("x-requests-used")
+                rem_val = int(float(rem2)) if rem2 is not None and str(rem2).replace(".", "").isdigit() else None
+                used_val = int(float(used2)) if used2 is not None and str(used2).replace(".", "").isdigit() else None
+                result["reserve"]["remaining"] = rem_val
+                result["reserve"]["used"] = used_val
+                if rem_val is not None:
+                    limit_calc = (rem_val + used_val) if used_val is not None else 500
+                    result["reserve"]["limit"] = max(500, limit_calc)
+                    result["reserve"]["status"] = "standby" if (result["primary"]["status"] == "active") else ("active" if rem_val > 5 else "exhausted")
+                    total_rem += rem_val
+                    total_lim += result["reserve"]["limit"]
+            elif r2.status_code in (401, 402, 429):
+                result["reserve"]["status"] = "exhausted" if r2.status_code in (402, 429) else "invalid_key"
+                result["reserve"]["remaining"] = 0
+            else:
+                result["reserve"]["status"] = f"http_{r2.status_code}"
+        except Exception as e:
+            result["reserve"]["status"] = f"error: {str(e)[:30]}"
+    else:
+        result["reserve"]["status"] = "not_configured"
+
+    result["total_remaining"] = total_rem
+    result["total_limit"] = total_lim if total_lim > 0 else 1000
+
+    # Визначаємо активний ключ
+    if result["primary"]["status"] == "active":
+        result["active_key"] = "primary"
+    elif result["reserve"]["status"] in ("active", "standby") and (result["reserve"]["remaining"] or 0) > 0:
+        result["active_key"] = "reserve"
+    else:
+        result["active_key"] = "none"
+
+    return result
+
 def get_sports_map():
     for k in [x for x in (API_KEY, API_KEY_RESERVE) if x]:
         try:
             r = requests.get("https://api.the-odds-api.com/v4/sports/", params={"apiKey": k}, timeout=12)
             if r.status_code == 200:
-                res = {s["key"]: s.get("title", s["key"]) for s in r.json() if s.get("key") in TARGET_SPORTS and s.get("active")}
+                data = r.json()
+                res = {}
+                for s in data:
+                    s_key = s.get("key", "")
+                    is_active = s.get("active", False)
+                    # Відбираємо ліги з TARGET_SPORTS або будь-який активний тенісний турнір
+                    if is_active and (s_key in TARGET_SPORTS or s.get("group") == "Tennis" or s_key.startswith("tennis_")):
+                        title = s.get("title")
+                        if not title:
+                            title = f"Теніс ({s_key.replace('tennis_', '').upper()})" if s_key.startswith("tennis_") else s_key
+                        elif s_key.startswith("tennis_") and not title.lower().startswith("теніс") and not title.lower().startswith("tennis"):
+                            title = f"Теніс ({title})"
+                        res[s_key] = title
                 if res:
                     return res
         except Exception:

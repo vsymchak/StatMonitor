@@ -18,6 +18,17 @@ DEFAULT_LEAGUES_CONFIG = {
         {"key": "soccer_uefa_europa_conference_league", "title": "Ліга Конференцій УЄФА", "category": "soccer", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.40, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads"]},
         {"key": "soccer_uefa_nations_league", "title": "Ліга Націй УЄФА", "category": "soccer", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.40, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads"]},
         {"key": "basketball_nba", "title": "США (NBA)", "category": "basketball", "enabled": True, "min_drop_pct": 4.0, "min_odds": 1.35, "max_odds": 4.20, "markets": ["h2h", "totals", "spreads"]},
+        {"key": "tennis_atp", "title": "Теніс (ATP Tour)", "category": "tennis", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.35, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads"]},
+        {"key": "tennis_wta", "title": "Теніс (WTA Tour)", "category": "tennis", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.35, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads"]},
+        {"key": "tennis_davis_cup", "title": "Теніс (Davis Cup)", "category": "tennis", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.35, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads"]},
+        {"key": "tennis_atp_aus_open_singles", "title": "Теніс (Australian Open ATP)", "category": "tennis", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.35, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads"]},
+        {"key": "tennis_wta_aus_open_singles", "title": "Теніс (Australian Open WTA)", "category": "tennis", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.35, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads"]},
+        {"key": "tennis_atp_french_open", "title": "Теніс (Roland Garros ATP)", "category": "tennis", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.35, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads"]},
+        {"key": "tennis_wta_french_open", "title": "Теніс (Roland Garros WTA)", "category": "tennis", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.35, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads"]},
+        {"key": "tennis_atp_wimbledon", "title": "Теніс (Wimbledon ATP)", "category": "tennis", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.35, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads"]},
+        {"key": "tennis_wta_wimbledon", "title": "Теніс (Wimbledon WTA)", "category": "tennis", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.35, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads"]},
+        {"key": "tennis_atp_us_open", "title": "Теніс (US Open ATP)", "category": "tennis", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.35, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads"]},
+        {"key": "tennis_wta_us_open", "title": "Теніс (US Open WTA)", "category": "tennis", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.35, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads"]},
         {"key": "tennis_atp_tour_finals", "title": "Теніс (ATP Finals)", "category": "tennis", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.35, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads"]},
         {"key": "tennis_atp_finals", "title": "Теніс (ATP Finals)", "category": "tennis", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.35, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads"]},
         {"key": "tennis_wta_finals", "title": "Теніс (WTA Finals)", "category": "tennis", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.35, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads"]},
@@ -87,6 +98,15 @@ def get_league_thresholds(sport_key, config=None):
                 "max_odds": float(item.get("max_odds", 4.00)),
                 "markets": item.get("markets", ["h2h", "totals", "spreads"]),
             }
+
+    # Значення за замовчуванням для тенісу (динамічні турніри)
+    if sport_key and str(sport_key).startswith("tennis_"):
+        return {
+            "min_drop_pct": 5.0,
+            "min_odds": 1.35,
+            "max_odds": 4.00,
+            "markets": ["h2h", "totals", "spreads"],
+        }
 
     # Значення за замовчуванням
     return {

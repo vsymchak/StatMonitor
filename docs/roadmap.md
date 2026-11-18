@@ -1,8 +1,8 @@
 # Дорожня карта розвитку StatMonitor (SDD Roadmap)
 
-> **Статус**: 21 з 27 кроків реалізовано (21 Shipped, 6 Planned) · Еволюція Waves 8 & 9 🎉  
-> **Оновлено**: 17.11.2026  
-> **Фокус**: Smart Betting (Fractional Kelly, Anti-Spam, CLV, AI Confidence, BTTS) + Advanced UI Analytics & Weekly Telegram Digest
+> **Статус**: 22 з 28 кроків реалізовано (22 Shipped, 6 Planned) · Еволюція Waves 8 & 9 🎉  
+> **Оновлено**: 18.11.2026  
+> **Фокус**: The Odds API Multi-Key Quota Dashboard + Dynamic Tennis Coverage + Smart Betting (Kelly, Anti-Spam)
 
 ---
 
@@ -182,6 +182,12 @@
 * **Статус**: 🟩 Shipped
 * **Опис**: Виключення з пайплайну аналізу та Telegram-сповіщень тих матчів, по яких у `paper_bets` уже зафіксовано активну ставку (`status = 'PENDING'`). Запобігання повторному витрачанню квот Gemini AI, дублюванню графіків, сигналів та спаму в Telegram-каналі для матчів, які вже перебувають у грі.
 * **Залежності**: потрібен крок 6, потрібен крок 13
+
+### 28. Multi-Key The Odds API Quota Management & Dynamic Tennis Auto-Discovery
+* **Розмір**: S
+* **Статус**: 🟩 Shipped
+* **Опис**: Виведення повного залишку квоти токенів The Odds API в адмін-панель Streamlit Dashboard з урахуванням як основного (`ODDS_API_KEY`), так і резервного (`ODDS_API_KEY_RESERVE`) ключів із статусом автоматичної ротації (1000 запитів сумарного пулу). Збереження квот у метаданих `system_heartbeat` та розширення охоплення тенісних змагань (ATP/WTA Tour, Davis Cup, Australian Open, Roland Garros, Wimbledon, US Open) із механізмом динамічного автовиявлення активних турнірів у `get_sports_map()`.
+* **Залежності**: потрібен крок 10, потрібен крок 16, потрібен крок 17
 
 ---
 

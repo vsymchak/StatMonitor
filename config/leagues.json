@@ -133,6 +133,116 @@
       "markets": ["h2h", "totals", "spreads"]
     },
     {
+      "key": "tennis_atp",
+      "title": "Теніс (ATP Tour)",
+      "category": "tennis",
+      "enabled": true,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.35,
+      "max_odds": 4.00,
+      "markets": ["h2h", "totals", "spreads"]
+    },
+    {
+      "key": "tennis_wta",
+      "title": "Теніс (WTA Tour)",
+      "category": "tennis",
+      "enabled": true,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.35,
+      "max_odds": 4.00,
+      "markets": ["h2h", "totals", "spreads"]
+    },
+    {
+      "key": "tennis_davis_cup",
+      "title": "Теніс (Davis Cup)",
+      "category": "tennis",
+      "enabled": true,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.35,
+      "max_odds": 4.00,
+      "markets": ["h2h", "totals", "spreads"]
+    },
+    {
+      "key": "tennis_atp_aus_open_singles",
+      "title": "Теніс (Australian Open ATP)",
+      "category": "tennis",
+      "enabled": true,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.35,
+      "max_odds": 4.00,
+      "markets": ["h2h", "totals", "spreads"]
+    },
+    {
+      "key": "tennis_wta_aus_open_singles",
+      "title": "Теніс (Australian Open WTA)",
+      "category": "tennis",
+      "enabled": true,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.35,
+      "max_odds": 4.00,
+      "markets": ["h2h", "totals", "spreads"]
+    },
+    {
+      "key": "tennis_atp_french_open",
+      "title": "Теніс (Roland Garros ATP)",
+      "category": "tennis",
+      "enabled": true,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.35,
+      "max_odds": 4.00,
+      "markets": ["h2h", "totals", "spreads"]
+    },
+    {
+      "key": "tennis_wta_french_open",
+      "title": "Теніс (Roland Garros WTA)",
+      "category": "tennis",
+      "enabled": true,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.35,
+      "max_odds": 4.00,
+      "markets": ["h2h", "totals", "spreads"]
+    },
+    {
+      "key": "tennis_atp_wimbledon",
+      "title": "Теніс (Wimbledon ATP)",
+      "category": "tennis",
+      "enabled": true,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.35,
+      "max_odds": 4.00,
+      "markets": ["h2h", "totals", "spreads"]
+    },
+    {
+      "key": "tennis_wta_wimbledon",
+      "title": "Теніс (Wimbledon WTA)",
+      "category": "tennis",
+      "enabled": true,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.35,
+      "max_odds": 4.00,
+      "markets": ["h2h", "totals", "spreads"]
+    },
+    {
+      "key": "tennis_atp_us_open",
+      "title": "Теніс (US Open ATP)",
+      "category": "tennis",
+      "enabled": true,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.35,
+      "max_odds": 4.00,
+      "markets": ["h2h", "totals", "spreads"]
+    },
+    {
+      "key": "tennis_wta_us_open",
+      "title": "Теніс (US Open WTA)",
+      "category": "tennis",
+      "enabled": true,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.35,
+      "max_odds": 4.00,
+      "markets": ["h2h", "totals", "spreads"]
+    },
+    {
       "key": "tennis_atp_tour_finals",
       "title": "Теніс (ATP Finals)",
       "category": "tennis",

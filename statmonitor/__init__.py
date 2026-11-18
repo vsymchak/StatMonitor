@@ -31,6 +31,7 @@ from statmonitor.notifier import (
 from statmonitor.fetcher import (
     get_sports_map,
     fetch_and_save_odds,
+    check_odds_api_quota,
 )
 from statmonitor.chart import (
     build_chart,
@@ -95,6 +96,8 @@ __all__ = [
     "send_photo",
     "esc",
     "fmt_kyiv",
+    "get_sports_map",
+    "check_odds_api_quota",
     "fetch_and_save_odds",
     "build_chart",
     "analyze_gemini",

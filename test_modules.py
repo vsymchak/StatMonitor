@@ -1,5 +1,6 @@
 import unittest
 from datetime import datetime, timezone
+from unittest.mock import patch, MagicMock
 
 from statmonitor.config import INITIAL_BANKROLL, KYIV_TZ, SPORTS_MAP, TARGET_SPORTS
 from statmonitor.notifier import esc, fmt_kyiv
@@ -114,6 +115,53 @@ class TestModularDecomposition(unittest.TestCase):
             caption = mock_send_photo.call_args[0][1]
             self.assertIn("Liverpool - City", caption)
             self.assertNotIn("Arsenal - Chelsea", caption)
+
+    def test_check_odds_api_quota(self):
+        from statmonitor.fetcher import check_odds_api_quota
+
+        # 1. Обидва ключі активні
+        mock_resp_p = MagicMock(status_code=200)
+        mock_resp_p.headers = {"x-requests-remaining": "460", "x-requests-used": "40"}
+        mock_resp_r = MagicMock(status_code=200)
+        mock_resp_r.headers = {"x-requests-remaining": "500", "x-requests-used": "0"}
+
+        with patch("requests.get", side_effect=[mock_resp_p, mock_resp_r]):
+            quota = check_odds_api_quota(api_key="key_primary_123", api_key_reserve="key_reserve_456")
+            self.assertEqual(quota["primary"]["remaining"], 460)
+            self.assertEqual(quota["primary"]["used"], 40)
+            self.assertEqual(quota["reserve"]["remaining"], 500)
+            self.assertEqual(quota["total_remaining"], 960)
+            self.assertEqual(quota["total_limit"], 1000)
+            self.assertEqual(quota["active_key"], "primary")
+
+        # 2. Основний вичерпано (402/429) -> резервний активний
+        mock_resp_p_err = MagicMock(status_code=429)
+        with patch("requests.get", side_effect=[mock_resp_p_err, mock_resp_r]):
+            quota_rot = check_odds_api_quota(api_key="key_primary_123", api_key_reserve="key_reserve_456")
+            self.assertEqual(quota_rot["primary"]["status"], "exhausted")
+            self.assertEqual(quota_rot["primary"]["remaining"], 0)
+            self.assertEqual(quota_rot["reserve"]["remaining"], 500)
+            self.assertEqual(quota_rot["active_key"], "reserve")
+
+    def test_get_sports_map_tennis_dynamic_discovery(self):
+        from statmonitor.fetcher import get_sports_map
+
+        mock_sports_api = [
+            {"key": "soccer_epl", "title": "EPL", "active": True, "group": "Soccer"},
+            {"key": "tennis_atp_brisbane", "title": "ATP Brisbane", "active": True, "group": "Tennis"},
+            {"key": "tennis_davis_cup", "title": "Davis Cup", "active": True, "group": "Tennis"},
+            {"key": "cricket_ipl", "title": "IPL", "active": True, "group": "Cricket"},
+        ]
+        mock_resp = MagicMock(status_code=200)
+        mock_resp.json.return_value = mock_sports_api
+
+        with patch("requests.get", return_value=mock_resp), \
+             patch("statmonitor.fetcher.API_KEY", "test_key"):
+            s_map = get_sports_map()
+            self.assertIn("soccer_epl", s_map)
+            self.assertIn("tennis_atp_brisbane", s_map)
+            self.assertIn("tennis_davis_cup", s_map)
+            self.assertNotIn("cricket_ipl", s_map)
 
 if __name__ == "__main__":
     unittest.main()

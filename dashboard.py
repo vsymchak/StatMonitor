@@ -135,6 +135,55 @@ def compute_metrics(bets):
         "turnover": round(turnover, 2),
     }
 
+def get_dashboard_odds_quota(heartbeat_df=None):
+    """
+    Повертає інформацію про залишок квоти The Odds API:
+    1) Спроба live-запиту через check_odds_api_quota (якщо задані ключі в secrets/env).
+    2) Якщо live-запит недоступний або ключі не задані в secrets, береться з metadata останнього heartbeat.
+    """
+    # 1. Спроба live-запиту
+    try:
+        import os
+        key1 = os.environ.get("ODDS_API_KEY")
+        key2 = os.environ.get("ODDS_API_KEY_RESERVE")
+        if not key1 or not key2:
+            try:
+                import streamlit as st
+                if not key1 and hasattr(st, "secrets"):
+                    key1 = st.secrets.get("ODDS_API_KEY") or st.secrets.get("API_KEY")
+                if not key2 and hasattr(st, "secrets"):
+                    key2 = st.secrets.get("ODDS_API_KEY_RESERVE") or st.secrets.get("API_KEY_RESERVE")
+            except Exception:
+                pass
+
+        if key1 or key2:
+            from statmonitor.fetcher import check_odds_api_quota
+            live_quota = check_odds_api_quota(key1, key2)
+            if live_quota and (live_quota.get("primary", {}).get("status") not in ("not_configured", "error") or live_quota.get("reserve", {}).get("status") not in ("not_configured", "error")):
+                return live_quota, "live"
+    except Exception:
+        pass
+
+    # 2. Fallback до heartbeat metadata
+    if heartbeat_df is not None:
+        try:
+            import json
+            meta = None
+            if hasattr(heartbeat_df, "empty") and not heartbeat_df.empty:
+                row = heartbeat_df.iloc[0]
+                meta = row.get("metadata")
+            elif isinstance(heartbeat_df, list) and len(heartbeat_df) > 0:
+                meta = heartbeat_df[0].get("metadata")
+
+            if isinstance(meta, str):
+                meta = json.loads(meta)
+            if isinstance(meta, dict) and "odds_quota" in meta:
+                return meta["odds_quota"], "heartbeat"
+        except Exception:
+            pass
+
+    return None, "none"
+
 def fetch_data(db_url):
     """
     Завантажує дані з Supabase PostgreSQL з повною транзакційною ізоляцією.
@@ -396,6 +445,43 @@ def run_streamlit_app():
         delta=f"Останній чек: {hb_time}",
     )
 
+    # 1.1 Адмін-панель залишку токенів The Odds API (мульти-ключ з ротацією)
+    if is_admin:
+        quota_data, quota_source = get_dashboard_odds_quota(heartbeat_df)
+        if quota_data:
+            pri = quota_data.get("primary", {})
+            res = quota_data.get("reserve", {})
+            tot_rem = quota_data.get("total_remaining", 0)
+            tot_lim = quota_data.get("total_limit", 1000)
+            active_k = quota_data.get("active_key", "none")
+
+            src_label = "🟢 Прямий запит (Live API)" if quota_source == "live" else "⏱ Знімок із пульсу сервісу (Watchdog)"
+
+            with st.container():
+                st.markdown(
+                    f"##### 🎟️ Залишок запитів The Odds API (Мульти-ключ) <span style='font-size:0.8em; color:gray; font-weight:normal;'>• {src_label}</span>",
+                    unsafe_allow_html=True
+                )
+                qc1, qc2, qc3, qc4 = st.columns(4)
+
+                p_rem = pri.get("remaining")
+                p_rem_txt = f"{p_rem} / {pri.get('limit', 500)}" if p_rem is not None else ("Не налаштовано" if pri.get("status") == "not_configured" else "—")
+                p_used = pri.get("used")
+                p_delta = f"Використано: {p_used}" if p_used is not None else ("Вичерпано" if pri.get("status") == "exhausted" else None)
+                qc1.metric("🎯 Основний ключ", p_rem_txt, delta=p_delta, delta_color="normal" if p_rem and p_rem > 50 else "inverse")
+
+                r_rem = res.get("remaining")
+                r_rem_txt = f"{r_rem} / {res.get('limit', 500)}" if r_rem is not None else ("Не налаштовано" if res.get("status") == "not_configured" else "—")
+                r_used = res.get("used")
+                r_delta = f"Використано: {r_used}" if r_used is not None else ("В очікуванні" if res.get("status") == "standby" else None)
+                qc2.metric("🛡️ Резервний ключ", r_rem_txt, delta=r_delta, delta_color="normal")
+
+                pct = (tot_rem / tot_lim * 100.0) if tot_lim > 0 else 0.0
+                qc3.metric("📊 Сумарний пул токенів", f"{tot_rem} / {tot_lim}", delta=f"{pct:.1f}% доступно", delta_color="normal" if pct > 20 else "inverse")
+
+                rot_status = "🟢 Основний активний" if active_k == "primary" else ("🟡 Працює з резерву" if active_k == "reserve" else "🔴 Вичерпано / очікування")
+                qc4.metric("🚦 Статус ротації", rot_status, delta="Резерв захищає сервіс", delta_color="off")
+
     st.markdown("---")
 
     # 2. Вкладки інтерфейсу
@@ -625,6 +711,20 @@ def run_streamlit_app():
 
             # Smart Rate-Limiter (SPEC-10)
             st.subheader("🚦 Smart Rate-Limiter (Облік ліг)")
+            tab_quota, _ = get_dashboard_odds_quota(heartbeat_df)
+            if tab_quota:
+                t_p = tab_quota.get("primary", {})
+                t_r = tab_quota.get("reserve", {})
+                t_tot_rem = tab_quota.get("total_remaining", 0)
+                t_tot_lim = tab_quota.get("total_limit", 1000)
+                p_rem_s = t_p.get('remaining') if t_p.get('remaining') is not None else '—'
+                r_rem_s = t_r.get('remaining') if t_r.get('remaining') is not None else '—'
+                pct_s = ((t_tot_rem / t_tot_lim) * 100) if t_tot_lim else 0
+                st.info(
+                    f"🎟️ **Пул запитів The Odds API:** **{t_tot_rem}** / {t_tot_lim} ({pct_s:.1f}%)\n\n"
+                    f"• Основний: `{p_rem_s}` / {t_p.get('limit', 500)} (вик: {t_p.get('used', 0)})\n\n"
+                    f"• Резервний: `{r_rem_s}` / {t_r.get('limit', 500)} (вик: {t_r.get('used', 0)})"
+                )
             df_poll = pd.DataFrame(poll_df) if (pd is not None and not isinstance(poll_df, pd.DataFrame)) else poll_df
             if df_poll is not None and not df_poll.empty:
                 st.dataframe(df_poll, use_container_width=True, hide_index=True)

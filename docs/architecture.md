@@ -1,8 +1,8 @@
 # Візуальна архітектура системи StatMonitor
 
 > **Проєкт**: StatMonitor — інтелектуальна система спортивного моніторингу прогрузів, віртуального трейдингу (Paper Trading), спостережливості (Web Dashboard) та предиктивної AI-аналітики.  
-> **Версія**: 3.3 (Еволюція: Дедуплікація активних ставок та Anti-Spam Pipeline + Дробовий критерій Келлі 0.25 + 81 Unit Tests)  
-> **Оновлено**: 17.11.2026
+> **Версія**: 3.4 (Еволюція: Мульти-ключовий монітор квот The Odds API в адмін-панелі + Динамічне автовиявлення тенісних турнірів + 86 Unit Tests)  
+> **Оновлено**: 18.11.2026
 
 ---
 
@@ -77,14 +77,14 @@ flowchart TD
         T_Beat["system_heartbeat"]:::data
     end
 
-    subgraph TestSuite["🧪 7. Шар якості та тестування (81 unit-тест)"]
-        TestLeague["test_league_config.py (5 тестів)<br>Матриця ліг, валідація, пороги"]:::test
+    subgraph TestSuite["🧪 7. Шар якості та тестування (86 unit-тестів)"]
+        TestLeague["test_league_config.py (6 тестів)<br>Матриця ліг, тенісні фолбеки, пороги"]:::test
         TestBot["test_bot.py (15 тестів)<br>Команди /bank /status /bets /edit_odds, RBAC"]:::test
         TestLimiter["test_rate_limiter.py (6 тестів)<br>HOT/WARM/COLD, Eco-режими, квоти"]:::test
         TestEval["test_eval_picks.py (33 тести)<br>format_pick, eval_outcome, median_odds, edit_odds"]:::test
         TestKelly["test_kelly.py (6 тестів)<br>Критерій Келлі, clamping 1-5%, стейкінг"]:::test
-        TestModules["test_modules.py (9 тестів)<br>Ізоляція statmonitor/ та анти-спам дедуплікація"]:::test
-        TestDashboard["test_dashboard.py (4 тести)<br>Метрики банку, час за Києвом"]:::test
+        TestModules["test_modules.py (11 тестів)<br>Ізоляція statmonitor/, мульти-квота, теніс auto-discovery"]:::test
+        TestDashboard["test_dashboard.py (6 тестів)<br>Метрики банку, час за Києвом, Odds quota live/heartbeat"]:::test
         TestSched["test_scheduler.py<br>Кластеризація, точки, маркування EXECUTED"]:::test
         TestWatch["test_watchdog.py<br>Пульс, затримки, дедуплікація"]:::test
         TestMigrate["test_migrate.py<br>Ідемпотентність SQL-міграцій (001-006)"]:::test
@@ -279,7 +279,7 @@ erDiagram
   - Ідемпотентний раннер з журналом у `schema_migrations`.
   - Цільові B-Tree індекси на `odds_history`, `events`, `paper_bets`.
 * **Автоматизований тестовий комплекс (`tests/` та кореневі тести)**:
-  - 81 модульний тест (100% проходження за $< 0.15$ с) без зовнішніх мережевих викликів.
+  - 86 модульних тестів (100% проходження за $< 0.15$ с) без зовнішніх мережевих викликів.
 * **Динамічний планувальник (`scheduler.py`)**:
   - Кластеризація подій ($\Delta \le 25$ хв).
   - Формування контрольних точок за 15 хв до гри (`PRE_MATCH` для фіксації Closing Line) та через 115 хв (`SETTLE` для розрахунку ставок).
