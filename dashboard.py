@@ -226,29 +226,6 @@ def fetch_data(db_url):
         conn.autocommit = True
         cur = conn.cursor()
 
-        # 0. Автоматичне оновлення схеми колонок та розумний бекфіл (SPEC-21)
-        try:
-            cur.execute("""
-                ALTER TABLE paper_bets ADD COLUMN IF NOT EXISTS confidence_score INTEGER;
-                ALTER TABLE paper_bets ADD COLUMN IF NOT EXISTS risk_level TEXT;
-                ALTER TABLE ai_match_analysis ADD COLUMN IF NOT EXISTS confidence_score INTEGER;
-                ALTER TABLE ai_match_analysis ADD COLUMN IF NOT EXISTS risk_level TEXT;
-                UPDATE paper_bets 
-                SET confidence_score = CASE 
-                    WHEN kelly_pct >= 3.5 OR odds <= 1.50 THEN 9
-                    WHEN kelly_pct >= 2.5 OR odds <= 2.20 THEN 8
-                    ELSE 7
-                END,
-                risk_level = CASE 
-                    WHEN kelly_pct >= 3.5 OR odds <= 1.50 THEN 'LOW'
-                    WHEN kelly_pct >= 2.5 OR odds <= 2.20 THEN 'MEDIUM'
-                    ELSE 'HIGH'
-                END
-                WHERE status = 'PENDING';
-            """)
-        except Exception:
-            pass
-
         # 1. Ставки (Paper Bets)
         try:
             bets_data = query_to_dataframe(cur, "SELECT * FROM paper_bets ORDER BY commence_time DESC LIMIT 150;")
@@ -1058,48 +1035,58 @@ def run_streamlit_app():
                 return "—"
 
             def _get_ai_score_badge(r):
-                k_pct = r.get("kelly_pct")
-                k_odds = float(r.get("odds", 2.0) or 2.0)
-                
-                # 1. Якщо у БД вже є значення, відмінне від однакового дефолту 8
-                cs = r.get("confidence_score")
-                if cs is not None and not (pd is not None and pd.isna(cs)):
-                    try:
-                        val_cs = int(cs)
-                        if val_cs != 8:
-                            return f"⭐ {val_cs}/10"
-                    except Exception:
-                        pass
+                try:
+                    # 1. Якщо у БД вже є значення, відмінне від однакового дефолту 8
+                    cs = r.get("confidence_score")
+                    if cs is not None and not (pd is not None and pd.isna(cs)):
+                        try:
+                            val_cs = int(cs)
+                            if 1 <= val_cs <= 10 and val_cs != 8:
+                                return f"⭐ {val_cs}/10"
+                        except Exception:
+                            pass
 
-                # 2. Якщо в ai_df є збережений вердикт з конкретною оцінкою
-                eid = r.get("event_id")
-                if eid and df_ai is not None and hasattr(df_ai, "empty") and not df_ai.empty and "event_id" in df_ai.columns:
-                    match_ai = df_ai[df_ai["event_id"] == eid]
-                    if not match_ai.empty:
-                        for cand in ["verdict_text", "analysis_text", "text", "content"]:
-                            if cand in match_ai.columns:
-                                txt = match_ai[cand].iloc[0]
-                                if txt:
-                                    from statmonitor.ai import extract_confidence_score
-                                    sc, _ = extract_confidence_score(txt)
-                                    if sc is not None and sc != 8:
-                                        return f"⭐ {sc}/10"
+                    # 2. Якщо це активна ставка в грі (Pending) - диференціюємо за Kelly % та коефіцієнтом
+                    st_code = str(r.get("status") or "")
+                    if st_code == "PENDING":
+                        k_pct = r.get("kelly_pct")
+                        if k_pct is not None and not (pd is not None and pd.isna(k_pct)):
+                            try:
+                                kp = float(k_pct)
+                                if kp >= 3.5:
+                                    return "⭐ 9/10"
+                                elif kp >= 2.5:
+                                    return "⭐ 8/10"
+                                else:
+                                    return "⭐ 7/10"
+                            except Exception:
+                                pass
 
-                # 3. Динамічний розрахунок за реальною математичною силою сигналу Келлі та коефіцієнтом
-                if k_pct is not None and not (pd is not None and pd.isna(k_pct)):
-                    val = float(k_pct)
-                    if val >= 3.5 or k_odds <= 1.50:
-                        return "⭐ 9/10"
-                    elif val >= 2.5:
+                        try:
+                            k_odds = float(r.get("odds") or 2.0)
+                            if k_odds <= 1.50:
+                                return "⭐ 9/10"
+                            elif k_odds <= 2.20:
+                                return "⭐ 8/10"
+                            else:
+                                return "⭐ 7/10"
+                        except Exception:
+                            pass
+
                         return "⭐ 8/10"
-                    else:
-                        return "⭐ 7/10"
-                elif k_odds <= 1.50:
-                    return "⭐ 9/10"
-                elif k_odds <= 2.20:
-                    return "⭐ 8/10"
-                else:
-                    return "⭐ 7/10"
+
+                    # 3. Для збережених розрахованих або дефолтних ставок
+                    if cs is not None and not (pd is not None and pd.isna(cs)):
+                        try:
+                            val_cs = int(cs)
+                            if 1 <= val_cs <= 10:
+                                return f"⭐ {val_cs}/10"
+                        except Exception:
+                            pass
+
+                    return "—"
+                except Exception:
+                    return "—"
 
             recent_disp["Результат"] = recent_disp.apply(_format_result, axis=1)
             recent_disp["CLV (+EV)"] = recent_disp.apply(_format_clv, axis=1)
