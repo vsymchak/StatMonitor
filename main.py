@@ -44,6 +44,7 @@ from statmonitor import (
     get_market_median_odds,
     recalculate_historical_paper_bets,
     update_pending_bet_odds,
+    generate_weekly_digest,
 )
 
 def run_pipeline():
@@ -94,8 +95,32 @@ def run_edit_odds(bet_id, new_odds, db_url=None):
     cur.close()
     conn.close()
 
+def run_weekly_digest(db_url=None, force=True):
+    """Формування та відправка щотижневого графічного дайджесту у Telegram."""
+    print("📊 Запуск генерації щотижневого фінансового дайджесту (SPEC-26)...")
+    conn = get_db(db_url=db_url)
+    if not conn:
+        print("❌ Помилка підключення до бази даних.")
+        return
+    cur = conn.cursor()
+    ensure_tables(cur, conn)
+    res = generate_weekly_digest(cur, conn, force=force, send_telegram=True)
+    print(f"✅ Результат виконання: {res.get('status')}")
+    if res.get("status") == "NO_BETS":
+        print("ℹ️ Немає розрахованих ставок у базі для формування дайджесту.")
+    else:
+        print(f"   Тиждень: {res.get('week_key')}")
+        m = res.get("metrics", {})
+        print(f"   Прибуток: {m.get('net_profit')} грн | ROI: {m.get('roi_pct')}% | WinRate: {m.get('won')}/{m.get('total_bets')}")
+        print(f"   Графік побудовано: {m.get('has_chart')}")
+    cur.close()
+    conn.close()
+
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] in ("--recalc-bets", "--recalc", "-r"):
+    if len(sys.argv) > 1 and sys.argv[1] in ("--weekly-digest", "--digest", "-d"):
+        custom_url = sys.argv[2] if len(sys.argv) > 2 and not sys.argv[2].startswith("-") else None
+        run_weekly_digest(db_url=custom_url, force=True)
+    elif len(sys.argv) > 1 and sys.argv[1] in ("--recalc-bets", "--recalc", "-r"):
         custom_url = sys.argv[2] if len(sys.argv) > 2 and not sys.argv[2].startswith("-") else None
         run_recalc(db_url=custom_url)
     elif len(sys.argv) > 1 and sys.argv[1] in ("--edit-odds", "--edit-bet", "-e"):

@@ -16,7 +16,7 @@ DEFAULT_KEYBOARD = {
     "keyboard": [
         [{"text": "/status"}, {"text": "/bank"}],
         [{"text": "/bets"}, {"text": "/schedule"}],
-        [{"text": "/today"}, {"text": "/run_now"}],
+        [{"text": "/today"}, {"text": "/digest"}, {"text": "/run_now"}],
     ],
     "resize_keyboard": True,
     "one_time_keyboard": False,
@@ -39,6 +39,7 @@ def cmd_start_help():
         "  • <b>/bets</b> — Активні ставки у грі (PENDING) з їхніми ID\n"
         "  • <b>/edit_odds &lt;ID&gt; &lt;коеф&gt;</b> — Змінити коефіцієнт нерозрахованої ставки\n"
         "  • <b>/today</b> — Результати розрахованих ставок за день\n"
+        "  • <b>/digest</b> — Тижневий графічний дайджест ефективності та ROI\n"
         "  • <b>/schedule</b> — Контрольні точки найближчих перевірок\n"
         "  • <b>/run_now</b> — Негайний позачерговий запуск сканування\n"
         "  • <b>/help</b> — Показати це меню підказки\n\n"
@@ -334,6 +335,12 @@ def handle_command(cmd_text, chat_id, cur, conn):
             return f"❌ <b>Помилка оновлення:</b>\n{esc(msg)}", DEFAULT_KEYBOARD
     elif cmd == "today":
         return cmd_today(cur), DEFAULT_KEYBOARD
+    elif cmd in ("digest", "weekly_digest"):
+        from statmonitor.digest import generate_weekly_digest
+        res = generate_weekly_digest(cur, conn, force=True, send_telegram=True)
+        if res.get("status") == "NO_BETS":
+            return "ℹ️ <b>Дайджест:</b> У базі немає розрахованих ставок для формування тижневого звіту.", DEFAULT_KEYBOARD
+        return "✅ <b>Щотижневий графічний дайджест сформовано та надіслано в чат!</b>", DEFAULT_KEYBOARD
     elif cmd == "schedule":
         return cmd_schedule(cur), DEFAULT_KEYBOARD
     elif cmd == "run_now":

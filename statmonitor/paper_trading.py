@@ -731,6 +731,14 @@ def settle_and_report(cur, conn):
                 )
                 cur.execute("INSERT INTO paper_daily_reports (report_date) VALUES (%s) ON CONFLICT DO NOTHING;", (kyiv_now.date(),))
                 conn.commit()
+
+        # SPEC-26: Щонеділі ввечері (після 21:00) автоматично надсилаємо тижневий графічний дайджест
+        if kyiv_now.weekday() == 6 and kyiv_now.hour >= 21:
+            try:
+                from statmonitor.digest import generate_weekly_digest
+                generate_weekly_digest(cur, conn, force=False, send_telegram=True)
+            except Exception as dig_e:
+                print(f"Weekly digest in settle_and_report err: {dig_e}")
     except Exception as e:
         if conn:
             conn.rollback()

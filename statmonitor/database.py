@@ -66,5 +66,8 @@ def ensure_tables(cur, conn):
             CREATE TABLE IF NOT EXISTS paper_daily_reports (
                 report_date DATE PRIMARY KEY, sent_at TIMESTAMPTZ DEFAULT NOW()
             );
+            CREATE TABLE IF NOT EXISTS weekly_digests (
+                week_key TEXT PRIMARY KEY, sent_at TIMESTAMPTZ DEFAULT NOW(), metrics_json JSONB, status TEXT DEFAULT 'SENT'
+            );
         """)
         conn.commit()

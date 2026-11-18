@@ -40,6 +40,7 @@ from statmonitor.fetcher import (
 )
 from statmonitor.chart import (
     build_chart,
+    build_weekly_equity_chart,
 )
 from statmonitor.ai import (
     analyze_gemini,
@@ -89,6 +90,9 @@ from statmonitor.league_config import (
     get_active_sports_map,
     get_active_target_sports,
     get_league_thresholds,
+)
+from statmonitor.digest import (
+    generate_weekly_digest,
 )
 
 __all__ = [
@@ -154,4 +158,6 @@ __all__ = [
     "calculate_market_breakdown",
     "calculate_clv_value",
     "calculate_clv_metrics",
+    "build_weekly_equity_chart",
+    "generate_weekly_digest",
 ]
