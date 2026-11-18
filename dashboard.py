@@ -774,10 +774,6 @@ def run_streamlit_app():
 
         # Ліва колонка (60%): Динаміка капіталу (Line Chart зі spline та градієнтом)
         with col_chart_left:
-            st.markdown("""
-                <div style="background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; padding: 12px 14px 6px 14px; box-shadow: 0 1px 2px rgba(0,0,0,0.02); margin-bottom: 8px;">
-            """, unsafe_allow_html=True)
-
             if not settled_for_charts.empty and "settled_at" in settled_for_charts.columns:
                 chart_df = settled_for_charts.dropna(subset=["settled_at"]).sort_values(by="settled_at", ascending=True).copy()
                 if not chart_df.empty:
@@ -814,7 +810,7 @@ def run_streamlit_app():
                     growth_badge = f"+{growth_pct:.1f}% від старту" if growth_pct >= 0 else f"{growth_pct:.1f}% від старту"
 
                     st.markdown(f"""
-                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+                        <div style="background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; padding: 10px 14px; box-shadow: 0 1px 2px rgba(0,0,0,0.02); margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; min-height: 41px;">
                             <div style="display: flex; align-items: center; gap: 8px;">
                                 <span style="font-size: 13px; font-weight: 700; color: #1E293B;">📈 Динаміка капіталу (Paper Bank Balance Growth)</span>
                                 <span style="font-size: 10.5px; font-weight: 600; background: #EFF6FF; color: #2563EB; padding: 2px 7px; border-radius: 6px;">{growth_badge}</span>
@@ -889,16 +885,14 @@ def run_streamlit_app():
                     st.info("ℹ️ Немає розрахованих ставок за обраними фільтрами для графіка капіталу.")
             else:
                 st.info("ℹ️ Немає розрахованих ставок за обраними фільтрами для графіка капіталу.")
-            st.markdown("</div>", unsafe_allow_html=True)
 
         # Права колонка (40%): ROI за турнірами (Horizontal Bar Chart)
         with col_chart_right:
             st.markdown("""
-                <div style="background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; padding: 12px 14px 6px 14px; box-shadow: 0 1px 2px rgba(0,0,0,0.02); margin-bottom: 8px;">
-                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
-                        <span style="font-size: 13px; font-weight: 700; color: #1E293B;">🏆 ROI за турнірами (%)</span>
-                        <span style="font-size: 11px; color: #94A3B8;">Сортування: за дохідністю</span>
-                    </div>
+                <div style="background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; padding: 10px 14px; box-shadow: 0 1px 2px rgba(0,0,0,0.02); margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; min-height: 41px;">
+                    <span style="font-size: 13px; font-weight: 700; color: #1E293B;">🏆 ROI за турнірами (%)</span>
+                    <span style="font-size: 11px; color: #94A3B8;">Сортування: за дохідністю</span>
+                </div>
             """, unsafe_allow_html=True)
 
             league_stats = calculate_league_breakdown(all_settled, sports_map=s_map)
@@ -961,7 +955,6 @@ def run_streamlit_app():
                 st.plotly_chart(fig_roi, use_container_width=True, config={"displayModeBar": False})
             else:
                 st.info("ℹ️ Очікування розрахунку ставок для побудови ROI по лігах.")
-            st.markdown("</div>", unsafe_allow_html=True)
 
         # 5. НИЖНЯ СМУГА: МІНІ-ЖУРНАЛ ОСТАННІХ СТАВОК (High-Density Table)
         st.markdown("""
