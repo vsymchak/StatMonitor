@@ -315,6 +315,16 @@ def run_streamlit_app():
             [data-testid="stSidebar"] { display: none; }
             [data-testid="collapsedControl"] { display: none; }
             .block-container { padding-top: 1.8rem; padding-bottom: 2rem; }
+            div[data-testid="stMetric"] {
+                background-color: #fbfbfb;
+                border: 1px solid #e2e8f0;
+                padding: 12px 16px;
+                border-radius: 8px;
+                box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+            }
+            div[data-testid="stMetric"]:hover {
+                border-color: #cbd5e1;
+            }
         </style>
     """, unsafe_allow_html=True)
 
@@ -420,8 +430,13 @@ def run_streamlit_app():
 
     st.markdown("---")
 
-    # 2. Верхній блок KPI карток
-    col1, col2, col3, col4 = st.columns(4)
+    # 2. Верхній блок KPI карток (5 колонок у ряд)
+    quota_data, quota_source = get_dashboard_odds_quota(heartbeat_df) if is_admin else (None, "none")
+
+    if is_admin:
+        col1, col2, col3, col4, col5 = st.columns(5)
+    else:
+        col1, col2, col3, col4 = st.columns(4)
 
     delta_bank = metrics["net_profit"]
     col1.metric(
@@ -459,91 +474,63 @@ def run_streamlit_app():
         delta=f"Останній чек: {hb_time}",
     )
 
-    # 1.1 Адмін-панель залишку токенів The Odds API (мульти-ключ з ротацією)
     if is_admin:
-        quota_data, quota_source = get_dashboard_odds_quota(heartbeat_df)
-        with st.container():
-            if quota_data:
-                pri = quota_data.get("primary", {})
-                res = quota_data.get("reserve", {})
-                res1 = quota_data.get("reserve1", {})
-                res2 = quota_data.get("reserve2", {})
-                res3 = quota_data.get("reserve3", {})
-                tot_rem = quota_data.get("total_remaining", 0)
-                tot_lim = quota_data.get("total_limit", 2500)
-                active_k = quota_data.get("active_key", "none")
+        if quota_data:
+            pri = quota_data.get("primary", {})
+            res = quota_data.get("reserve", {})
+            res1 = quota_data.get("reserve1", {})
+            res2 = quota_data.get("reserve2", {})
+            res3 = quota_data.get("reserve3", {})
+            tot_rem = quota_data.get("total_remaining", 0)
+            tot_lim = quota_data.get("total_limit", 2500)
+            active_k = quota_data.get("active_key", "none")
 
-                src_label = "🟢 Прямий запит (Live API)" if quota_source == "live" else "⏱ Знімок із пульсу сервісу (Watchdog)"
+            pct = (tot_rem / tot_lim * 100.0) if tot_lim > 0 else 0.0
+            rot_short_map = {
+                "primary": "Основний активний",
+                "reserve": "Резерв 1 активний",
+                "reserve1": "Резерв 2 активний",
+                "reserve2": "Резерв 3 активний",
+                "reserve3": "Резерв 4 активний",
+            }
+            rot_short = rot_short_map.get(active_k, "Вичерпано / очікування")
 
-                st.markdown(
-                    f"##### 🎟️ Залишок запитів The Odds API (5 Ключів) <span style='font-size:0.8em; color:gray; font-weight:normal;'>• {src_label}</span>",
-                    unsafe_allow_html=True
-                )
+            col5.metric(
+                label="🎟️ Залишок API (5 ключів)",
+                value=f"{tot_rem} / {tot_lim}",
+                delta=f"{pct:.1f}% • {rot_short}",
+                delta_color="normal" if pct > 20 else "inverse",
+            )
 
-                # Верхній ряд: Сумарний пул та Статус ротації
-                top_q1, top_q2 = st.columns([1, 1])
-                pct = (tot_rem / tot_lim * 100.0) if tot_lim > 0 else 0.0
-                top_q1.metric("📊 Сумарний пул токенів", f"{tot_rem} / {tot_lim}", delta=f"{pct:.1f}% доступно", delta_color="normal" if pct > 20 else "inverse")
+            def _slot_fmt(slot, name):
+                rem = slot.get("remaining")
+                lim = slot.get("limit", 500)
+                used = slot.get("used")
+                if rem is None and slot.get("status") == "not_configured":
+                    return f"{name} — не налаштовано"
+                rem_val = rem if rem is not None else 500
+                if used is not None and used > 0:
+                    return f"{name} — {rem_val}/{lim} (використано {used})"
+                return f"{name} — {rem_val}/{lim}"
 
-                rot_labels = {
-                    "primary": "🟢 Основний активний",
-                    "reserve": "🟡 Резерв 1 активний",
-                    "reserve1": "🟠 Резерв 2 активний",
-                    "reserve2": "🟣 Резерв 3 активний",
-                    "reserve3": "🔵 Резерв 4 активний",
-                }
-                rot_status = rot_labels.get(active_k, "🔴 Вичерпано / очікування")
-                top_q2.metric("🚦 Статус ротації", rot_status, delta="5 ключів у пулі захисту", delta_color="off")
+            p_str = _slot_fmt(pri, "Основний")
+            r_str = _slot_fmt(res, "Резерв 1")
+            r1_str = _slot_fmt(res1, "Резерв 2")
+            r2_str = _slot_fmt(res2, "Резерв 3")
+            r3_str = _slot_fmt(res3, "Резерв 4")
 
-                # Нижній ряд: Деталізація по 5 ключах
-                qc1, qc2, qc3, qc4, qc5 = st.columns(5)
-
-                def _fmt_card(slot_dict, default_name):
-                    rem = slot_dict.get("remaining")
-                    lim = slot_dict.get("limit", 500)
-                    rem_txt = f"{rem} / {lim}" if rem is not None else ("Не налаштовано" if slot_dict.get("status") == "not_configured" else "—")
-                    used = slot_dict.get("used")
-                    if used is not None:
-                        delta = f"Використано: {used}"
-                    elif slot_dict.get("status") == "exhausted":
-                        delta = "Вичерпано"
-                    elif slot_dict.get("status") == "standby":
-                        delta = "В очікуванні"
-                    else:
-                        delta = None
-                    return rem_txt, delta, ("normal" if rem and rem > 50 else "inverse")
-
-                r1_txt, d1, c1 = _fmt_card(pri, "Основний")
-                qc1.metric("🎯 Основний", r1_txt, delta=d1, delta_color=c1)
-
-                r2_txt, d2, _ = _fmt_card(res, "Резерв 1")
-                qc2.metric("🛡️ Резерв 1", r2_txt, delta=d2, delta_color="normal")
-
-                r3_txt, d3, _ = _fmt_card(res1, "Резерв 2")
-                qc3.metric("🛡️ Резерв 2", r3_txt, delta=d3, delta_color="normal")
-
-                r4_txt, d4, _ = _fmt_card(res2, "Резерв 3")
-                qc4.metric("🛡️ Резерв 3", r4_txt, delta=d4, delta_color="normal")
-
-                r5_txt, d5, _ = _fmt_card(res3, "Резерв 4")
-                qc5.metric("🛡️ Резерв 4", r5_txt, delta=d5, delta_color="normal")
-
-            else:
-                st.markdown(
-                    "##### 🎟️ Залишок запитів The Odds API (5 Ключів) <span style='font-size:0.8em; color:gray; font-weight:normal;'>• ⏱ Очікує першого запуску</span>",
-                    unsafe_allow_html=True
-                )
-                top_q1, top_q2 = st.columns([1, 1])
-                top_q1.metric("📊 Сумарний пул токенів", "2500 токенів", delta="100% доступно")
-                top_q2.metric("🚦 Статус ротації", "🟢 Готовий до роботи", delta="5 ключів у пулі захисту")
-
-                qc1, qc2, qc3, qc4, qc5 = st.columns(5)
-                qc1.metric("🎯 Основний", "500 токенів", delta="Очікує запуску")
-                qc2.metric("🛡️ Резерв 1", "500 токенів", delta="В очікуванні")
-                qc3.metric("🛡️ Резерв 2", "500 токенів", delta="В очікуванні")
-                qc4.metric("🛡️ Резерв 3", "500 токенів", delta="В очікуванні")
-                qc5.metric("🛡️ Резерв 4", "500 токенів", delta="В очікуванні")
-                st.caption("💡 *Підказка: точні живі залишки The Odds API оновляться одразу після натискання кнопки «⚡ Запустити моніторинг» у верхньому правому кутку.*")
+            details_line = f"**Деталізація ключів The Odds API:** {p_str} &nbsp;|&nbsp; {r_str} &nbsp;|&nbsp; {r1_str} &nbsp;|&nbsp; {r2_str} &nbsp;|&nbsp; {r3_str}"
+            st.caption(details_line)
+        else:
+            col5.metric(
+                label="🎟️ Залишок API (5 ключів)",
+                value="2500 / 2500",
+                delta="100.0% • Очікує запуску",
+                delta_color="normal",
+            )
+            st.caption(
+                "**Деталізація ключів The Odds API:** Основний — 500/500 &nbsp;|&nbsp; Резерв 1 — 500/500 &nbsp;|&nbsp; Резерв 2 — 500/500 &nbsp;|&nbsp; Резерв 3 — 500/500 &nbsp;|&nbsp; Резерв 4 — 500/500 *(очікує першого запуску)*"
+            )
 
     st.markdown("---")
 
