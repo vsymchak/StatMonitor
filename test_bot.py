@@ -93,6 +93,16 @@ class TestBot(unittest.TestCase):
         self.assertIn("11.67%", txt)        # ROI
         self.assertIn("50.0%", txt)         # Вінрейт: 1 won / 2 settled
 
+    def test_cmd_bank_with_clv(self):
+        cur = MockCursor(fetchall_data=[
+            ("WON", 300.0, 270.0, 2.10, 1.85, 13.51, True),
+            ("LOST", 200.0, -200.0, 1.80, 1.95, -7.69, False),
+        ])
+        txt = cmd_bank(cur)
+        self.assertIn("Beat the Closing Line", txt)
+        self.assertIn("50.0%", txt)
+        self.assertIn("+2.91%", txt)
+
     def test_cmd_bets_empty(self):
         cur = MockCursor(fetchall_data=[])
         txt = cmd_bets(cur)

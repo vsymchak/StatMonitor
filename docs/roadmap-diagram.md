@@ -1,6 +1,6 @@
 # Візуальна діаграма дорожньої карти (Roadmap diagram)
 
-**23 з 29 кроків реалізовано (23 Shipped, 6 Planned)** · Детальний опис: [roadmap.md](roadmap.md)
+**24 з 29 кроків реалізовано (24 Shipped, 5 Planned)** · Детальний опис: [roadmap.md](roadmap.md)
 
 > 🟩 **Реалізовано (Shipped)** · 🟧 **У розробці (In Progress)** · 🟪 **Заплановано (Idea)** · ⬜ **Концепт (Fog)**  
 > Колонки — це послідовні хвилі виконання (**Execution Waves**). Стрілка показує залежність («потрібен для»).
@@ -53,7 +53,7 @@ flowchart LR
     end
 
     subgraph Wave8["Хвиля 8: Розумний беттинг та маркети"]
-        20["20 · Відстеження CLV & Beat Line<br><small>Closing Line Value, +EV</small><br><b>M</b>"]:::idea
+        20["20 · Відстеження CLV & Beat Line<br><small>Closing Line Value, +EV</small><br><b>M</b>"]:::shipped
         21["21 · AI Confidence Score<br><small>Шкала 1-10, фільтр валую</small><br><b>S</b>"]:::idea
         22["22 · Динамічний стейкінг Келлі<br><small>Fractional Kelly 0.25</small><br><b>S</b>"]:::shipped
         23["23 · Обидві заб'ють & тотали<br><small>BTTS (Yes/No), цілі тотали</small><br><b>M</b>"]:::idea

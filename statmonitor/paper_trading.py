@@ -328,7 +328,86 @@ def recalculate_historical_paper_bets(cur, conn):
             })
 
     conn.commit()
+    # Також оновлюємо лінію закриття (Closing Line) для історичних ставок
+    try:
+        capture_closing_lines(cur, conn)
+    except Exception as clv_err:
+        print(f"CLV capture on recalc err: {clv_err}")
     return updated
+
+def capture_closing_lines(cur, conn):
+    """
+    Фіксує коефіцієнт закриття лінії (Closing Line) за провідними бенчмарк-букмекерами (SPEC-20).
+    Знаходить ставки в paper_bets, для яких:
+    - closing_odds IS NULL
+    - час старту commence_time <= NOW() + INTERVAL '25 minutes' (або гра вже почалась/завершилась)
+    Отримує реальний медіанний коефіцієнт на момент commence_time з odds_history,
+    розраховує CLV % та статус beat_closing_line.
+    """
+    if not cur or not conn:
+        return []
+
+    try:
+        from statmonitor.analytics import calculate_clv_value
+    except ImportError:
+        def calculate_clv_value(b, c):
+            if float(b) > 1.0 and float(c) > 1.0:
+                return round(((float(b) / float(c)) - 1.0) * 100.0, 2), (float(b) > float(c))
+            return 0.0, False
+
+    try:
+        cur.execute("""
+            SELECT id, event_id, match_name, pick_label, odds, commence_time, status
+            FROM paper_bets
+            WHERE closing_odds IS NULL
+              AND commence_time <= NOW() + INTERVAL '25 minutes'
+            ORDER BY commence_time ASC;
+        """)
+        rows = cur.fetchall()
+        if not rows:
+            return []
+
+        updated = []
+        for row in rows:
+            if len(row) < 7:
+                continue
+            bid, eid, m_name, pk, odds_val, c_time, st = row[:7]
+            bet_k = float(odds_val)
+            # Шукаємо коефіцієнт закриття на момент початку матчу
+            closing_k = get_market_median_odds(cur, eid, pk, m_name, fallback_odds=None, at_time=c_time)
+            
+            # Якщо закриття не знайдено точно на commence_time, спробуємо знайти останній запис до старту гри
+            if not closing_k or closing_k <= 1.0:
+                closing_k = get_market_median_odds(cur, eid, pk, m_name, fallback_odds=bet_k)
+
+            if closing_k and closing_k > 1.0:
+                clv_pct, beat_line = calculate_clv_value(bet_k, closing_k)
+                cur.execute("""
+                    UPDATE paper_bets
+                    SET closing_odds = %s, clv_pct = %s, beat_closing_line = %s, closing_recorded_at = NOW()
+                    WHERE id = %s;
+                """, (closing_k, clv_pct, beat_line, bid))
+                updated.append({
+                    "id": bid,
+                    "event_id": eid,
+                    "match_name": m_name,
+                    "pick_label": pk,
+                    "bet_odds": bet_k,
+                    "closing_odds": closing_k,
+                    "clv_pct": clv_pct,
+                    "beat_line": beat_line,
+                })
+
+        if updated:
+            conn.commit()
+            print(f"🎯 Фіксація CLV (SPEC-20): оновлено лінію закриття для {len(updated)} ставок.")
+        return updated
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        print(f"capture_closing_lines err: {e}")
+        return []
+
 
 def format_pick(market, outcome, point, match_name):
     try:
@@ -546,6 +625,12 @@ def manual_settle_bet(cur, conn, bet_id, score_str, forced_status=None):
         return False, f"Помилка розрахунку ставки: {e}"
 
 def settle_and_report(cur, conn):
+    # SPEC-20: Спочатку фіксуємо Closing Line для ставок, де матч розпочинається або вже почався
+    try:
+        capture_closing_lines(cur, conn)
+    except Exception as clv_e:
+        print(f"CLV capture in settle_and_report err: {clv_e}")
+
     try:
         cur.execute("SELECT id, event_id, sport, match_name, pick_label, odds, stake_uah FROM paper_bets WHERE status='PENDING' AND commence_time < NOW() - INTERVAL '2 hours 15 minutes';")
         pending = cur.fetchall()
@@ -605,11 +690,24 @@ def settle_and_report(cur, conn):
                 tot, won, lost, void, pend, turn, net = cur.fetchone()
                 fin = round(INITIAL_BANKROLL + float(net), 2)
                 roi = round((float(net) / float(turn)) * 100, 2) if float(turn) > 0 else 0.0
+
+                # SPEC-20: CLV агрегація
+                clv_msg = ""
+                try:
+                    from statmonitor.analytics import calculate_clv_metrics
+                    cur.execute("SELECT odds, closing_odds, clv_pct, beat_closing_line FROM paper_bets WHERE closing_odds IS NOT NULL;")
+                    clv_rows = [{"odds": r[0], "closing_odds": r[1], "clv_pct": r[2], "beat_closing_line": r[3]} for r in cur.fetchall()]
+                    clv_m = calculate_clv_metrics(clv_rows)
+                    if clv_m.get("total_with_clv", 0) > 0:
+                        clv_msg = f"\n🎯 Beat the Closing Line: <b>{clv_m['beat_line_pct']}%</b> | Сер. CLV: <b>{clv_m['avg_clv_pct']:+.2f}%</b>"
+                except Exception as clv_err:
+                    print(f"Daily CLV calc err: {clv_err}")
+
                 send_tg(
                     f"💼 <b>ЩОДЕННИЙ ЗВІТ PAPER BANK ({kyiv_now.strftime('%d.%m.%Y')})</b>\n\n"
                     f"🏦 Початковий банк: <code>{INITIAL_BANKROLL:,.2f} грн</code>\n"
                     f"💰 Кінцевий банк: <b><code>{fin:,.2f} грн</code></b> (<code>{fin - INITIAL_BANKROLL:+.2f} грн</code>)\n"
-                    f"📈 ROI: <b><code>{roi:+.2f}%</code></b>\n\n"
+                    f"📈 ROI: <b><code>{roi:+.2f}%</code></b>{clv_msg}\n\n"
                     f"📊 Всього ставок: <b>{tot}</b> (в грі: {pend})\n"
                     f"✅ Виграшні: <b>{won}</b> | ❌ Програшні: <b>{lost}</b> | 🔄 Повернення: <b>{void}</b>"
                 )

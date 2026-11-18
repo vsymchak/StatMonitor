@@ -25,6 +25,8 @@ from statmonitor.analytics import (
     calculate_streaks,
     calculate_league_breakdown,
     calculate_market_breakdown,
+    calculate_clv_value,
+    calculate_clv_metrics,
 )
 
 def format_verdict_markdown(text):
@@ -989,9 +991,29 @@ def run_streamlit_app():
                 else:
                     return "⏳ В грі (Pending)"
 
-            recent_disp["Результат"] = recent_disp.apply(_format_result, axis=1)
+            def _format_clv(r):
+                clv_val = r.get("clv_pct")
+                beat_val = r.get("beat_closing_line")
+                b_k = r.get("odds")
+                c_k = r.get("closing_odds")
+                if (clv_val is None or pd.isna(clv_val)) and b_k and c_k:
+                    clv_val, beat_val = calculate_clv_value(b_k, c_k)
+                if clv_val is not None and not (pd is not None and pd.isna(clv_val)):
+                    try:
+                        cf = float(clv_val)
+                        if beat_val is True or cf > 0:
+                            return f"+{cf:.1f}% 🏆"
+                        elif cf < 0:
+                            return f"{cf:.1f}%"
+                        return f"{cf:.1f}%"
+                    except Exception:
+                        pass
+                return "—"
 
-            cols_show = [c for c in ["Час", "Турнір", "Подія", "Маркет", "Коеф.", "Сума", "Результат"] if c in recent_disp.columns]
+            recent_disp["Результат"] = recent_disp.apply(_format_result, axis=1)
+            recent_disp["CLV (+EV)"] = recent_disp.apply(_format_clv, axis=1)
+
+            cols_show = [c for c in ["Час", "Турнір", "Подія", "Маркет", "Коеф.", "CLV (+EV)", "Сума", "Результат"] if c in recent_disp.columns]
             st.dataframe(recent_disp[cols_show], use_container_width=True, hide_index=True)
         else:
             st.info("Немає ставок за обраними фільтрами.")
@@ -1060,6 +1082,36 @@ def run_streamlit_app():
                 st.info("Немає активних ставок у грі.")
 
         with st.expander("📊 Детальна сегментація за лігами та типами маркетів (Breakdown)"):
+            clv_metrics = calculate_clv_metrics(filtered_df if not filtered_df.empty else all_settled)
+            if clv_metrics.get("total_with_clv", 0) > 0:
+                beat_clr = "#16A34A" if clv_metrics["beat_line_pct"] >= 50.0 else "#EAB308"
+                avg_clr = "#16A34A" if clv_metrics["avg_clv_pct"] >= 0 else "#DC2626"
+                st.markdown(f"""
+                    <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 10px; padding: 10px 14px; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="font-size: 16px;">🎯</span>
+                            <div>
+                                <div style="font-size: 12.5px; font-weight: 700; color: #0F172A;">Closing Line Value (CLV) & Beat the Line % (SPEC-20)</div>
+                                <div style="font-size: 11px; color: #64748B;">Фіксація коефіцієнта закриття лінії (Closing Line) бенчмарк-букмекерів (Pinnacle/Betfair). Математична перевага (+EV).</div>
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 16px; align-items: center;">
+                            <div style="text-align: right;">
+                                <div style="font-size: 11px; color: #64748B;">Beat the Line %</div>
+                                <div style="font-size: 14px; font-weight: 700; color: {beat_clr};">{clv_metrics['beat_line_pct']:.1f}%</div>
+                            </div>
+                            <div style="text-align: right;">
+                                <div style="font-size: 11px; color: #64748B;">Сер. CLV (+EV)</div>
+                                <div style="font-size: 14px; font-weight: 700; color: {avg_clr};">{clv_metrics['avg_clv_pct']:+.2f}%</div>
+                            </div>
+                            <div style="text-align: right;">
+                                <div style="font-size: 11px; color: #64748B;">Зафіксовано ліній</div>
+                                <div style="font-size: 14px; font-weight: 700; color: #1E293B;">{clv_metrics['total_with_clv']} <span style="font-size: 11px; font-weight: 500; color: #64748B;">({clv_metrics['beat_count']} побито)</span></div>
+                            </div>
+                        </div>
+                    </div>
+                """, unsafe_allow_html=True)
+
             market_stats = calculate_market_breakdown(all_settled)
             sub_col1, sub_col2 = st.columns(2)
             with sub_col1:

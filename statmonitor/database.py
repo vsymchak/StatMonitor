@@ -34,11 +34,17 @@ def pick_v(d, candidates, default=None):
     return default
 
 def ensure_tables(cur, conn):
-    try:
-        from migrate import run_migrations
-        run_migrations(db_url=SUPABASE_DB_URL)
-    except Exception as e:
-        print(f"Migrations run notice: {e}")
+    applied = False
+    if SUPABASE_DB_URL:
+        try:
+            from migrate import run_migrations
+            res = run_migrations(db_url=SUPABASE_DB_URL)
+            if res is not None:
+                applied = True
+        except Exception as e:
+            print(f"Migrations run notice: {e}")
+
+    if not applied:
         cur.execute("""
             CREATE TABLE IF NOT EXISTS ai_match_analysis (
                 event_id TEXT PRIMARY KEY, verdict_text TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW()
@@ -53,6 +59,10 @@ def ensure_tables(cur, conn):
                 kelly_pct NUMERIC(5,2)
             );
             ALTER TABLE paper_bets ADD COLUMN IF NOT EXISTS kelly_pct NUMERIC(5,2);
+            ALTER TABLE paper_bets ADD COLUMN IF NOT EXISTS closing_odds NUMERIC(6,3);
+            ALTER TABLE paper_bets ADD COLUMN IF NOT EXISTS clv_pct NUMERIC(6,2);
+            ALTER TABLE paper_bets ADD COLUMN IF NOT EXISTS beat_closing_line BOOLEAN;
+            ALTER TABLE paper_bets ADD COLUMN IF NOT EXISTS closing_recorded_at TIMESTAMPTZ;
             CREATE TABLE IF NOT EXISTS paper_daily_reports (
                 report_date DATE PRIMARY KEY, sent_at TIMESTAMPTZ DEFAULT NOW()
             );

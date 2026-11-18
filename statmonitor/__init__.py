@@ -57,6 +57,7 @@ from statmonitor.paper_trading import (
     resolve_alert_from_history,
     get_market_median_odds,
     recalculate_historical_paper_bets,
+    capture_closing_lines,
     BENCHMARK_BOOKMAKERS,
 )
 from statmonitor.pipeline import (
@@ -68,6 +69,8 @@ from statmonitor.analytics import (
     calculate_streaks,
     calculate_league_breakdown,
     calculate_market_breakdown,
+    calculate_clv_value,
+    calculate_clv_metrics,
 )
 from statmonitor.limiter import (
     get_budget_mode,
@@ -142,10 +145,13 @@ __all__ = [
     "resolve_alert_from_history",
     "get_market_median_odds",
     "recalculate_historical_paper_bets",
+    "capture_closing_lines",
     "BENCHMARK_BOOKMAKERS",
     "classify_market_group",
     "calculate_drawdown",
     "calculate_streaks",
     "calculate_league_breakdown",
     "calculate_market_breakdown",
+    "calculate_clv_value",
+    "calculate_clv_metrics",
 ]

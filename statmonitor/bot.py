@@ -78,15 +78,23 @@ def cmd_status(cur):
     return "\n".join(lines)
 
 def cmd_bank(cur):
-    cur.execute("SELECT status, stake_uah, profit_uah FROM paper_bets;")
-    rows = cur.fetchall()
+    try:
+        cur.execute("SELECT status, stake_uah, profit_uah, odds, closing_odds, clv_pct, beat_closing_line FROM paper_bets;")
+        rows = cur.fetchall()
+    except Exception:
+        cur.execute("SELECT status, stake_uah, profit_uah FROM paper_bets;")
+        rows = cur.fetchall()
 
     won, lost, void, pending = 0, 0, 0, 0
     net_profit = 0.0
     locked_pending = 0.0
     turnover = 0.0
+    clv_records = []
 
-    for st, stake, prof in rows:
+    for r in rows:
+        st = r[0]
+        stake = r[1]
+        prof = r[2]
         stk = float(stake or 0)
         p = float(prof or 0)
         if st == "WON":
@@ -104,12 +112,23 @@ def cmd_bank(cur):
             pending += 1
             locked_pending += stk
 
+        if len(r) >= 7 and (r[4] is not None or r[5] is not None):
+            clv_records.append({
+                "odds": r[3],
+                "closing_odds": r[4],
+                "clv_pct": r[5],
+                "beat_closing_line": r[6],
+            })
+
     curr_bank = round(INITIAL_BANKROLL + net_profit, 2)
     avail_bank = round(max(0.0, curr_bank - locked_pending), 2)
     roi = round((net_profit / turnover * 100), 2) if turnover > 0 else 0.0
     settled_count = won + lost
     win_rate = round((won / settled_count * 100), 1) if settled_count > 0 else 0.0
     p_sign = "+" if net_profit > 0 else ""
+
+    from statmonitor.analytics import calculate_clv_metrics
+    clv_m = calculate_clv_metrics(clv_records) if clv_records else None
 
     lines = [
         "💰 <b>ФІНАНСОВИЙ ЗВІТ (PAPER BANK)</b>\n",
@@ -118,11 +137,16 @@ def cmd_bank(cur):
         f"🔒 <b>Заблоковано в ставках:</b> <code>{locked_pending:,.2f} грн</code>\n",
         f"📈 <b>Чистий прибуток:</b> <b><code>{p_sign}{net_profit:,.2f} грн</code></b>",
         f"📊 <b>ROI:</b> <b><code>{p_sign}{roi}%</code></b> | <b>Вінрейт:</b> <code>{win_rate}%</code>",
-        f"🔄 <b>Оборот:</b> <code>{turnover:,.2f} грн</code>\n",
-        f"🎯 <b>Статистика ставок ({len(rows)}):</b>",
+        f"🔄 <b>Оборот:</b> <code>{turnover:,.2f} грн</code>",
+    ]
+    if clv_m and clv_m.get("total_with_clv", 0) > 0:
+        lines.append(f"🎯 <b>Beat the Closing Line:</b> <code>{clv_m['beat_line_pct']}%</code> | <b>Сер. CLV:</b> <code>{clv_m['avg_clv_pct']:+.2f}%</code>")
+
+    lines.extend([
+        f"\n🎯 <b>Статистика ставок ({len(rows)}):</b>",
         f"  🟢 Виграно: <b>{won}</b> | 🔴 Програно: <b>{lost}</b>",
         f"  ⚪ Повернень: <b>{void}</b> | ⏳ В грі: <b>{pending}</b>",
-    ]
+    ])
     return "\n".join(lines)
 
 def cmd_bets(cur):

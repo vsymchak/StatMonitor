@@ -34,6 +34,85 @@ def classify_market_group(pick_label):
         return "Обидві заб'ють"
     return "1X2 / Переможець"
 
+def calculate_clv_value(bet_odds, closing_odds):
+    """
+    Обчислює Closing Line Value (CLV) для окремої ставки:
+    - clv_pct = ((bet_odds / closing_odds) - 1.0) * 100.0
+    - beat_closing_line = (bet_odds > closing_odds)
+    """
+    try:
+        b_k = float(bet_odds)
+        c_k = float(closing_odds)
+        if b_k > 1.0 and c_k > 1.0:
+            clv = round(((b_k / c_k) - 1.0) * 100.0, 2)
+            beat = (b_k > c_k)
+            return clv, beat
+    except (ValueError, TypeError, ZeroDivisionError):
+        pass
+    return 0.0, False
+
+def calculate_clv_metrics(bets):
+    """
+    Агрегує показники Closing Line Value (CLV) по набору ставок (SPEC-20):
+    - total_with_clv: кількість ставок із зафіксованою лінією закриття
+    - beat_count: кількість ставок, де вдалося побити лінію закриття
+    - beat_line_pct: % ставок, які побили лінію закриття (Beat the Closing Line %)
+    - avg_clv_pct: середнє значення математичної переваги (+EV) над ринком
+    - positive_clv_count: кількість ставок із позитивним CLV (> 0%)
+    - negative_clv_count: кількість ставок із негативним CLV (< 0%)
+    """
+    records = _to_records(bets)
+    clv_list = []
+    beat_count = 0
+    pos_count = 0
+    neg_count = 0
+
+    for b in records:
+        clv_val = b.get("clv_pct")
+        beat_val = b.get("beat_closing_line")
+        b_k = b.get("odds")
+        c_k = b.get("closing_odds")
+
+        # Якщо CLV ще не обчислено в базі, але є коефіцієнт та лінія закриття
+        if clv_val is None and b_k and c_k:
+            clv_val, beat_val = calculate_clv_value(b_k, c_k)
+
+        if clv_val is not None:
+            try:
+                clv_f = float(clv_val)
+                clv_list.append(clv_f)
+                if beat_val is True or (beat_val is None and clv_f > 0):
+                    beat_count += 1
+                if clv_f > 0:
+                    pos_count += 1
+                elif clv_f < 0:
+                    neg_count += 1
+            except (ValueError, TypeError):
+                pass
+
+    tot = len(clv_list)
+    if tot == 0:
+        return {
+            "total_with_clv": 0,
+            "beat_count": 0,
+            "beat_line_pct": 0.0,
+            "avg_clv_pct": 0.0,
+            "positive_clv_count": 0,
+            "negative_clv_count": 0,
+        }
+
+    beat_pct = round((beat_count / tot) * 100.0, 1)
+    avg_clv = round(sum(clv_list) / tot, 2)
+
+    return {
+        "total_with_clv": tot,
+        "beat_count": beat_count,
+        "beat_line_pct": beat_pct,
+        "avg_clv_pct": avg_clv,
+        "positive_clv_count": pos_count,
+        "negative_clv_count": neg_count,
+    }
+
 def calculate_drawdown(settled_bets, initial_bankroll=INITIAL_BANKROLL):
     """
     Розраховує показники максимального просідання капіталу (Max Drawdown):

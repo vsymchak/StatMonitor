@@ -1,6 +1,6 @@
 # Дорожня карта розвитку StatMonitor (SDD Roadmap)
 
-> **Статус**: 23 з 29 кроків реалізовано (23 Shipped, 6 Planned) · Еволюція Waves 8 & 9 🎉  
+> **Статус**: 24 з 29 кроків реалізовано (24 Shipped, 5 Planned) · Еволюція Waves 8 & 9 🎉  
 > **Оновлено**: 18.11.2026  
 > **Фокус**: Cloudflare Edge Cron (Zero Delay) + Scheduler Noise Elimination & Night Silence + Odds Quota & Tennis Discovery
 
@@ -155,8 +155,8 @@
 
 ### 20. Closing Line Value (CLV) Tracking & Beat the Line %
 * **Розмір**: M
-* **Статус**: 🟪 Idea
-* **Опис**: Фіксація коефіцієнта закриття лінії (Closing Line) у точці `PRE_MATCH` (за 15 хв до початку гри) за провідними бенчмарк-букмекерами (Pinnacle/Betfair). Автоматичний розрахунок показника Beat the Closing Line % для кожної ставки у Paper Bank та агрегованої метрики математичного очікування (+EV).
+* **Статус**: 🟩 Shipped
+* **Опис**: Фіксація коефіцієнта закриття лінії (Closing Line) у точці `PRE_MATCH` (за 15–25 хв до початку гри або на момент старту) за провідними бенчмарк-букмекерами (Pinnacle/Betfair). Автоматичний розрахунок показника Beat the Closing Line % для кожної ставки у Paper Bank та агрегованої метрики математичного очікування (+EV). Відображення в Web Dashboard (окрема колонка та блок у Breakdown) і в Telegram-боті (/bank).
 * **Залежності**: потрібен крок 8, потрібен крок 18
 
 ### 21. AI Confidence Score & Value Filtering
