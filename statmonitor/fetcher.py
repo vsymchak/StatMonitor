@@ -2,24 +2,43 @@ import requests
 from datetime import datetime, timezone, timedelta
 from psycopg2.extras import execute_values
 
-from statmonitor.config import API_KEY, API_KEY_RESERVE, API_KEY_RESERVE1, SPORTS_MAP, TARGET_SPORTS
+from statmonitor.config import (
+    API_KEY,
+    API_KEY_RESERVE,
+    API_KEY_RESERVE1,
+    API_KEY_RESERVE2,
+    API_KEY_RESERVE3,
+    ALL_ODDS_API_KEYS,
+    SPORTS_MAP,
+    TARGET_SPORTS,
+)
 from statmonitor.database import get_db, get_cols, pick, ensure_tables
 
-def check_odds_api_quota(api_key=None, api_key_reserve=None, api_key_reserve1=None):
+def check_odds_api_quota(
+    api_key=None,
+    api_key_reserve=None,
+    api_key_reserve1=None,
+    api_key_reserve2=None,
+    api_key_reserve3=None,
+):
     """
-    Отримує баланс квоти The Odds API (залишок та використано) для основного та резервних ключів (RESERVE, RESERVE1).
+    Отримує баланс квоти The Odds API (залишок та використано) для основного та всіх резервних ключів (до 5 ключів).
     Запит на endpoint /v4/sports/ не споживає квоту (cost = 0).
     """
     key_primary = api_key if api_key is not None else API_KEY
     key_reserve = api_key_reserve if api_key_reserve is not None else API_KEY_RESERVE
     key_reserve1 = api_key_reserve1 if api_key_reserve1 is not None else API_KEY_RESERVE1
+    key_reserve2 = api_key_reserve2 if api_key_reserve2 is not None else API_KEY_RESERVE2
+    key_reserve3 = api_key_reserve3 if api_key_reserve3 is not None else API_KEY_RESERVE3
 
     result = {
         "primary": {"key_masked": None, "remaining": None, "used": None, "limit": 500, "status": "not_configured"},
         "reserve": {"key_masked": None, "remaining": None, "used": None, "limit": 500, "status": "not_configured"},
         "reserve1": {"key_masked": None, "remaining": None, "used": None, "limit": 500, "status": "not_configured"},
+        "reserve2": {"key_masked": None, "remaining": None, "used": None, "limit": 500, "status": "not_configured"},
+        "reserve3": {"key_masked": None, "remaining": None, "used": None, "limit": 500, "status": "not_configured"},
         "total_remaining": 0,
-        "total_limit": 1500,
+        "total_limit": 2500,
         "active_key": "none",
         "last_checked": datetime.now(timezone.utc).isoformat(),
     }
@@ -61,40 +80,43 @@ def check_odds_api_quota(api_key=None, api_key_reserve=None, api_key_reserve1=No
         except Exception as e:
             result[slot_name]["status"] = f"error: {str(e)[:30]}"
 
-    # 1. Основний ключ
+    # Перевіряємо всі 5 ключів
     _check_key(key_primary, "primary", is_primary=True)
-    # 2. Резервний ключ 1
     _check_key(key_reserve, "reserve", is_primary=False)
-    # 3. Резервний ключ 2 (RESERVE1)
     _check_key(key_reserve1, "reserve1", is_primary=False)
+    _check_key(key_reserve2, "reserve2", is_primary=False)
+    _check_key(key_reserve3, "reserve3", is_primary=False)
+
+    slot_keys = ["primary", "reserve", "reserve1", "reserve2", "reserve3"]
 
     # Статуси черги резервів (standby, якщо попередній ключ ще має ресурси)
-    if result["primary"]["status"] == "active":
-        if result["reserve"]["status"] == "active":
-            result["reserve"]["status"] = "standby"
-        if result["reserve1"]["status"] == "active":
-            result["reserve1"]["status"] = "standby"
-    elif result["reserve"]["status"] == "active":
-        if result["reserve1"]["status"] == "active":
-            result["reserve1"]["status"] = "standby"
+    seen_active = False
+    for slot in slot_keys:
+        if seen_active:
+            if result[slot]["status"] == "active":
+                result[slot]["status"] = "standby"
+        else:
+            if result[slot]["status"] == "active":
+                seen_active = True
 
     result["total_remaining"] = total_rem
-    result["total_limit"] = total_lim if total_lim > 0 else 1500
+    result["total_limit"] = total_lim if total_lim > 0 else 2500
 
     # Визначаємо активний ключ
-    if result["primary"]["status"] == "active":
-        result["active_key"] = "primary"
-    elif (result["reserve"]["remaining"] or 0) > 5 and result["reserve"]["status"] in ("active", "standby"):
-        result["active_key"] = "reserve"
-    elif (result["reserve1"]["remaining"] or 0) > 5 and result["reserve1"]["status"] in ("active", "standby"):
-        result["active_key"] = "reserve1"
-    else:
-        result["active_key"] = "none"
+    active_k = "none"
+    for slot in slot_keys:
+        if result[slot]["status"] == "active":
+            active_k = slot
+            break
+        elif (result[slot]["remaining"] or 0) > 5 and result[slot]["status"] in ("active", "standby"):
+            active_k = slot
+            break
+    result["active_key"] = active_k
 
     return result
 
 def get_sports_map():
-    for k in [x for x in (API_KEY, API_KEY_RESERVE, API_KEY_RESERVE1) if x]:
+    for k in [x for x in (API_KEY, API_KEY_RESERVE, API_KEY_RESERVE1, API_KEY_RESERVE2, API_KEY_RESERVE3) if x]:
         try:
             r = requests.get("https://api.the-odds-api.com/v4/sports/", params={"apiKey": k}, timeout=12)
             if r.status_code == 200:
@@ -151,7 +173,7 @@ def fetch_and_save_odds(sports_map=None):
         return 0, 0, "cached"
 
     events_batch, odds_raw = [], []
-    keys_pool = [k for k in (API_KEY, API_KEY_RESERVE, API_KEY_RESERVE1) if k]
+    keys_pool = [k for k in (API_KEY, API_KEY_RESERVE, API_KEY_RESERVE1, API_KEY_RESERVE2, API_KEY_RESERVE3) if k]
     cur_key_idx = 0
     cur_key = keys_pool[0] if keys_pool else None
     rem_credits = "?"

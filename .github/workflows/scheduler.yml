@@ -35,6 +35,8 @@ jobs:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
           ODDS_API_KEY_RESERVE: ${{ secrets.ODDS_API_KEY_RESERVE }}
           ODDS_API_KEY_RESERVE1: ${{ secrets.ODDS_API_KEY_RESERVE1 }}
+          ODDS_API_KEY_RESERVE2: ${{ secrets.ODDS_API_KEY_RESERVE2 }}
+          ODDS_API_KEY_RESERVE3: ${{ secrets.ODDS_API_KEY_RESERVE3 }}
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

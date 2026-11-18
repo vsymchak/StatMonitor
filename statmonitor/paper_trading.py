@@ -2,7 +2,15 @@ import re
 import requests
 import statistics
 from datetime import datetime
-from statmonitor.config import INITIAL_BANKROLL, API_KEY, API_KEY_RESERVE, API_KEY_RESERVE1, KYIV_TZ
+from statmonitor.config import (
+    INITIAL_BANKROLL,
+    API_KEY,
+    API_KEY_RESERVE,
+    API_KEY_RESERVE1,
+    API_KEY_RESERVE2,
+    API_KEY_RESERVE3,
+    KYIV_TZ,
+)
 from statmonitor.notifier import send_tg
 
 # Еталонні букмекерські контори для розрахунку медіанного коефіцієнта (SPEC-18)
@@ -543,7 +551,7 @@ def settle_and_report(cur, conn):
         pending = cur.fetchall()
         if pending:
             scores = {}
-            keys_pool = [k for k in (API_KEY, API_KEY_RESERVE, API_KEY_RESERVE1) if k]
+            keys_pool = [k for k in (API_KEY, API_KEY_RESERVE, API_KEY_RESERVE1, API_KEY_RESERVE2, API_KEY_RESERVE3) if k]
             key_idx = 0
             for sp in {r[2] for r in pending}:
                 success = False

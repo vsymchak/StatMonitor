@@ -147,7 +147,9 @@ def get_dashboard_odds_quota(heartbeat_df=None):
         key1 = os.environ.get("ODDS_API_KEY")
         key2 = os.environ.get("ODDS_API_KEY_RESERVE")
         key3 = os.environ.get("ODDS_API_KEY_RESERVE1")
-        if not key1 or not key2 or not key3:
+        key4 = os.environ.get("ODDS_API_KEY_RESERVE2")
+        key5 = os.environ.get("ODDS_API_KEY_RESERVE3")
+        if not key1 or not key2 or not key3 or not key4 or not key5:
             try:
                 import streamlit as st
                 if hasattr(st, "secrets"):
@@ -159,15 +161,19 @@ def get_dashboard_odds_quota(heartbeat_df=None):
                             key2 = s_dict.get("ODDS_API_KEY_RESERVE") or s_dict.get("API_KEY_RESERVE")
                         if not key3:
                             key3 = s_dict.get("ODDS_API_KEY_RESERVE1") or s_dict.get("API_KEY_RESERVE1")
+                        if not key4:
+                            key4 = s_dict.get("ODDS_API_KEY_RESERVE2") or s_dict.get("API_KEY_RESERVE2")
+                        if not key5:
+                            key5 = s_dict.get("ODDS_API_KEY_RESERVE3") or s_dict.get("API_KEY_RESERVE3")
                     except Exception:
                         pass
             except Exception:
                 pass
 
-        if key1 or key2 or key3:
+        if any((key1, key2, key3, key4, key5)):
             from statmonitor.fetcher import check_odds_api_quota
-            live_quota = check_odds_api_quota(key1, key2, key3)
-            if live_quota and any(live_quota.get(k, {}).get("status") not in ("not_configured", "error") for k in ("primary", "reserve", "reserve1")):
+            live_quota = check_odds_api_quota(key1, key2, key3, key4, key5)
+            if live_quota and any(live_quota.get(k, {}).get("status") not in ("not_configured", "error") for k in ("primary", "reserve", "reserve1", "reserve2", "reserve3")):
                 return live_quota, "live"
     except Exception:
         pass
@@ -461,59 +467,82 @@ def run_streamlit_app():
                 pri = quota_data.get("primary", {})
                 res = quota_data.get("reserve", {})
                 res1 = quota_data.get("reserve1", {})
+                res2 = quota_data.get("reserve2", {})
+                res3 = quota_data.get("reserve3", {})
                 tot_rem = quota_data.get("total_remaining", 0)
-                tot_lim = quota_data.get("total_limit", 1500)
+                tot_lim = quota_data.get("total_limit", 2500)
                 active_k = quota_data.get("active_key", "none")
 
                 src_label = "🟢 Прямий запит (Live API)" if quota_source == "live" else "⏱ Знімок із пульсу сервісу (Watchdog)"
 
                 st.markdown(
-                    f"##### 🎟️ Залишок запитів The Odds API (3 Ключі) <span style='font-size:0.8em; color:gray; font-weight:normal;'>• {src_label}</span>",
+                    f"##### 🎟️ Залишок запитів The Odds API (5 Ключів) <span style='font-size:0.8em; color:gray; font-weight:normal;'>• {src_label}</span>",
                     unsafe_allow_html=True
                 )
+
+                # Верхній ряд: Сумарний пул та Статус ротації
+                top_q1, top_q2 = st.columns([1, 1])
+                pct = (tot_rem / tot_lim * 100.0) if tot_lim > 0 else 0.0
+                top_q1.metric("📊 Сумарний пул токенів", f"{tot_rem} / {tot_lim}", delta=f"{pct:.1f}% доступно", delta_color="normal" if pct > 20 else "inverse")
+
+                rot_labels = {
+                    "primary": "🟢 Основний активний",
+                    "reserve": "🟡 Резерв 1 активний",
+                    "reserve1": "🟠 Резерв 2 активний",
+                    "reserve2": "🟣 Резерв 3 активний",
+                    "reserve3": "🔵 Резерв 4 активний",
+                }
+                rot_status = rot_labels.get(active_k, "🔴 Вичерпано / очікування")
+                top_q2.metric("🚦 Статус ротації", rot_status, delta="5 ключів у пулі захисту", delta_color="off")
+
+                # Нижній ряд: Деталізація по 5 ключах
                 qc1, qc2, qc3, qc4, qc5 = st.columns(5)
 
-                p_rem = pri.get("remaining")
-                p_rem_txt = f"{p_rem} / {pri.get('limit', 500)}" if p_rem is not None else ("Не налаштовано" if pri.get("status") == "not_configured" else "—")
-                p_used = pri.get("used")
-                p_delta = f"Використано: {p_used}" if p_used is not None else ("Вичерпано" if pri.get("status") == "exhausted" else None)
-                qc1.metric("🎯 Основний ключ", p_rem_txt, delta=p_delta, delta_color="normal" if p_rem and p_rem > 50 else "inverse")
+                def _fmt_card(slot_dict, default_name):
+                    rem = slot_dict.get("remaining")
+                    lim = slot_dict.get("limit", 500)
+                    rem_txt = f"{rem} / {lim}" if rem is not None else ("Не налаштовано" if slot_dict.get("status") == "not_configured" else "—")
+                    used = slot_dict.get("used")
+                    if used is not None:
+                        delta = f"Використано: {used}"
+                    elif slot_dict.get("status") == "exhausted":
+                        delta = "Вичерпано"
+                    elif slot_dict.get("status") == "standby":
+                        delta = "В очікуванні"
+                    else:
+                        delta = None
+                    return rem_txt, delta, ("normal" if rem and rem > 50 else "inverse")
 
-                r_rem = res.get("remaining")
-                r_rem_txt = f"{r_rem} / {res.get('limit', 500)}" if r_rem is not None else ("Не налаштовано" if res.get("status") == "not_configured" else "—")
-                r_used = res.get("used")
-                r_delta = f"Використано: {r_used}" if r_used is not None else ("В очікуванні" if res.get("status") == "standby" else None)
-                qc2.metric("🛡️ Резерв 1", r_rem_txt, delta=r_delta, delta_color="normal")
+                r1_txt, d1, c1 = _fmt_card(pri, "Основний")
+                qc1.metric("🎯 Основний", r1_txt, delta=d1, delta_color=c1)
 
-                r1_rem = res1.get("remaining")
-                r1_rem_txt = f"{r1_rem} / {res1.get('limit', 500)}" if r1_rem is not None else ("Не налаштовано" if res1.get("status") == "not_configured" else "—")
-                r1_used = res1.get("used")
-                r1_delta = f"Використано: {r1_used}" if r1_used is not None else ("В очікуванні" if res1.get("status") == "standby" else None)
-                qc3.metric("🛡️ Резерв 2", r1_rem_txt, delta=r1_delta, delta_color="normal")
+                r2_txt, d2, _ = _fmt_card(res, "Резерв 1")
+                qc2.metric("🛡️ Резерв 1", r2_txt, delta=d2, delta_color="normal")
 
-                pct = (tot_rem / tot_lim * 100.0) if tot_lim > 0 else 0.0
-                qc4.metric("📊 Сумарний пул токенів", f"{tot_rem} / {tot_lim}", delta=f"{pct:.1f}% доступно", delta_color="normal" if pct > 20 else "inverse")
+                r3_txt, d3, _ = _fmt_card(res1, "Резерв 2")
+                qc3.metric("🛡️ Резерв 2", r3_txt, delta=d3, delta_color="normal")
 
-                if active_k == "primary":
-                    rot_status = "🟢 Основний активний"
-                elif active_k == "reserve":
-                    rot_status = "🟡 Резерв 1 активний"
-                elif active_k == "reserve1":
-                    rot_status = "🟠 Резерв 2 активний"
-                else:
-                    rot_status = "🔴 Вичерпано / очікування"
-                qc5.metric("🚦 Статус ротації", rot_status, delta="Потрійний захист", delta_color="off")
+                r4_txt, d4, _ = _fmt_card(res2, "Резерв 3")
+                qc4.metric("🛡️ Резерв 3", r4_txt, delta=d4, delta_color="normal")
+
+                r5_txt, d5, _ = _fmt_card(res3, "Резерв 4")
+                qc5.metric("🛡️ Резерв 4", r5_txt, delta=d5, delta_color="normal")
+
             else:
                 st.markdown(
-                    "##### 🎟️ Залишок запитів The Odds API (3 Ключі) <span style='font-size:0.8em; color:gray; font-weight:normal;'>• ⏱ Очікує першого запуску</span>",
+                    "##### 🎟️ Залишок запитів The Odds API (5 Ключів) <span style='font-size:0.8em; color:gray; font-weight:normal;'>• ⏱ Очікує першого запуску</span>",
                     unsafe_allow_html=True
                 )
+                top_q1, top_q2 = st.columns([1, 1])
+                top_q1.metric("📊 Сумарний пул токенів", "2500 токенів", delta="100% доступно")
+                top_q2.metric("🚦 Статус ротації", "🟢 Готовий до роботи", delta="5 ключів у пулі захисту")
+
                 qc1, qc2, qc3, qc4, qc5 = st.columns(5)
-                qc1.metric("🎯 Основний ключ", "500 токенів", delta="Очікує запуску")
+                qc1.metric("🎯 Основний", "500 токенів", delta="Очікує запуску")
                 qc2.metric("🛡️ Резерв 1", "500 токенів", delta="В очікуванні")
                 qc3.metric("🛡️ Резерв 2", "500 токенів", delta="В очікуванні")
-                qc4.metric("📊 Сумарний пул токенів", "1500 токенів", delta="100% доступно")
-                qc5.metric("🚦 Статус ротації", "🟢 Готовий до роботи", delta="Натисніть '⚡ Запустити моніторинг'")
+                qc4.metric("🛡️ Резерв 3", "500 токенів", delta="В очікуванні")
+                qc5.metric("🛡️ Резерв 4", "500 токенів", delta="В очікуванні")
                 st.caption("💡 *Підказка: точні живі залишки The Odds API оновляться одразу після натискання кнопки «⚡ Запустити моніторинг» у верхньому правому кутку.*")
 
     st.markdown("---")
@@ -750,17 +779,23 @@ def run_streamlit_app():
                 t_p = tab_quota.get("primary", {})
                 t_r = tab_quota.get("reserve", {})
                 t_r1 = tab_quota.get("reserve1", {})
+                t_r2 = tab_quota.get("reserve2", {})
+                t_r3 = tab_quota.get("reserve3", {})
                 t_tot_rem = tab_quota.get("total_remaining", 0)
-                t_tot_lim = tab_quota.get("total_limit", 1500)
+                t_tot_lim = tab_quota.get("total_limit", 2500)
                 p_rem_s = t_p.get('remaining') if t_p.get('remaining') is not None else '—'
                 r_rem_s = t_r.get('remaining') if t_r.get('remaining') is not None else '—'
                 r1_rem_s = t_r1.get('remaining') if t_r1.get('remaining') is not None else '—'
+                r2_rem_s = t_r2.get('remaining') if t_r2.get('remaining') is not None else '—'
+                r3_rem_s = t_r3.get('remaining') if t_r3.get('remaining') is not None else '—'
                 pct_s = ((t_tot_rem / t_tot_lim) * 100) if t_tot_lim else 0
                 st.info(
-                    f"🎟️ **Пул запитів The Odds API (3 Ключі):** **{t_tot_rem}** / {t_tot_lim} ({pct_s:.1f}%)\n\n"
+                    f"🎟️ **Пул запитів The Odds API (5 Ключів):** **{t_tot_rem}** / {t_tot_lim} ({pct_s:.1f}%)\n\n"
                     f"• Основний: `{p_rem_s}` / {t_p.get('limit', 500)} (вик: {t_p.get('used', 0)})\n\n"
                     f"• Резерв 1: `{r_rem_s}` / {t_r.get('limit', 500)} (вик: {t_r.get('used', 0)})\n\n"
-                    f"• Резерв 2: `{r1_rem_s}` / {t_r1.get('limit', 500)} (вик: {t_r1.get('used', 0)})"
+                    f"• Резерв 2: `{r1_rem_s}` / {t_r1.get('limit', 500)} (вик: {t_r1.get('used', 0)})\n\n"
+                    f"• Резерв 3: `{r2_rem_s}` / {t_r2.get('limit', 500)} (вик: {t_r2.get('used', 0)})\n\n"
+                    f"• Резерв 4: `{r3_rem_s}` / {t_r3.get('limit', 500)} (вик: {t_r3.get('used', 0)})"
                 )
             df_poll = pd.DataFrame(poll_df) if (pd is not None and not isinstance(poll_df, pd.DataFrame)) else poll_df
             if df_poll is not None and not df_poll.empty:
