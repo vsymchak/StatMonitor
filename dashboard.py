@@ -791,7 +791,8 @@ def run_streamlit_app():
 
                     chart_df["dt_kyiv"] = chart_df["settled_at"].apply(parse_to_kyiv)
                     first_dt = chart_df["dt_kyiv"].iloc[0]
-                    start_dt = first_dt - timedelta(hours=8)
+                    # Попередній день (наприклад, 13.11) для плавного переходу від стартових 10,000 грн
+                    start_dt = (first_dt - timedelta(days=1)).replace(hour=11, minute=0, second=0)
 
                     # Створюємо стартову точку 10,000 грн для плавного органічного початку
                     start_point = pd.DataFrame([{
@@ -801,8 +802,6 @@ def run_streamlit_app():
                         "cum_profit": 0.0
                     }])
                     full_chart_df = pd.concat([start_point, chart_df], ignore_index=True)
-                    full_chart_df["date_label"] = full_chart_df["dt_kyiv"].apply(lambda d: d.strftime("%d.%m"))
-                    full_chart_df["time_label"] = full_chart_df["dt_kyiv"].apply(lambda d: d.strftime("%d.%m %H:%M"))
 
                     # Відсоток від старту для бейджа
                     last_balance = full_chart_df["balance"].iloc[-1]
@@ -822,11 +821,11 @@ def run_streamlit_app():
                         </div>
                     """, unsafe_allow_html=True)
 
-                    # Розрахунок вертикального діапазону осі Y (масштаб 10k–14k з кроком 500)
+                    # Розрахунок вертикального діапазону осі Y (масштаб 9.5k–14k з кроком 500)
                     all_b = full_chart_df["balance"].tolist()
                     min_b = min(all_b)
                     max_b = max(all_b)
-                    y_min = math.floor(min(min_b, 10000.0) / 500) * 500
+                    y_min = math.floor(min(min_b, 10000.0) / 500) * 500 - 500
                     y_max = math.ceil(max(max_b, 10000.0) / 500) * 500 + 500
                     if (y_max - y_min) < 2000:
                         y_max = y_min + 2500
@@ -837,7 +836,7 @@ def run_streamlit_app():
 
                     # Базова лінія старту (10,000 ₴)
                     fig_bal.add_trace(go.Scatter(
-                        x=full_chart_df["date_label"],
+                        x=full_chart_df["dt_kyiv"],
                         y=[INITIAL_BANKROLL] * len(full_chart_df),
                         mode="lines",
                         line=dict(color="#CBD5E1", width=1.5, dash="dash"),
@@ -846,15 +845,14 @@ def run_streamlit_app():
 
                     # Плавна крива балансу (Spline) з м'якою напівпрозорою заливкою
                     fig_bal.add_trace(go.Scatter(
-                        x=full_chart_df["date_label"],
+                        x=full_chart_df["dt_kyiv"],
                         y=full_chart_df["balance"],
                         mode="lines+markers",
                         line=dict(color="#2563EB", width=2.4, shape="spline", smoothing=0.35),
                         marker=dict(size=6, color="#2563EB", line=dict(color="#FFFFFF", width=1.8)),
                         fill="tozeroy",
                         fillcolor="rgba(37, 99, 235, 0.10)",
-                        customdata=full_chart_df["time_label"],
-                        hovertemplate="<b>%{customdata}</b><br>Баланс: %{y:,.2f} ₴<extra></extra>"
+                        hovertemplate="<b>%{x|%d.%m %H:%M}</b><br>Баланс: %{y:,.2f} ₴<extra></extra>"
                     ))
 
                     fig_bal.update_layout(
@@ -867,6 +865,7 @@ def run_streamlit_app():
                         xaxis=dict(
                             showgrid=False,
                             linecolor="#E2E8F0",
+                            tickformat="%d.%m",
                             tickfont=dict(size=10.5, color="#64748B", family="Inter"),
                         ),
                         yaxis=dict(
