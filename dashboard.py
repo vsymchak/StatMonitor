@@ -20,6 +20,14 @@ from decimal import Decimal
 import html
 import re
 
+from statmonitor.analytics import (
+    classify_market_group,
+    calculate_drawdown,
+    calculate_streaks,
+    calculate_league_breakdown,
+    calculate_market_breakdown,
+)
+
 def format_verdict_markdown(text):
     """
     Очищає HTML-теги <b>, <i>, <br> та форматує їх у чистий гарний Markdown.
@@ -545,37 +553,203 @@ def run_streamlit_app():
     with tab_bets:
         df_all = pd.DataFrame(bets_df) if (pd is not None and not isinstance(bets_df, pd.DataFrame)) else bets_df
 
-        # Графік кумулятивного прибутку
+        # 1. Завантаження назв турнірів
         try:
-            if df_all is not None and not df_all.empty:
-                settled_df = df_all[df_all["status"].isin(["WON", "LOST", "VOID"])].copy()
-                if not settled_df.empty and "settled_at" in settled_df.columns:
-                    settled_df = settled_df.dropna(subset=["settled_at"]).sort_values(by="settled_at", ascending=True)
-                    if not settled_df.empty:
-                        settled_df["profit_uah"] = settled_df["profit_uah"].astype(float)
-                        settled_df["cum_profit"] = settled_df["profit_uah"].cumsum()
-                        settled_df["balance"] = float(INITIAL_BANKROLL) + settled_df["cum_profit"]
+            from statmonitor.league_config import get_active_sports_map
+            s_map = get_active_sports_map()
+        except Exception:
+            try:
+                from statmonitor.config import SPORTS_MAP
+                s_map = SPORTS_MAP
+            except Exception:
+                s_map = {}
+
+        # 2. Інтерактивні фільтри історії ставок (SPEC-24)
+        col_f1, col_f2, col_f3 = st.columns([2, 1, 1])
+
+        all_sports = (
+            sorted(list({str(s) for s in df_all["sport"].dropna().unique() if str(s) != "nan"}))
+            if (df_all is not None and hasattr(df_all, "empty") and not df_all.empty and "sport" in df_all.columns)
+            else []
+        )
+        sport_labels = {sp: s_map.get(sp, sp) for sp in all_sports}
+
+        with col_f1:
+            sel_sports = st.multiselect(
+                "🏆 Фільтр турнірів:",
+                options=all_sports,
+                default=[],
+                format_func=lambda x: sport_labels.get(x, x),
+                placeholder="Всі турніри (без фільтра)",
+                key="filter_sports",
+            )
+
+        with col_f2:
+            market_options = ["Всі маркети", "1X2 / Переможець", "Тотали", "Фори", "Обидві заб'ють"]
+            sel_market = st.selectbox("🎯 Тип маркету:", market_options, index=0, key="filter_market")
+
+        with col_f3:
+            status_options = ["Всі ставки", "Тільки розраховані", "Тільки в грі (Pending)"]
+            sel_status = st.selectbox("📌 Статус:", status_options, index=0, key="filter_status")
+
+        # Застосування фільтрації
+        filtered_df = df_all.copy() if (df_all is not None and hasattr(df_all, "empty") and not df_all.empty) else pd.DataFrame()
+        if not filtered_df.empty:
+            if sel_sports:
+                filtered_df = filtered_df[filtered_df["sport"].isin(sel_sports)]
+            if sel_market != "Всі маркети" and "pick_label" in filtered_df.columns:
+                filtered_df["_mkt_group"] = filtered_df["pick_label"].apply(classify_market_group)
+                filtered_df = filtered_df[filtered_df["_mkt_group"] == sel_market]
+            if sel_status == "Тільки розраховані":
+                filtered_df = filtered_df[filtered_df["status"].isin(["WON", "LOST", "VOID"])]
+            elif sel_status == "Тільки в грі (Pending)":
+                filtered_df = filtered_df[filtered_df["status"] == "PENDING"]
+
+        # 3. Метрики ризику: Max Drawdown та Streaks (SPEC-24)
+        settled_for_metrics = (
+            filtered_df[filtered_df["status"].isin(["WON", "LOST", "VOID"])].copy()
+            if not filtered_df.empty
+            else pd.DataFrame()
+        )
+        dd_stats = calculate_drawdown(settled_for_metrics, initial_bankroll=INITIAL_BANKROLL)
+        streak_stats = calculate_streaks(settled_for_metrics)
+
+        rc1, rc2, rc3, rc4 = st.columns(4)
+
+        max_dd_val = dd_stats["max_drawdown_pct"]
+        max_dd_uah = dd_stats["max_drawdown_uah"]
+        rc1.metric(
+            label="🔻 Max Drawdown (Просідання)",
+            value=f"{max_dd_val:.1f}%",
+            delta=f"-{max_dd_uah:,.0f} грн від піку" if max_dd_val > 0 else "0 грн",
+            delta_color="inverse" if max_dd_val > 0 else "off",
+        )
+
+        c_type = streak_stats["current_streak_type"]
+        c_count = streak_stats["current_streak_count"]
+        c_lbl = f"{c_count}W" if c_type == "W" else (f"{c_count}L" if c_type == "L" else "—")
+        c_delta = "🟢 Серія перемог" if c_type == "W" else ("🔴 Серія поразок" if c_type == "L" else "Немає розрахунків")
+        rc2.metric(
+            label="🔥 Поточна серія",
+            value=c_lbl,
+            delta=c_delta,
+            delta_color="normal" if c_type == "W" else ("inverse" if c_type == "L" else "off"),
+        )
+
+        rc3.metric(
+            label="🏆 Рекордна серія (Win Streak)",
+            value=f"{streak_stats['max_win_streak']} поспіль",
+            delta="Кращий стрік перемог",
+            delta_color="normal",
+        )
+
+        rc4.metric(
+            label="⚠️ Макс. програшна серія",
+            value=f"{streak_stats['max_loss_streak']} поспіль",
+            delta="Loss Streak",
+            delta_color="off",
+        )
+
+        # 4. Графічний аналіз: Капітал + ROI по лігах
+        col_g1, col_g2 = st.columns([1, 1])
+
+        with col_g1:
+            try:
+                if not settled_for_metrics.empty and "settled_at" in settled_for_metrics.columns:
+                    chart_df = settled_for_metrics.dropna(subset=["settled_at"]).sort_values(by="settled_at", ascending=True)
+                    if not chart_df.empty:
+                        chart_df["profit_uah"] = chart_df["profit_uah"].astype(float)
+                        chart_df["cum_profit"] = chart_df["profit_uah"].cumsum()
+                        chart_df["balance"] = float(INITIAL_BANKROLL) + chart_df["cum_profit"]
 
                         fig = px.line(
-                            settled_df,
+                            chart_df,
                             x="settled_at",
                             y="balance",
                             title="📈 Динаміка капіталу (Paper Bank Balance Growth)",
                             markers=True,
                             labels={"settled_at": "Дата розрахунку", "balance": "Баланс (грн)"},
                         )
-                        fig.update_layout(template="plotly_dark", height=380)
+                        fig.update_layout(template="plotly_dark", height=340, margin=dict(l=20, r=20, t=40, b=20))
                         st.plotly_chart(fig, use_container_width=True)
-        except Exception as chart_err:
-            st.warning(f"Графік очікує даних: {chart_err}")
+                    else:
+                        st.info("ℹ️ Немає розрахованих ставок за обраними фільтрами для графіка капіталу.")
+                else:
+                    st.info("ℹ️ Немає розрахованих ставок за обраними фільтрами для графіка капіталу.")
+            except Exception as chart_err:
+                st.warning(f"Графік очікує даних: {chart_err}")
+
+        all_settled = df_all[df_all["status"].isin(["WON", "LOST", "VOID"])].copy() if (df_all is not None and not df_all.empty) else pd.DataFrame()
+        league_stats = calculate_league_breakdown(all_settled, sports_map=s_map)
+        market_stats = calculate_market_breakdown(all_settled)
+
+        with col_g2:
+            try:
+                if league_stats:
+                    l_df = pd.DataFrame(league_stats)
+                    fig_l = px.bar(
+                        l_df,
+                        x="roi_pct",
+                        y="league_title",
+                        orientation="h",
+                        title="🏆 ROI за турнірами (%)",
+                        labels={"roi_pct": "ROI (%)", "league_title": "Турнір"},
+                        color="roi_pct",
+                        color_continuous_scale=["#ef4444", "#3b82f6", "#10b981"],
+                        text="roi_pct",
+                    )
+                    fig_l.update_traces(texttemplate='%{text:+.1f}%', textposition='outside')
+                    fig_l.update_layout(template="plotly_dark", height=340, showlegend=False, margin=dict(l=20, r=20, t=40, b=20))
+                    st.plotly_chart(fig_l, use_container_width=True)
+                else:
+                    st.info("ℹ️ Очікування розрахунку ставок для побудови аналітики ліг.")
+            except Exception as le_err:
+                st.warning(f"Аналітика ліг очікує даних: {le_err}")
+
+        # 5. Детальні таблиці сегментації (Ліга та Маркет)
+        with st.expander("📊 Детальна сегментація за лігами та типами маркетів (Breakdown)", expanded=False):
+            sub_col1, sub_col2 = st.columns(2)
+            with sub_col1:
+                st.markdown("##### 🏆 Ефективність за лігами")
+                if league_stats:
+                    disp_l_cols = ["league_title", "bets_count", "won", "lost", "win_rate", "profit_uah", "roi_pct"]
+                    l_table = pd.DataFrame(league_stats)[disp_l_cols].rename(columns={
+                        "league_title": "Турнір",
+                        "bets_count": "Ставок",
+                        "won": "Виграш",
+                        "lost": "Програш",
+                        "win_rate": "Win %",
+                        "profit_uah": "Профіт (грн)",
+                        "roi_pct": "ROI (%)",
+                    })
+                    st.dataframe(l_table, use_container_width=True, hide_index=True)
+                else:
+                    st.caption("Немає даних.")
+
+            with sub_col2:
+                st.markdown("##### 🎯 Ефективність за типами маркетів")
+                if market_stats:
+                    disp_m_cols = ["market_group", "bets_count", "won", "lost", "win_rate", "profit_uah", "roi_pct"]
+                    m_table = pd.DataFrame(market_stats)[disp_m_cols].rename(columns={
+                        "market_group": "Маркет",
+                        "bets_count": "Ставок",
+                        "won": "Виграш",
+                        "lost": "Програш",
+                        "win_rate": "Win %",
+                        "profit_uah": "Профіт (грн)",
+                        "roi_pct": "ROI (%)",
+                    })
+                    st.dataframe(m_table, use_container_width=True, hide_index=True)
+                else:
+                    st.caption("Немає даних.")
 
         col_left, col_right = st.columns([1, 1])
 
         with col_left:
             st.subheader("⏳ Активні ставки в грі (Pending)")
             try:
-                if df_all is not None and not df_all.empty:
-                    pending_df = df_all[df_all["status"] == "PENDING"].copy()
+                if not filtered_df.empty:
+                    pending_df = filtered_df[filtered_df["status"] == "PENDING"].copy()
                     if not pending_df.empty:
                         disp_df = pending_df.copy()
                         curr_bank_val = metrics.get("current_bank", INITIAL_BANKROLL)
@@ -651,7 +825,7 @@ def run_streamlit_app():
                                             cur_edit.close()
                                             conn_edit.close()
                     else:
-                        st.info("Наразі немає відкритих ставок у грі.")
+                        st.info("Наразі немає відкритих ставок у грі за обраними фільтрами.")
                 else:
                     st.info("Дані відсутні.")
             except Exception as e:
@@ -660,8 +834,8 @@ def run_streamlit_app():
         with col_right:
             st.subheader("📋 Історія розрахованих ставок")
             try:
-                if df_all is not None and not df_all.empty:
-                    settled_df = df_all[df_all["status"].isin(["WON", "LOST", "VOID"])].copy()
+                if not filtered_df.empty:
+                    settled_df = filtered_df[filtered_df["status"].isin(["WON", "LOST", "VOID"])].copy()
                     if not settled_df.empty:
                         disp_df_settled = settled_df.copy()
                         if "settled_at" in disp_df_settled.columns:
@@ -671,7 +845,7 @@ def run_streamlit_app():
                             disp_cols = [c for c in ["match_name", "pick_label", "odds", "stake_uah", "match_score", "status", "profit_uah"] if c in disp_df_settled.columns]
                         st.dataframe(disp_df_settled[disp_cols], use_container_width=True, hide_index=True)
                     else:
-                        st.info("Історія розрахунків порожня.")
+                        st.info("Історія розрахунків порожня за обраними фільтрами.")
                 else:
                     st.info("Дані відсутні.")
             except Exception as e:

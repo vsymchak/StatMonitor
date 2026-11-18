@@ -64,7 +64,7 @@ flowchart LR
     end
 
     subgraph Wave9["Хвиля 9: Розширена аналітика та дайджести"]
-        24["24 · Аналітика ROI ліг & Drawdown<br><small>Фільтри, Max Drawdown %</small><br><b>M</b>"]:::idea
+        24["24 · Аналітика ROI ліг & Drawdown<br><small>Фільтри, Max Drawdown %</small><br><b>M</b>"]:::shipped
         25["25 · Керування порогами в UI<br><small>Admin налаштування leagues.json</small><br><b>S</b>"]:::idea
         26["26 · Щотижневий графічний дайджест<br><small>Sunday Telegram Digest</small><br><b>S</b>"]:::idea
     end

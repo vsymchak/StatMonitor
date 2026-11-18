@@ -62,6 +62,13 @@ from statmonitor.paper_trading import (
 from statmonitor.pipeline import (
     check_alerts_and_notify,
 )
+from statmonitor.analytics import (
+    classify_market_group,
+    calculate_drawdown,
+    calculate_streaks,
+    calculate_league_breakdown,
+    calculate_market_breakdown,
+)
 from statmonitor.limiter import (
     get_budget_mode,
     classify_sports_urgency,
@@ -136,4 +143,9 @@ __all__ = [
     "get_market_median_odds",
     "recalculate_historical_paper_bets",
     "BENCHMARK_BOOKMAKERS",
+    "classify_market_group",
+    "calculate_drawdown",
+    "calculate_streaks",
+    "calculate_league_breakdown",
+    "calculate_market_breakdown",
 ]
