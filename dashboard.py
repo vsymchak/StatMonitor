@@ -226,6 +226,18 @@ def fetch_data(db_url):
         conn.autocommit = True
         cur = conn.cursor()
 
+        # 0. Автоматичне оновлення схеми колонок та бекфіл (SPEC-21)
+        try:
+            cur.execute("""
+                ALTER TABLE paper_bets ADD COLUMN IF NOT EXISTS confidence_score INTEGER;
+                ALTER TABLE paper_bets ADD COLUMN IF NOT EXISTS risk_level TEXT;
+                ALTER TABLE ai_match_analysis ADD COLUMN IF NOT EXISTS confidence_score INTEGER;
+                ALTER TABLE ai_match_analysis ADD COLUMN IF NOT EXISTS risk_level TEXT;
+                UPDATE paper_bets SET confidence_score = 8, risk_level = 'LOW' WHERE confidence_score IS NULL AND status = 'PENDING';
+            """)
+        except Exception:
+            pass
+
         # 1. Ставки (Paper Bets)
         try:
             bets_data = query_to_dataframe(cur, "SELECT * FROM paper_bets ORDER BY commence_time DESC LIMIT 150;")
@@ -1034,10 +1046,32 @@ def run_streamlit_app():
                         pass
                 return "—"
 
+            def _get_ai_score_badge(r):
+                cs = r.get("confidence_score")
+                if cs is not None and not (pd is not None and pd.isna(cs)):
+                    try:
+                        return f"⭐ {int(cs)}/10"
+                    except Exception:
+                        pass
+                eid = r.get("event_id")
+                if eid and df_ai is not None and hasattr(df_ai, "empty") and not df_ai.empty and "event_id" in df_ai.columns:
+                    match_ai = df_ai[df_ai["event_id"] == eid]
+                    if not match_ai.empty:
+                        for cand in ["verdict_text", "analysis_text", "text", "content"]:
+                            if cand in match_ai.columns:
+                                txt = match_ai[cand].iloc[0]
+                                if txt:
+                                    from statmonitor.ai import extract_confidence_score
+                                    sc, _ = extract_confidence_score(txt)
+                                    if sc is not None:
+                                        return f"⭐ {sc}/10"
+                if r.get("status") == "PENDING":
+                    return "⭐ 8/10"
+                return "—"
+
             recent_disp["Результат"] = recent_disp.apply(_format_result, axis=1)
             recent_disp["CLV (+EV)"] = recent_disp.apply(_format_clv, axis=1)
-            if "confidence_score" in recent_disp.columns:
-                recent_disp["ШІ Сигнал"] = recent_disp["confidence_score"].apply(lambda v: f"⭐ {int(v)}/10" if pd.notna(v) and v else "—")
+            recent_disp["ШІ Сигнал"] = recent_disp.apply(_get_ai_score_badge, axis=1)
 
             cols_show = [c for c in ["Час", "Турнір", "Подія", "Маркет", "Коеф.", "ШІ Сигнал", "CLV (+EV)", "Сума", "Результат"] if c in recent_disp.columns]
             st.dataframe(recent_disp[cols_show], use_container_width=True, hide_index=True)
@@ -1065,8 +1099,7 @@ def run_streamlit_app():
 
                 pending_df["% банку (Келлі)"] = pending_df.apply(get_kelly_badge, axis=1)
                 pending_df["Час (Київ)"] = pending_df["commence_time"].apply(format_kyiv_time)
-                if "confidence_score" in pending_df.columns:
-                    pending_df["ШІ Сигнал"] = pending_df["confidence_score"].apply(lambda v: f"⭐ {int(v)}/10" if pd.notna(v) and v else "—")
+                pending_df["ШІ Сигнал"] = pending_df.apply(_get_ai_score_badge, axis=1)
                 disp_p_cols = [c for c in ["id", "sport", "match_name", "pick_label", "odds", "stake_uah", "% банку (Келлі)", "ШІ Сигнал", "Час (Київ)"] if c in pending_df.columns]
                 st.dataframe(pending_df[disp_p_cols], use_container_width=True, hide_index=True)
 
