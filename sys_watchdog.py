@@ -58,7 +58,8 @@ def detect_stale_heartbeat(last_ping_at, now_utc=None, max_gap_minutes=150):
 def detect_missed_checkpoints(cur, conn, now_utc=None, threshold_minutes=25):
     """
     Знаходить заплановані контрольні точки в scheduler_plan, які запізнилися більш ніж на threshold_minutes.
-    Переводить їх у статус MISSED.
+    Переводить їх у статус MISSED або SKIPPED.
+    У нічний час (00:00 - 08:00 за Києвом) застарілі точки переводить у SKIPPED без тривожних алертів.
     """
     if now_utc is None:
         now_utc = datetime.now(timezone.utc)
@@ -80,6 +81,17 @@ def detect_missed_checkpoints(cur, conn, now_utc=None, threshold_minutes=25):
     )
     rows = cur.fetchall()
     if not rows:
+        return []
+
+    now_kyiv = now_utc.astimezone(KYIV_TZ)
+    is_night = (0 <= now_kyiv.hour < 8)
+
+    # Нічний режим тиші (00:00 - 08:00 за Києвом):
+    # Застарілі точки переводимо у SKIPPED тихо, не надсилаючи алерту у Telegram
+    if is_night:
+        ids_to_skip = [r[0] for r in rows]
+        cur.execute("UPDATE scheduler_plan SET status = 'SKIPPED' WHERE id = ANY(%s);", (ids_to_skip,))
+        conn.commit()
         return []
 
     missed = []

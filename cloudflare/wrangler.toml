@@ -1,0 +1,16 @@
+name = "statmonitor-trigger"
+main = "worker.js"
+compatibility_date = "2024-09-23"
+
+# Високоточний розклад Cron на Edge-серверах Cloudflare (0 сек затримки)
+[triggers]
+crons = ["*/20 * * * *"]  # кожні 20 хвилин (00, 20, 40 хвилин кожної години)
+
+[vars]
+GH_REPO = "vsymchak/StatMonitor"
+GH_WORKFLOW = "scheduler.yml"
+GH_REF = "main"
+
+# Секрети (додаються через Cloudflare Dashboard або 'wrangler secret put'):
+# - GH_PAT: токен GitHub Personal Access Token (з правами repo або actions:write)
+# - SECRET_KEY: секретний пароль для запуску через вебхук та з кабінету адміна дашборду

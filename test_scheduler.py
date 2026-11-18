@@ -45,6 +45,20 @@ def test_generate_schedule_points():
     assert settle_point["trigger_type"] == "SETTLE"
     assert settle_point["target_time"] == datetime(2026, 11, 16, 20, 55, tzinfo=timezone.utc)
 
+def test_generate_schedule_points_no_pending_bets_no_noise():
+    now = datetime(2026, 11, 16, 15, 0, tzinfo=timezone.utc)
+    kickoff = datetime(2026, 11, 16, 19, 0, tzinfo=timezone.utc)
+
+    # Матч є в базі, але активної ставки немає
+    events = [
+        {"id": "ev_toronto", "commence_time": kickoff, "match_name": "Toronto Raptors - New York Knicks"}
+    ]
+    pending_bets = []
+
+    # За замовчуванням точки не повинні генеруватися, щоб уникнути шуму та хибних тривог
+    points = generate_schedule_points(events, pending_bets, now_utc=now, require_pending=True)
+    assert len(points) == 0
+
 def test_format_schedule_for_tg():
     t_target = datetime(2026, 11, 16, 18, 45, tzinfo=timezone.utc)
     points = [{
@@ -78,6 +92,7 @@ def test_mark_checkpoints_executed():
 if __name__ == "__main__":
     test_cluster_events()
     test_generate_schedule_points()
+    test_generate_schedule_points_no_pending_bets_no_noise()
     test_format_schedule_for_tg()
     test_mark_checkpoints_executed()
     print("Всі юніт-тести планувальника успішно пройдено!")

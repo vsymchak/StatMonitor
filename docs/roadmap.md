@@ -1,8 +1,8 @@
 # Дорожня карта розвитку StatMonitor (SDD Roadmap)
 
-> **Статус**: 22 з 28 кроків реалізовано (22 Shipped, 6 Planned) · Еволюція Waves 8 & 9 🎉  
+> **Статус**: 23 з 29 кроків реалізовано (23 Shipped, 6 Planned) · Еволюція Waves 8 & 9 🎉  
 > **Оновлено**: 18.11.2026  
-> **Фокус**: The Odds API Multi-Key Quota Dashboard + Dynamic Tennis Coverage + Smart Betting (Kelly, Anti-Spam)
+> **Фокус**: Cloudflare Edge Cron (Zero Delay) + Scheduler Noise Elimination & Night Silence + Odds Quota & Tennis Discovery
 
 ---
 
@@ -188,6 +188,12 @@
 * **Статус**: 🟩 Shipped
 * **Опис**: Виведення повного залишку квоти токенів The Odds API в адмін-панель Streamlit Dashboard з урахуванням як основного (`ODDS_API_KEY`), так і резервного (`ODDS_API_KEY_RESERVE`) ключів із статусом автоматичної ротації (1000 запитів сумарного пулу). Збереження квот у метаданих `system_heartbeat` та розширення охоплення тенісних змагань (ATP/WTA Tour, Davis Cup, Australian Open, Roland Garros, Wimbledon, US Open) із механізмом динамічного автовиявлення активних турнірів у `get_sports_map()`.
 * **Залежності**: потрібен крок 10, потрібен крок 16, потрібен крок 17
+
+### 29. Cloudflare Worker Cron Trigger & Scheduler Noise Elimination
+* **Розмір**: S
+* **Статус**: 🟩 Shipped
+* **Опис**: Перехід на високоточний запуск за розкладом на Edge-вузлах Cloudflare (`cloudflare/worker.js`, cron: `*/20 * * * *`) з нульовими затримками черги замість ненадійного внутрішнього крону GitHub Actions. Повна фільтрація шуму в `scheduler.py`: створення передматчевих точок `PRE_MATCH` виключно для матчів з активними ставками у `paper_bets`. Автоматичний нічний фільтр тиші (00:00 - 08:00 за Києвом) у `sys_watchdog.py` та очищення сторонніх застарілих точок як `SKIPPED` без хибних тривог у Telegram.
+* **Залежності**: потрібен крок 8, потрібен крок 9, потрібен крок 11
 
 ---
 

@@ -59,32 +59,40 @@ def cluster_events(events, threshold_minutes=25):
 
     return clusters
 
-def generate_schedule_points(events, pending_bets, now_utc=None, horizon_hours=36):
+def generate_schedule_points(events, pending_bets, now_utc=None, horizon_hours=36, require_pending=True):
     """
     Генерує контрольні точки розкладу:
-    1. PRE_MATCH: за 15 хвилин до кластера матчів.
-    2. SETTLE: через 115 хвилин після старту матчу для активних ставок.
+    1. PRE_MATCH: за 15 хвилин до старту гри (тільки для матчів з активними ставками у Paper Bank).
+    2. SETTLE: через 115 хвилин після старту гри для активних ставок у Paper Bank.
+    Матчі без активних ставок не створюють зобов'язувальних точок у scheduler_plan, щоб уникнути хибних тривог Watchdog.
     """
     if now_utc is None:
         now_utc = datetime.now(timezone.utc)
 
     points = []
 
-    # Об'єднуємо події з events та активні ставки з pending_bets для гарантованого формування точок
-    all_events = list(events)
-    existing_ids = {str(e.get("id")) for e in all_events if "id" in e}
-    for b in pending_bets:
+    pending_ids = {str(b.get("event_id") or "") for b in (pending_bets or []) if b.get("event_id")}
+
+    # Відбираємо події: якщо require_pending=True, тільки ті події, де є активна ставка у Paper Bank
+    if require_pending:
+        relevant_events = [e for e in (events or []) if str(e.get("id")) in pending_ids]
+    else:
+        relevant_events = list(events or [])
+
+    # Додаємо події безпосередньо з pending_bets, якщо їх немає в events
+    existing_ids = {str(e.get("id")) for e in relevant_events if "id" in e}
+    for b in (pending_bets or []):
         bid = str(b.get("event_id") or "")
         if bid and bid not in existing_ids:
-            all_events.append({
+            relevant_events.append({
                 "id": bid,
                 "match_name": b.get("match_name", ""),
                 "commence_time": b.get("commence_time"),
             })
 
-    # 1. Передматчеві точки (PRE_MATCH)
+    # 1. Передматчеві точки (PRE_MATCH) тільки для активних ставок
     upcoming = [
-        e for e in all_events
+        e for e in relevant_events
         if e.get("commence_time") and e["commence_time"] > now_utc and e["commence_time"] <= now_utc + timedelta(hours=horizon_hours)
     ]
     clusters = cluster_events(upcoming, threshold_minutes=25)
@@ -95,9 +103,9 @@ def generate_schedule_points(events, pending_bets, now_utc=None, horizon_hours=3
         if target_t >= now_utc - timedelta(minutes=5):
             ev_names = [e.get("match_name") or f"{e.get('home_team', '')} - {e.get('away_team', '')}".strip(" -") or e.get("id") for e in cl]
             if len(ev_names) == 1:
-                desc = f"Перед грою: {ev_names[0]}"
+                desc = f"Перед грою (активна ставка): {ev_names[0]}"
             else:
-                desc = f"Перед блоком матчів ({len(ev_names)}): {ev_names[0]} та ін."
+                desc = f"Перед грою (активні ставки {len(ev_names)}): {ev_names[0]} та ін."
             points.append({
                 "target_time": target_t,
                 "trigger_type": "PRE_MATCH",
@@ -106,7 +114,7 @@ def generate_schedule_points(events, pending_bets, now_utc=None, horizon_hours=3
             })
 
     # 2. Точки розрахунку ставок (SETTLE)
-    for b in pending_bets:
+    for b in (pending_bets or []):
         c_time = b.get("commence_time")
         if not c_time:
             continue

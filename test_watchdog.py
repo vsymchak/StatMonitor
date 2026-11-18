@@ -64,9 +64,37 @@ def test_detect_missed_checkpoints_dedup():
     assert len(missed) == 1
     assert missed[0]["description"] == "Перед грою: Alcaraz - Tiafoe"
 
+def test_detect_missed_checkpoints_night_silence():
+    from sys_watchdog import detect_missed_checkpoints
+    class MockCursor:
+        def __init__(self):
+            self.queries = []
+        def execute(self, q, params=None):
+            self.queries.append((q, params))
+        def fetchone(self):
+            return (1,) # table exists
+        def fetchall(self):
+            t_old = datetime(2026, 11, 16, 1, 30, tzinfo=timezone.utc)
+            return [
+                (201, t_old, "PRE_MATCH", "Перед грою: Toronto Raptors - New York Knicks"),
+            ]
+    class MockConn:
+        def commit(self): pass
+
+    cur = MockCursor()
+    conn = MockConn()
+    # Нічний час: 03:00 UTC (05:00 Київ)
+    t_night = datetime(2026, 11, 16, 3, 0, tzinfo=timezone.utc)
+    missed = detect_missed_checkpoints(cur, conn, now_utc=t_night, threshold_minutes=25)
+    # У нічний час не повинно повертатися жодної тривожної точки
+    assert len(missed) == 0
+    # Але статус у базі повинен оновитися на SKIPPED
+    assert any("SET status = 'SKIPPED'" in q[0] for q in cur.queries)
+
 if __name__ == "__main__":
     test_detect_stale_heartbeat_alert()
     test_detect_stale_heartbeat_normal()
     test_format_watchdog_alert()
     test_detect_missed_checkpoints_dedup()
+    test_detect_missed_checkpoints_night_silence()
     print("Всі тести watchdog успішно пройдено!")

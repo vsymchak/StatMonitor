@@ -149,10 +149,15 @@ def get_dashboard_odds_quota(heartbeat_df=None):
         if not key1 or not key2:
             try:
                 import streamlit as st
-                if not key1 and hasattr(st, "secrets"):
-                    key1 = st.secrets.get("ODDS_API_KEY") or st.secrets.get("API_KEY")
-                if not key2 and hasattr(st, "secrets"):
-                    key2 = st.secrets.get("ODDS_API_KEY_RESERVE") or st.secrets.get("API_KEY_RESERVE")
+                if hasattr(st, "secrets"):
+                    try:
+                        s_dict = dict(st.secrets)
+                        if not key1:
+                            key1 = s_dict.get("ODDS_API_KEY") or s_dict.get("API_KEY")
+                        if not key2:
+                            key2 = s_dict.get("ODDS_API_KEY_RESERVE") or s_dict.get("API_KEY_RESERVE")
+                    except Exception:
+                        pass
             except Exception:
                 pass
 
@@ -448,16 +453,16 @@ def run_streamlit_app():
     # 1.1 Адмін-панель залишку токенів The Odds API (мульти-ключ з ротацією)
     if is_admin:
         quota_data, quota_source = get_dashboard_odds_quota(heartbeat_df)
-        if quota_data:
-            pri = quota_data.get("primary", {})
-            res = quota_data.get("reserve", {})
-            tot_rem = quota_data.get("total_remaining", 0)
-            tot_lim = quota_data.get("total_limit", 1000)
-            active_k = quota_data.get("active_key", "none")
+        with st.container():
+            if quota_data:
+                pri = quota_data.get("primary", {})
+                res = quota_data.get("reserve", {})
+                tot_rem = quota_data.get("total_remaining", 0)
+                tot_lim = quota_data.get("total_limit", 1000)
+                active_k = quota_data.get("active_key", "none")
 
-            src_label = "🟢 Прямий запит (Live API)" if quota_source == "live" else "⏱ Знімок із пульсу сервісу (Watchdog)"
+                src_label = "🟢 Прямий запит (Live API)" if quota_source == "live" else "⏱ Знімок із пульсу сервісу (Watchdog)"
 
-            with st.container():
                 st.markdown(
                     f"##### 🎟️ Залишок запитів The Odds API (Мульти-ключ) <span style='font-size:0.8em; color:gray; font-weight:normal;'>• {src_label}</span>",
                     unsafe_allow_html=True
@@ -481,6 +486,17 @@ def run_streamlit_app():
 
                 rot_status = "🟢 Основний активний" if active_k == "primary" else ("🟡 Працює з резерву" if active_k == "reserve" else "🔴 Вичерпано / очікування")
                 qc4.metric("🚦 Статус ротації", rot_status, delta="Резерв захищає сервіс", delta_color="off")
+            else:
+                st.markdown(
+                    "##### 🎟️ Залишок запитів The Odds API (Мульти-ключ) <span style='font-size:0.8em; color:gray; font-weight:normal;'>• ⏱ Очікує першого запуску</span>",
+                    unsafe_allow_html=True
+                )
+                qc1, qc2, qc3, qc4 = st.columns(4)
+                qc1.metric("🎯 Основний ключ", "500 токенів", delta="Очікує запуску")
+                qc2.metric("🛡️ Резервний ключ", "500 токенів", delta="В очікуванні")
+                qc3.metric("📊 Сумарний пул токенів", "1000 токенів", delta="100% доступно")
+                qc4.metric("🚦 Статус ротації", "🟢 Готовий до роботи", delta="Натисніть '⚡ Запустити моніторинг'")
+                st.caption("💡 *Підказка: точні живі залишки The Odds API оновляться одразу після натискання кнопки «⚡ Запустити моніторинг» у верхньому правому кутку.*")
 
     st.markdown("---")
 
