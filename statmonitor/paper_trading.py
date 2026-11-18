@@ -323,21 +323,22 @@ def recalculate_historical_paper_bets(cur, conn):
     return updated
 
 def format_pick(market, outcome, point, match_name):
-    out_s = str(outcome).strip()
+    out_s = str(outcome or "").strip()
     if re.match(r"^(?:П1|П2|Х|Ф1|Ф2|ТБ|ТМ)\b", out_s):
         return out_s
-    parts = [p.strip() for p in match_name.split(" - ", 1)]
+    m_name = str(match_name or "").strip()
+    parts = [p.strip() for p in m_name.split(" - ", 1)] if " - " in m_name else ([m_name] if m_name else [])
     h_t, a_t = (parts[0], parts[1]) if len(parts) == 2 else ("", "")
     if market == "totals" or out_s.lower() in ("over", "under"):
         pt = f"{float(point):g}" if point is not None else ""
         return f"{'ТБ' if out_s.lower() == 'over' else 'ТМ'} {pt}".strip()
     if market == "spreads" or point is not None:
         pt = f"{float(point):+g}" if point is not None else ""
-        if out_s == h_t: return f"Ф1 ({pt})"
-        if out_s == a_t: return f"Ф2 ({pt})"
-        return f"Фора {out_s} ({pt})"
-    if out_s == h_t: return f"П1 ({h_t})"
-    if out_s == a_t: return f"П2 ({a_t})"
+        if out_s and out_s == h_t: return f"Ф1 ({pt})"
+        if out_s and out_s == a_t: return f"Ф2 ({pt})"
+        return f"Фора {out_s} ({pt})" if out_s else f"Фора ({pt})"
+    if out_s and out_s == h_t: return f"П1 ({h_t})"
+    if out_s and out_s == a_t: return f"П2 ({a_t})"
     return "Х (Нічия)" if out_s.lower() == "draw" else out_s
 
 def calculate_kelly_fraction(odds, drop_pct=None, confidence=None, fraction=0.25, min_pct=0.01, max_pct=0.05):
@@ -414,8 +415,9 @@ def place_paper_bet(cur, conn, ev_id, sport, match, c_time, pick_lbl, odds, drop
         return False
 
 def eval_outcome(pick_lbl, match_name, h_sc, a_sc):
-    p = pick_lbl.lower()
-    parts = [x.strip().lower() for x in match_name.split(" - ", 1)]
+    p = str(pick_lbl or "").lower()
+    m_name = str(match_name or "").strip()
+    parts = [x.strip().lower() for x in m_name.split(" - ", 1)] if " - " in m_name else []
     h_t, a_t = (parts[0], parts[1]) if len(parts) == 2 else ("", "")
     m_tb = re.search(r"(?:тб|over)\s*\(?([0-9.]+)\)?", p)
     if m_tb:

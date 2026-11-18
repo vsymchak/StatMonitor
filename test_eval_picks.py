@@ -47,6 +47,15 @@ class TestFormatPick(unittest.TestCase):
         self.assertEqual(format_pick("h2h", "Draw", None, "Arsenal - Chelsea"), "Х (Нічия)")
         self.assertEqual(format_pick("h2h", "draw", None, "Arsenal - Chelsea"), "Х (Нічия)")
 
+    def test_null_match_name_safety(self):
+        # Перевірка захисту від AttributeError при None замість назви матчу
+        self.assertEqual(format_pick("totals", "Over", 2.5, None), "ТБ 2.5")
+        self.assertEqual(format_pick("spreads", "Arsenal", -1.5, None), "Фора Arsenal (-1.5)")
+        self.assertEqual(format_pick("h2h", "П1", None, None), "П1")
+        self.assertEqual(format_pick("h2h", "Draw", None, None), "Х (Нічия)")
+        self.assertEqual(eval_outcome("ТБ 2.5", None, 2, 1), "WON")
+        self.assertEqual(eval_outcome("ТМ 2.5", None, 1, 0), "WON")
+
 
 class TestEvalOutcome(unittest.TestCase):
     """Тестування розрахунку результатів ставок (WON, LOST, VOID)."""

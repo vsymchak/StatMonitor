@@ -89,10 +89,20 @@ def check_alerts_and_notify(sports_map, t_start=None):
             continue
         if re.search(r"\d+\.(?:25|75)\b", str(out)):
             continue
+
+        match_val = pick_v(d, ("match_name", "match"), r[2] if len(r) > 2 else "")
+        if not match_val or str(match_val).strip() in ("", "None"):
+            h = pick_v(d, ("home_team", "home"), "")
+            a = pick_v(d, ("away_team", "away"), "")
+            if h and a:
+                match_val = f"{h} - {a}"
+            else:
+                match_val = str(ev_id)
+
         items.append({
             "event_id": ev_id,
             "sport": sp_key,
-            "match": pick_v(d, ("match_name", "match"), r[2]),
+            "match": match_val,
             "c_time": pick_v(d, ("commence_time", "match_time"), r[3]),
             "bm": bm,
             "outcome": out,

@@ -203,7 +203,9 @@ def fetch_and_save_odds(sports_map=None):
     ev_cols = get_cols(cur, "events")
     if events_batch:
         id_c = pick(ev_cols, ("id", "event_id"), "id")
-        if "home_team" in ev_cols:
+        if "home_team" in ev_cols and "match_name" in ev_cols:
+            execute_values(cur, f"INSERT INTO events ({id_c}, sport, home_team, away_team, match_name, commence_time) VALUES %s ON CONFLICT ({id_c}) DO UPDATE SET commence_time=EXCLUDED.commence_time, match_name=EXCLUDED.match_name;", [(e[0], e[1], e[2], e[3], f"{e[2]} - {e[3]}", e[4]) for e in events_batch])
+        elif "home_team" in ev_cols:
             execute_values(cur, f"INSERT INTO events ({id_c}, sport, home_team, away_team, commence_time) VALUES %s ON CONFLICT ({id_c}) DO UPDATE SET commence_time=EXCLUDED.commence_time;", events_batch)
         elif "match_name" in ev_cols:
             execute_values(cur, f"INSERT INTO events ({id_c}, sport, match_name, commence_time) VALUES %s ON CONFLICT ({id_c}) DO UPDATE SET commence_time=EXCLUDED.commence_time;", [(e[0], e[1], f"{e[2]} - {e[3]}", e[4]) for e in events_batch])
