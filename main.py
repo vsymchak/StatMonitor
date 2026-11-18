@@ -44,6 +44,14 @@ from statmonitor import (
 
 def run_pipeline():
     t_start = time.time()
+    from datetime import datetime
+    print("=" * 60)
+    print("🚀 StatMonitor v3.4.1 [Safe match_name + Cloudflare Edge Cron]")
+    try:
+        print(f"⏰ Час старту: {datetime.now(KYIV_TZ).strftime('%d.%m.%Y %H:%M:%S')} (Київ)")
+    except Exception:
+        pass
+    print("=" * 60)
     s_map = get_sports_map()
     fetch_and_save_odds(s_map)
     check_alerts_and_notify(s_map, t_start=t_start)

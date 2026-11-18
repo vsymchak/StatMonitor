@@ -16,7 +16,7 @@ from statmonitor.paper_trading import (
 )
 
 def check_alerts_and_notify(sports_map, t_start=None):
-    print("4. Перевірка алертів і відправка...")
+    print("4. Перевірка алертів і відправка (v3.4.1)...")
     conn = get_db()
     if not conn:
         print("Помилка підключення до БД для обробки алертів.")
