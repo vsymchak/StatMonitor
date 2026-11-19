@@ -479,8 +479,16 @@ def calculate_kelly_fraction(odds, drop_pct=None, confidence=None, fraction=0.25
     clamped = max(min_pct, min(max_pct, frac_kelly))
     return round(clamped, 4)
 
-def place_paper_bet(cur, conn, ev_id, sport, match, c_time, pick_lbl, odds, drop_pct=None, confidence=None, risk_level=None, save_shadow=True):
+def place_paper_bet(cur, conn, ev_id, sport, match, c_time, pick_lbl, odds, drop_pct=None, confidence=None, risk_level=None, save_shadow=True, walkaway_odds=None):
     try:
+        # SPEC-37: Розрахунок порогу беззбитковості (Walkaway Odds), якщо не передано явно
+        if walkaway_odds is None and odds:
+            try:
+                from statmonitor.novig import estimate_walkaway_odds
+                walkaway_odds = estimate_walkaway_odds(odds, drop_pct=drop_pct, confidence=confidence)
+            except Exception:
+                walkaway_odds = None
+
         filter_reason = None
         if any(w in str(pick_lbl).lower() for w in ("пропустити", "утриматися")):
             filter_reason = "AI_SKIP"
@@ -512,11 +520,11 @@ def place_paper_bet(cur, conn, ev_id, sport, match, c_time, pick_lbl, odds, drop
                     """
                     INSERT INTO paper_bets (
                         event_id, sport, match_name, commence_time, pick_label, odds, stake_uah, kelly_pct,
-                        confidence_score, risk_level, status, profit_uah, is_shadow, shadow_status, shadow_profit_uah, filter_reason
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'FILTERED', 0.00, TRUE, 'PENDING', 0.00, %s)
+                        confidence_score, risk_level, status, profit_uah, is_shadow, shadow_status, shadow_profit_uah, walkaway_odds, filter_reason
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'FILTERED', 0.00, TRUE, 'PENDING', 0.00, %s, %s)
                     ON CONFLICT DO NOTHING;
                     """,
-                    (ev_id, sport, match, c_time, pick_lbl, k, hypo_stake, kelly_pct, confidence, risk_level, filter_reason),
+                    (ev_id, sport, match, c_time, pick_lbl, k, hypo_stake, kelly_pct, confidence, risk_level, walkaway_odds, filter_reason),
                 )
                 conn.commit()
             except Exception:
@@ -527,16 +535,31 @@ def place_paper_bet(cur, conn, ev_id, sport, match, c_time, pick_lbl, odds, drop
                         """
                         INSERT INTO paper_bets (
                             event_id, sport, match_name, commence_time, pick_label, odds, stake_uah, kelly_pct,
-                            confidence_score, risk_level, status, profit_uah
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'FILTERED', 0.00)
+                            confidence_score, risk_level, status, profit_uah, is_shadow, shadow_status, shadow_profit_uah, filter_reason
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'FILTERED', 0.00, TRUE, 'PENDING', 0.00, %s)
                         ON CONFLICT DO NOTHING;
                         """,
-                        (ev_id, sport, match, c_time, pick_lbl, k, hypo_stake, kelly_pct, confidence, risk_level),
+                        (ev_id, sport, match, c_time, pick_lbl, k, hypo_stake, kelly_pct, confidence, risk_level, filter_reason),
                     )
                     conn.commit()
                 except Exception:
                     if conn:
                         conn.rollback()
+                    try:
+                        cur.execute(
+                            """
+                            INSERT INTO paper_bets (
+                                event_id, sport, match_name, commence_time, pick_label, odds, stake_uah, kelly_pct,
+                                confidence_score, risk_level, status, profit_uah
+                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'FILTERED', 0.00)
+                            ON CONFLICT DO NOTHING;
+                            """,
+                            (ev_id, sport, match, c_time, pick_lbl, k, hypo_stake, kelly_pct, confidence, risk_level),
+                        )
+                        conn.commit()
+                    except Exception:
+                        if conn:
+                            conn.rollback()
 
             print(f"ℹ️ [Shadow-Bet] Ставку на {match} ({pick_lbl}) збережено як FILTERED ({filter_reason}).")
             return False
@@ -562,27 +585,40 @@ def place_paper_bet(cur, conn, ev_id, sport, match, c_time, pick_lbl, odds, drop
             cur.execute(
                 """
                 INSERT INTO paper_bets (
-                    event_id, sport, match_name, commence_time, pick_label, odds, stake_uah, kelly_pct, confidence_score, risk_level
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    event_id, sport, match_name, commence_time, pick_label, odds, stake_uah, kelly_pct, confidence_score, risk_level, walkaway_odds
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT DO NOTHING;
                 """,
-                (ev_id, sport, match, c_time, pick_lbl, k, stake, kelly_pct, confidence, risk_level),
+                (ev_id, sport, match, c_time, pick_lbl, k, stake, kelly_pct, confidence, risk_level, walkaway_odds),
             )
         except Exception:
             if conn:
                 conn.rollback()
             try:
                 cur.execute(
-                    "INSERT INTO paper_bets (event_id, sport, match_name, commence_time, pick_label, odds, stake_uah, kelly_pct) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING;",
-                    (ev_id, sport, match, c_time, pick_lbl, k, stake, kelly_pct),
+                    """
+                    INSERT INTO paper_bets (
+                        event_id, sport, match_name, commence_time, pick_label, odds, stake_uah, kelly_pct, confidence_score, risk_level
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT DO NOTHING;
+                    """,
+                    (ev_id, sport, match, c_time, pick_lbl, k, stake, kelly_pct, confidence, risk_level),
                 )
             except Exception:
                 if conn:
                     conn.rollback()
-                cur.execute(
-                    "INSERT INTO paper_bets (event_id, sport, match_name, commence_time, pick_label, odds, stake_uah) VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING;",
-                    (ev_id, sport, match, c_time, pick_lbl, k, stake),
-                )
+                try:
+                    cur.execute(
+                        "INSERT INTO paper_bets (event_id, sport, match_name, commence_time, pick_label, odds, stake_uah, kelly_pct) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING;",
+                        (ev_id, sport, match, c_time, pick_lbl, k, stake, kelly_pct),
+                    )
+                except Exception:
+                    if conn:
+                        conn.rollback()
+                    cur.execute(
+                        "INSERT INTO paper_bets (event_id, sport, match_name, commence_time, pick_label, odds, stake_uah) VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING;",
+                        (ev_id, sport, match, c_time, pick_lbl, k, stake),
+                    )
         conn.commit()
         return True
     except Exception as e:

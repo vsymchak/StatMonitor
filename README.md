@@ -8,7 +8,7 @@
 
 * 🏛 **[Візуальна архітектура системи (docs/architecture.md)](docs/architecture.md)** — детальна C4-схема компонентів, модульний пакет `statmonitor/`, потік даних від тригеру до Telegram та Web UI, діаграма бази даних (ERD).
 * 📊 **[Діаграма дорожньої карти SDD (docs/roadmap-diagram.md)](docs/roadmap-diagram.md)** — візуальний прогрес виконання завдань по хвилях (Wave 1–12).
-* 📋 **[Реєстр дорожньої карти (docs/roadmap.md)](docs/roadmap.md)** — повний список 42 кроків еволюції системи за методологією Spec-Driven Development (37 реалізовано, 1 заплановано у Wave 11, 4 у Wave 12).
+* 📋 **[Реєстр дорожньої карти (docs/roadmap.md)](docs/roadmap.md)** — повний список 42 кроків еволюції системи за методологією Spec-Driven Development (38 реалізовано, 0 заплановано у Wave 11, 4 у Wave 12).
 * 🧾 **[Специфікація SPEC-31: Real Money Mode & Bet Slip OCR (specs/31-real-money-betting-ocr/specification.md)](specs/31-real-money-betting-ocr/specification.md)** — архітектура подвійного банкролу, фінансового леджера та Gemini Vision OCR.
 * ⚡ **[Налаштування Cloudflare Cron (docs/cloudflare_cron_setup.md)](docs/cloudflare_cron_setup.md)** — конфігурація безсерверного запуску на edge-інфраструктурі Cloudflare.
 
@@ -19,12 +19,13 @@
 1. **Моніторинг футбольних, баскетбольних та тенісних ліг**: АПЛ, Ла Ліга, Серія А, Бундесліга, Ліга 1, УПЛ, Екстракласа, єврокубки (ЛЧ, ЛЄ, ЛК, Ліга Націй), НБА та повне тенісне покриття (ATP, WTA, Davis Cup, Australian Open, Roland Garros, Wimbledon, US Open, Finals) із динамічним автовиявленням активних змагань у The Odds API.
 2. **AI-аналіз матчів (Gemini + Google Search)**: каскад моделей (`gemini-2.5-pro` $\rightarrow$ `gemini-2.5-flash` $\rightarrow$ `gemini-3.5-flash-lite` $\rightarrow$ `gemini-3.8-flash`) із живим пошуком свіжих новин, лазарету, стартових складів, форми та інсайдів у реальному часі. Оцінка сили сигналу за шкалою 1–10 (Confidence Score) та валуй-фільтрація ($\ge 7/10$).
 3. **Paper Bank (10 000 грн) та стейкінг за критерієм Келлі**: динамічний розрахунок розміру парі за дробовим критерієм Келлі ($0.25 \times \text{Kelly}$, межі 1–5%), авторозрахунок за фінальними рахунками (`WON`, `LOST`, `VOID`) та відображення % банку в активних ставках UI і Telegram.
-4. **Реальний банк, Bet Slip OCR та Запобіжники капіталу (Wave 10 & 11, Кроки 31, 34, 36)**:
+4. **Реальний банк, Bet Slip OCR, Запобіжники капіталу та Walkaway Odds (Wave 10 & 11, Кроки 31, 34, 36, 37)**:
    - **Повна ізоляція у виділеній вкладці Web Dashboard**: `🟢 Реальний банк (Real Money)` із незалежними KPI-картками, графіком леджера Plotly у смарагдових кольорах (`#16A34A`), індикатором експозиції та ризик-лімітів, активними та закритими реальними ставками, Касою (депозити/виведення) та OCR-сканером купонів.
    - **Real Money Circuit Breakers (SPEC-36)**:
      - **Денний Stop-Loss**: автоматичний підрахунок денного результату (з 00:00 за Києвом). Якщо PnL просідає на $\ge 7\%$ від балансу на початок доби — система блокує відкриття нових реальних ставок до наступного дня.
      - **Max Concurrent Exposure**: контроль сумарного обсягу відкритих ставок (макс. 20% від капіталу) із кольоровою шкалою ризику.
      - **Захист від кореляцій**: автоматичне виявлення дублювання ставок на один і той самий матч.
+   - **Walkaway Odds у Telegram-алертах та Dashboard (SPEC-37)**: математичний розрахунок граничного мінімального коефіцієнта беззбитковості (break-even + 1.5% buffer) на базі $p_{\text{fair}}$. Відображення інструкції `🎯 Ставити, поки коеф ≥ X.XX` у картках алертів, зведенні AI-вердиктів, колонці таблиць активних ставок та попередження про втрату +EV при зміні коефіцієнта.
    - **No-Vig Kelly Sтейкінг (SPEC-34)**: розрахунок розміру реальних ставок строго від балансу реального банку за очищеними від маржі ймовірностями Pinnacle ($0.10 \times \text{Kelly}$, min 20 ₴, max 5%).
    - **Пакетний перенос ставок з Paper у Real**: кнопка `⚡ Перенести в Реальні ставки & Розрахувати банк` із валідацією запобіжників капіталу.
    - **AI Bet Slip OCR через Gemini Multimodal Vision**: завантаження фото купона ставки з букмекерської контори через адмінку Streamlit та автоприв'язка купона.
@@ -61,18 +62,18 @@
 16. **Відстеження Closing Line Value (CLV) та Beat the Line % (Wave 8, Крок 20)**: автоматична фіксація лінії закриття за Pinnacle/Betfair перед початком матчу, розрахунок $CLV\%$ та Beat the Line % для доказу довгострокового $+EV$. Відображення в Web Dashboard (стовпець `CLV (+EV)` і блок у Breakdown) та Telegram-боті (`/bank` та щоденний звіт).
 17. **Ринок «Обидві заб'ють» (BTTS) та фільтрація чистих тоталів (Wave 8, Крок 23)**: підтримка ринку BTTS (`Yes` / `No`) у футболі через The Odds API, конфігурацію ліг, автоматичний розрахунок результатів `eval_outcome`, медіанні коефіцієнти та сегментацію в аналітиці. Математичне відсікання азіатських четвертних тоталів (`.25` та `.75`) для виключення шуму в алертах.
 18. **Дедуплікація та оптимізація сповіщень Telegram (Wave 8, Кроки 27, 29, 30)**: виключення повторної відправки алертів кожні 2 години для матчів із зафіксованими ставками або проведеним аналізом. Повне відключення спаму технічними повідомленнями та довгими AI-вердиктами у Telegram (збереження в БД). У Telegram надсилаються тільки помилки розкладу, відкриті ставки, зведення та звіти.
-19. **Вичерпний набір тестів (184 unit-тести)**: повне покриття модулів запобіжників ризику Circuit Breakers (`test_risk_guardrails.py`), Zero-Cost Sync та ACID леджера (`test_orchestration_sync.py`), Shadow-ставок та Counterfactual аудиту (`test_shadow_bets.py`), No-Vig Edge (`test_novig_edge.py`), реального банку (`test_real_bankroll.py`), OCR купонів (`test_slip_ocr.py`), аналітики ризику та ліг (`test_analytics.py`), матриці ліг (`test_league_config.py`), порогів чутливості (`test_league_thresholds.py`), AI Confidence (`test_confidence.py`), бота (`test_bot.py`), лімітера (`test_rate_limiter.py`), стейкінгу Келлі (`test_kelly.py`), CLV та Beat the Line (`test_clv.py`), ринків BTTS, маркетів та медіани (`test_eval_picks.py`), цілісності модулів (`test_modules.py`), планувальника, watchdog, міграцій та дашборду (`test_dashboard.py`).
+19. **Вичерпний набір тестів (194 unit-тести)**: повне покриття модулів Walkaway Odds (`test_walkaway_odds.py`), запобіжників ризику Circuit Breakers (`test_risk_guardrails.py`), Zero-Cost Sync та ACID леджера (`test_orchestration_sync.py`), Shadow-ставок та Counterfactual аудиту (`test_shadow_bets.py`), No-Vig Edge (`test_novig_edge.py`), реального банку (`test_real_bankroll.py`), OCR купонів (`test_slip_ocr.py`), аналітики ризику та ліг (`test_analytics.py`), матриці ліг (`test_league_config.py`), порогів чутливості (`test_league_thresholds.py`), AI Confidence (`test_confidence.py`), бота (`test_bot.py`), лімітера (`test_rate_limiter.py`), стейкінгу Келлі (`test_kelly.py`), CLV та Beat the Line (`test_clv.py`), ринків BTTS, маркетів та медіани (`test_eval_picks.py`), цілісності модулів (`test_modules.py`), планувальника, watchdog, міграцій та дашборду (`test_dashboard.py`).
 
 ---
 
 ## 🛠 Технологічний стек
 
 * **Мова**: Python 3.10+
-* **База даних**: PostgreSQL 15+ (Supabase) + автоматичний раннер міграцій `migrate.py` (міграції 001–015)
+* **База даних**: PostgreSQL 15+ (Supabase) + автоматичний раннер міграцій `migrate.py` (міграції 001–016)
 * **API котирувань**: The Odds API v4 (5-рівнева ротація ключів: основний + 4 резервних, сумарний пул 2500 запитів)
 * **Штучний інтелект**: Google Gemini API (v1beta / Multimodal Vision) з інструментом Google Search Grounding
 * **Веб-інтерфейс**: Streamlit Cloud (`dashboard.py` + Plotly + `st.data_editor`)
 * **Візуалізація трендів**: Matplotlib (рендеринг у пам'яті без дисків)
 * **Канал сповіщень**: Telegram Bot API (HTML-розмітка, чанкінг $\le 3800$ симв., анти-спам фільтрація)
 * **Оркестрація**: GitHub Actions + Cloudflare Workers (з Edge Zero-Cost Gate)
-* **Тестування**: `unittest` (184 тест-кейси, 100% pass, час виконання $\approx 1$ с)
+* **Тестування**: `unittest` (194 тест-кейси, 100% pass, час виконання $\approx 1$ с)

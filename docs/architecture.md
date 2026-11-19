@@ -1,7 +1,7 @@
 # Візуальна архітектура системи StatMonitor
 
 > **Проєкт**: StatMonitor — інтелектуальна система спортивного моніторингу прогрузів, віртуального трейдингу (Paper Trading), спостережливості (Web Dashboard), предиктивної AI-аналітики, реального банкролу (Real Money Mode), запобіжників капіталу (Circuit Breakers), контрфактичного AI-аудиту (Shadow-Bets) та нульових витрат інфраструктури (Zero-Cost Sync).  
-> **Версія**: 3.8 (Еволюція: Real Money Risk Guardrails Circuit Breakers + Stop-Loss + Max Exposure + 184 Unit Tests)  
+> **Версія**: 3.9 (Еволюція: Walkaway Odds in Telegram Alerts & Dashboard + 194 Unit Tests)  
 > **Оновлено**: 19.11.2026
 
 ---
@@ -48,6 +48,7 @@ flowchart TD
             ModDB["database.py<br>Пул з'єднань та адаптація схеми"]:::pkg
             ModAI["ai.py<br>Gemini клієнт + Search Grounding"]:::pkg
             ModPaper["paper_trading.py<br>Стейкінг, розрахунок, медіана БК, edit_odds"]:::pkg
+            ModNoVig["novig.py<br>De-vigging, p_fair, Walkaway Odds, Real Kelly"]:::pkg
             ModRealBank["real_bankroll.py<br>Леджер, транзакції, баланс реального банку"]:::pkg
             ModSlipOCR["slip_ocr.py<br>Gemini Vision OCR, зіставлення купонів"]:::pkg
             ModChart["chart.py<br>Matplotlib тренди в пам'яті"]:::pkg
@@ -68,12 +69,12 @@ flowchart TD
 
     subgraph Storage["💾 6. Сховище даних (Supabase PostgreSQL)"]
         DB[("PostgreSQL 15+<br>public schema")]:::data
-        T_Migrations["schema_migrations (001-015)"]:::data
+        T_Migrations["schema_migrations (001-016)"]:::data
         T_Events["events (індекс на commence_time)"]:::data
         T_Odds["odds_history (індекси за часом та маркетом)"]:::data
         V_Alerts["v_odds_alerts (Optimized 96h Window View)"]:::data
         T_AI["ai_match_analysis (вердикти & Confidence Score)"]:::data
-        T_Bets["paper_bets (is_shadow, shadow_status, is_real_bet, slip_meta)"]:::data
+        T_Bets["paper_bets (walkaway_odds, is_shadow, shadow_status, is_real_bet, slip_meta)"]:::data
         T_RealLedger["real_bankroll_ledger (DEPOSIT, WITHDRAWAL, BET_RESULT)"]:::data
         T_Thresholds["league_thresholds (динамічні пороги ліг)"]:::data
         T_Sched["scheduler_plan (дедуплікація точок)"]:::data
@@ -81,7 +82,8 @@ flowchart TD
         T_Beat["system_heartbeat"]:::data
     end
 
-    subgraph TestSuite["🧪 7. Шар якості та тестування (184 unit-тести)"]
+    subgraph TestSuite["🧪 7. Шар якості та тестування (194 unit-тести)"]
+        TestWalkaway["test_walkaway_odds.py (10 тестів)<br>Break-even odds, heuristic de-vig, alerts & bot warning"]:::test
         TestGuardrails["test_risk_guardrails.py (10 тестів)<br>Stop-Loss 7%, Max Exposure 20%, Anti-Correlation"]:::test
         TestSync["test_orchestration_sync.py (5 тестів)<br>Zero-cost gate, ACID ledger delta, reconciliation"]:::test
         TestShadow["test_shadow_bets.py (7 тестів)<br>Shadow bets, FILTERED статус, Counterfactual audit, Brier Score"]:::test
@@ -209,6 +211,7 @@ erDiagram
         timestamptz commence_time "Час старту"
         text pick_label "Маркет ставки (Ф2 (+1.5), ТБ 2.5...)"
         numeric odds "Коефіцієнт"
+        numeric walkaway_odds "Мінімальний коефіцієнт беззбитковості (Walkaway)"
         numeric stake_uah "Розмір ставки (Келлі %)"
         text status "PENDING / WON / LOST / VOID"
         text match_score "Фінальний рахунок"
@@ -312,6 +315,14 @@ erDiagram
     - Алгоритм розумного зіставлення `match_slip_with_pending_bets` з активними ставками системи та автоматична прив'язка купона до бази.
   - **Відстеження Closing Line Value (CLV) та Beat the Line % (Крок 20)**: автоматична фіксація лінії закриття за Pinnacle/Betfair (`capture_closing_lines`), розрахунок $CLV\% = ((k_{\text{bet}} / k_{\text{closing}}) - 1) \times 100\%$ та статусу `beat_closing_line`. Відображення в Web Dashboard (стовпець `CLV (+EV)` і блок Breakdown), Telegram-боті (`/bank`) та щоденному звіті.
   - **Підтримка ринку «Обидві заб'ють» (BTTS) та фільтрація чистих тоталів (Крок 23)**: обробка ринку BTTS у футбольних лігах, розрахунок результатів `WON`/`LOST` у `eval_outcome`, інтеграція в медіанні коефіцієнти бенчмарків та математичне відсікання азіатських четвертних тоталів (`.25`/`.75`).
+  - **Walkaway Odds у Telegram-алертах та Dashboard (SPEC-37, Крок 37)**:
+    - Автоматичний розрахунок граничного мінімального коефіцієнта беззбитковості (Break-even odds + 1.5% buffer) на базі $p_{\text{fair}}$ (`calculate_walkaway_odds`) та евристичної девіг-оцінки (`estimate_walkaway_odds`):
+      $$k_{\text{walkaway}} = \text{round}\left(\frac{1.0 + \text{min\_edge}}{p_{\text{fair}}}, 2\right)$$
+    - Інструкція в Telegram-алертах: додавання рядка `🎯 Ставити, поки коеф ≥ X.XX` безпосередньо у картку алерта під графіком та головним сигналом.
+    - Підсумкове зведення AI-вердиктів: відображення порогу `🛑 Поріг: ≥ X.XX` для кожної відібраної події.
+    - Збереження у БД: колонка `walkaway_odds` у `paper_bets` (міграція `016_paper_bets_walkaway_odds.sql`).
+    - Інтерактивний бот: показ порогу у команді `/bets` та застереження `⚠️ УВАГА (-EV)` у команді `/edit_odds`, якщо новий коефіцієнт впав нижче допустимої межі.
+    - Web Dashboard: колонка `🎯 Поріг (Walkaway)` у таблицях активних ставок (Paper та Real) та індикація в модальному блоці перенесення ставок.
   - **Запобіжники капіталу Real Money Circuit Breakers (SPEC-36, Крок 36)**:
     - **Денний Stop-Loss**: підрахунок денного PnL за поточну добу (з 00:00 за Києвом). Блокування відкриття нових ставок при просіданні $\ge 7\%$ від балансу на початок доби (`check_daily_stop_loss`).
     - **Max Concurrent Exposure**: лімітування суми відкритих ставок до 20% від капіталу (`check_max_exposure`).

@@ -562,18 +562,45 @@ def prepare_real_stakes_batch(cur, bet_ids, fraction=0.10, min_stake=20.0, max_p
             return real_balance, [], empty_guard
         return real_balance, []
 
-    # Витягуємо інформацію про вибрані ставки
-    cur.execute("""
-        SELECT id, match_name, pick_label, odds, sport, kelly_pct, real_stake_uah, real_odds, is_real_bet
-        FROM paper_bets
-        WHERE id = ANY(%s) AND status = 'PENDING';
-    """, (list(bet_ids),))
-    rows = cur.fetchall()
+    # Витягуємо інформацію про вибрані ставки (включно з walkaway_odds, SPEC-37)
+    try:
+        cur.execute("""
+            SELECT id, match_name, pick_label, odds, sport, kelly_pct, real_stake_uah, real_odds, is_real_bet, walkaway_odds
+            FROM paper_bets
+            WHERE id = ANY(%s) AND status = 'PENDING';
+        """, (list(bet_ids),))
+        rows = cur.fetchall()
+        has_w_col = True
+    except Exception:
+        cur.execute("""
+            SELECT id, match_name, pick_label, odds, sport, kelly_pct, real_stake_uah, real_odds, is_real_bet
+            FROM paper_bets
+            WHERE id = ANY(%s) AND status = 'PENDING';
+        """, (list(bet_ids),))
+        rows = cur.fetchall()
+        has_w_col = False
 
     proposals = []
     for r in rows:
-        b_id, m_name, pick, odds, sport, k_pct, cur_r_stake, cur_r_odds, is_real = r
+        b_id = r[0]
+        m_name = r[1]
+        pick = r[2]
+        odds = r[3]
+        sport = r[4]
+        k_pct = r[5]
+        cur_r_stake = r[6]
+        cur_r_odds = r[7]
+        is_real = r[8]
+        w_val = float(r[9]) if (has_w_col and len(r) > 9 and r[9] is not None) else None
+
         eff_odds = float(cur_r_odds or odds or 1.85)
+
+        if w_val is None:
+            try:
+                from statmonitor.novig import estimate_walkaway_odds
+                w_val = estimate_walkaway_odds(eff_odds)
+            except Exception:
+                w_val = None
 
         # Розраховуємо суму від реального балансу
         rec_stake, rec_pct, status_msg = calculate_real_stake(
@@ -589,6 +616,7 @@ def prepare_real_stakes_batch(cur, bet_ids, fraction=0.10, min_stake=20.0, max_p
             "match_name": m_name,
             "pick_label": pick,
             "odds": eff_odds,
+            "walkaway_odds": w_val,
             "sport": sport,
             "real_balance": real_balance,
             "recommended_stake": rec_stake,

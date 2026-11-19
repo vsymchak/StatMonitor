@@ -1336,6 +1336,9 @@ def run_streamlit_app():
             p_disp["Подія"] = p_disp.get("match_name", "")
             p_disp["Маркет"] = p_disp.get("pick_label", "").apply(_clean_pick_label)
             p_disp["Коеф."] = p_disp["odds"].apply(lambda x: f"{float(x):.2f}" if x else "—")
+            p_disp["Поріг (Walkaway)"] = p_disp["walkaway_odds"].apply(
+                lambda x: f"≥ {float(x):.2f}" if (x is not None and not (pd is not None and pd.isna(x))) else "—"
+            ) if "walkaway_odds" in p_disp.columns else "—"
             p_disp["ШІ Сигнал"] = p_disp.apply(_get_ai_score_badge, axis=1)
             p_disp["Сума (Paper)"] = p_disp["stake_uah"].apply(lambda x: f"{float(x):,.2f} ₴" if x else "—")
             p_disp["Сума (Real)"] = p_disp.apply(
@@ -1345,7 +1348,7 @@ def run_streamlit_app():
             p_disp["% банку (Келлі)"] = p_disp.apply(_get_kelly_badge, axis=1)
             p_disp["Результат"] = "⏳ В грі (Pending)"
 
-            cols_pending_show = [c for c in ["ID", "Час", "🟢 Real", "Турнір", "Подія", "Маркет", "Коеф.", "ШІ Сигнал", "% банку (Келлі)", "Сума (Paper)", "Сума (Real)", "Результат"] if c in p_disp.columns]
+            cols_pending_show = [c for c in ["ID", "Час", "🟢 Real", "Турнір", "Подія", "Маркет", "Коеф.", "Поріг (Walkaway)", "ШІ Сигнал", "% банку (Келлі)", "Сума (Paper)", "Сума (Real)", "Результат"] if c in p_disp.columns]
 
             if is_admin and hasattr(st, "data_editor"):
                 st.caption("ℹ️ *Адміністратор:* відмічайте прапорець у колонці **🟢 Real**, щоб включити ставку в облік реальних грошей. Всі ставки завжди йдуть у Paper-трейдинг.")
@@ -1439,6 +1442,12 @@ def run_streamlit_app():
                                             st.markdown(f"<b>#{p['id']}</b> {p['match_name']}<br><span style='font-size: 11px; color: #64748B;'>{p['pick_label']}</span>", unsafe_allow_html=True)
                                         with c_m2:
                                             st.markdown(f"Коеф: <b>{p['odds']:.2f}</b>", unsafe_allow_html=True)
+                                            if p.get('walkaway_odds'):
+                                                w_val = float(p['walkaway_odds'])
+                                                if p['odds'] < w_val:
+                                                    st.markdown(f"<span style='font-size: 10.5px; color: #DC2626; font-weight: 700;'>🛑 Поріг: ≥ {w_val:.2f} (-EV)</span>", unsafe_allow_html=True)
+                                                else:
+                                                    st.caption(f"Поріг: ≥ {w_val:.2f}")
                                         with c_m3:
                                             st.caption(f"Келлі: ~{p['recommended_pct']}% ({p['recommended_stake']:.0f} ₴)")
                                         with c_m4:
@@ -1865,6 +1874,9 @@ def run_streamlit_app():
             rp_disp["Коеф."] = rp_disp.apply(
                 lambda r: f"{float(r.get('real_odds') or r.get('odds') or 0):.2f}", axis=1
             )
+            rp_disp["Поріг (Walkaway)"] = rp_disp["walkaway_odds"].apply(
+                lambda x: f"≥ {float(x):.2f}" if (x is not None and not (pd is not None and pd.isna(x))) else "—"
+            ) if "walkaway_odds" in rp_disp.columns else "—"
             rp_disp["Сума (Real)"] = rp_disp.apply(
                 lambda r: f"{float(r.get('real_stake_uah') or r.get('stake_uah') or 0):,.2f} ₴", axis=1
             )
@@ -1873,7 +1885,7 @@ def run_streamlit_app():
                 lambda r: f"+{(float(r.get('real_stake_uah') or r.get('stake_uah') or 0) * (float(r.get('real_odds') or r.get('odds') or 1) - 1.0)):,.2f} ₴",
                 axis=1
             )
-            cols_rp_show = [c for c in ["ID", "Час", "Турнір", "Подія", "Маркет", "Коеф.", "Сума (Real)", "% банку", "Потенційний виграш"] if c in rp_disp.columns]
+            cols_rp_show = [c for c in ["ID", "Час", "Турнір", "Подія", "Маркет", "Коеф.", "Поріг (Walkaway)", "Сума (Real)", "% банку", "Потенційний виграш"] if c in rp_disp.columns]
             st.dataframe(rp_disp[cols_rp_show], use_container_width=True, hide_index=True)
         else:
             st.info("ℹ️ Немає активних ставок у реальному банку. Відмітьте ставки прапорцем 🟢 Real на вкладці «📊 Paper Bank (Теорія)» та натисніть «⚡ Перенести в Реальні ставки & Розрахувати банк».")

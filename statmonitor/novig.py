@@ -112,6 +112,64 @@ def calculate_walkaway_odds(fair_prob, min_edge=0.015):
         return None
 
 
+def estimate_walkaway_odds(odds, drop_pct=None, confidence=None, fair_prob=None, min_edge=0.015):
+    """
+    Універсальна оцінка Walkaway Odds для будь-якої ставки або сигналу (SPEC-37).
+    Якщо передано fair_prob (наприклад, de-vig Pinnacle) — використовує його безпосередньо.
+    Якщо fair_prob не передано — оцінює p_fair на основі сили прогрузу (drop_pct) та AI confidence.
+    Повертає float, округлений до 2 знаків після коми.
+    Якщо коефіцієнт впаде нижче цього значення, ставка переходить у -EV.
+    """
+    try:
+        k = float(odds)
+        if k <= 1.01:
+            return None
+    except (ValueError, TypeError):
+        return None
+
+    # 1. Якщо передано чистий fair_prob
+    if fair_prob is not None:
+        try:
+            p = float(fair_prob)
+            if 0.0 < p < 1.0:
+                res = calculate_walkaway_odds(p, min_edge=min_edge)
+                if res is not None:
+                    return min(res, round(k, 2)) if res > k else res
+        except (ValueError, TypeError):
+            pass
+
+    # 2. Heuristic fallback: оцінка Edge від сили прогрузу та оцінки Gemini
+    d = min(float(drop_pct or 0.0), 30.0)
+    edge = 0.02 + (d / 100.0) * 0.18
+    if confidence is not None:
+        c = max(1.0, min(10.0, float(confidence)))
+        edge *= (0.6 + (c / 10.0) * 0.4)
+
+    # p_fair з implied edge: k * p_fair = 1 + edge => p_fair = (1 + edge) / k
+    p_fair = (1.0 + edge) / k
+    if p_fair <= 0.0 or p_fair >= 1.0:
+        return round(k, 2)
+
+    walkaway_k = (1.0 + float(min_edge)) / p_fair
+    # Захист: поріг входу не може бути вищим за початковий коефіцієнт (якщо edge > min_edge)
+    if walkaway_k > k:
+        walkaway_k = k
+    return round(walkaway_k, 2)
+
+
+def format_walkaway_instruction(walkaway_k):
+    """
+    Повертає форматовану українську інструкцію для алертів та дашборду.
+    """
+    if not walkaway_k:
+        return ""
+    try:
+        return f"🎯 Ставити, поки коеф ≥ {float(walkaway_k):.2f}"
+    except (ValueError, TypeError):
+        return ""
+
+
+
 def calculate_real_stake(
     odds,
     real_balance,

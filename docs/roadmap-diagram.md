@@ -1,6 +1,6 @@
 # Візуальна діаграма дорожньої карти (Roadmap diagram)
 
-**37 з 42 кроків реалізовано (37 Shipped, 1 Planned, 4 Idea) · 184 Unit Tests** · Детальний опис: [roadmap.md](roadmap.md)
+**38 з 42 кроків реалізовано (38 Shipped, 0 Planned, 4 Idea) · 194 Unit Tests** · Детальний опис: [roadmap.md](roadmap.md)
 
 > 🟩 **Реалізовано (Shipped)** · 🟧 **У розробці (In Progress)** · 🟪 **Заплановано (Idea)** · ⬜ **Концепт (Fog)**  
 > Колонки — це послідовні хвилі виконання (**Execution Waves**). Стрілка показує залежність («потрібен для»).
@@ -79,7 +79,7 @@ flowchart LR
         34["34 · No-Vig Edge & Real Bank Staking<br><small>De-vig fair odds, перенос ставок</small><br><b>M</b>"]:::shipped
         35["35 · Shadow-ставки (FILTERED)<br><small>A/B бектест корисності AI</small><br><b>S</b>"]:::shipped
         36["36 · Risk Guardrails Real Bank<br><small>Stop-Loss & Max Exposure</small><br><b>S</b>"]:::shipped
-        37["37 · Walkaway Odds у Telegram<br><small>Мінімальний кеф для входу</small><br><b>S</b>"]:::in_progress
+        37["37 · Walkaway Odds у Telegram<br><small>Мінімальний кеф для входу</small><br><b>S</b>"]:::shipped
         38["38 · Zero-Cost Sync & ACID Ledger<br><small>Supabase Edge Gate & санітизація URL</small><br><b>S</b>"]:::shipped
     end
 
@@ -226,7 +226,7 @@ flowchart LR
 | **34** | **No-Vig Edge, Real Staking & Dedicated Tab** | `M` | 🟩 Shipped | Розрахунок fair-ймовірностей без маржі з Pinnacle, відсікання -EV, незалежний розрахунок ставок від реального депозиту, кнопка переносу та окрема вкладка Real Money з графіками і статистикою. |
 | **35** | **Shadow-ставки & AI Audit** | `S` | 🟩 Shipped | Збереження відсіяних AI ставок (`FILTERED`), авторозрахунок без зміни балансу, Counterfactual A/B аудит, калібрування впевненості та Brier Score на дашборді. |
 | **36** | **Risk Guardrails Real Bank** | `S` | 🟩 Shipped | Денний Stop-Loss ($\ge 7\%$), ліміт максимальної одночасної експозиції (20%) та захист від кореляцій на один матч. |
-| **37** | **Walkaway Odds у Telegram** | `S` | 🟨 Planned | Індикація у сповіщеннях Telegram мінімально допустимого коефіцієнта для входу (`🎯 Ставити, поки коеф ≥ X.XX`) для захисту від просідання. |
+| **37** | **Walkaway Odds у Telegram** | `S` | 🟩 Shipped | Індикація у сповіщеннях Telegram мінімально допустимого коефіцієнта для входу (`🎯 Ставити, поки коеф ≥ X.XX`) для захисту від просідання. |
 | **38** | **Zero-Cost Sync & ACID Ledger** | `S` | 🟩 Shipped | Cloudflare Edge-перевірка Supabase REST API (0 хв білінгу Actions), строга узгодженість сум леджера та санітизація URL у Dashboard. |
 | **39** | **Холодний архів Parquet (R2)** | `M` | 🟪 Idea | Довгостроковий експорт котирувань у стислі Parquet-файли на Cloudflare R2 перед 4-денною ротацією для накопичення бази бектесту. |
 | **40** | **Bet Slip OCR прямо в Telegram** | `S` | 🟪 Idea | Можливість скинути фото купона в чат бота, автоматичний розбір через Gemini Vision та інтерактивні кнопки прив'язки до ставки. |

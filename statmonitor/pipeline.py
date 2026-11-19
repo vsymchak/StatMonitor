@@ -14,6 +14,7 @@ from statmonitor.paper_trading import (
     resolve_alert_from_history,
     get_market_median_odds,
 )
+from statmonitor.novig import estimate_walkaway_odds
 
 def check_alerts_and_notify(sports_map, t_start=None):
     print("4. Перевірка алертів і відправка (v3.4.1)...")
@@ -157,7 +158,10 @@ def check_alerts_and_notify(sports_map, t_start=None):
             plain_drops.append(f"- {lbl} ({al['bm']}): {al['start_k']} -> {al['curr_k']} ({al['drop']}%)")
             html_drops.append(f"📉 <b>{esc(lbl)}</b> | БК: <code>{esc(al['bm'])}</code>\n   <code>{al['start_k']:.3f}</code> ({fmt_kyiv(al['s_time'])}) ➔ <b><code>{al['curr_k']:.3f}</code></b> (<b>{al['drop']}%</b>)")
 
-        cap = f"⚽ <b>{esc(f['match'])}</b>\n🏆 <i>{esc(title)}</i>\n🗓 Початок: <code>{c_str}</code>\n🎯 Головний сигнал: <b>{esc(top_pick)}</b>\n\n" + "\n".join(html_drops)
+        walkaway_k = estimate_walkaway_odds(f["curr_k"], drop_pct=f.get("drop"))
+        walkaway_line = f"\n🎯 <b>Ставити, поки коеф ≥ {walkaway_k:.2f}</b>" if walkaway_k else ""
+
+        cap = f"⚽ <b>{esc(f['match'])}</b>\n🏆 <i>{esc(title)}</i>\n🗓 Початок: <code>{c_str}</code>\n🎯 Головний сигнал: <b>{esc(top_pick)}</b>{walkaway_line}\n\n" + "\n".join(html_drops)
         buf = build_chart(cur, conn, ev_id, f["bm"], f["outcome"], f["point"], f["match"], title, top_pick, sc)
         send_photo(buf, cap) if buf else send_tg(cap)
 
@@ -212,22 +216,33 @@ def check_alerts_and_notify(sports_map, t_start=None):
 
         # 2. Розрахунок РЕАЛЬНОГО медіанного коефіцієнта ринку або еталонних БК (SPEC-18)
         real_odds = get_market_median_odds(cur, ev_id, short_pick, f["match"], fallback_odds=f["curr_k"])
+        bet_walkaway = estimate_walkaway_odds(real_odds, drop_pct=f.get("drop"), confidence=conf_score)
         placed = place_paper_bet(
             cur, conn, ev_id, f["sport"], f["match"], f["c_time"], short_pick, real_odds,
-            drop_pct=f.get("drop"), confidence=conf_score, risk_level=risk_lvl
+            drop_pct=f.get("drop"), confidence=conf_score, risk_level=risk_lvl,
+            walkaway_odds=bet_walkaway
         )
 
         if placed:
             dt_sort = f["c_time"] if hasattr(f["c_time"], "tzinfo") and f["c_time"].tzinfo else (f["c_time"].replace(tzinfo=timezone.utc) if hasattr(f["c_time"], "replace") else datetime.now(timezone.utc))
             conf_tag = f" ⭐ {conf_score}/10" if conf_score is not None else ""
-            summary_rows.append({"dt": dt_sort, "time": c_str, "match": f["match"], "title": title, "pick": f"{short_pick}{conf_tag}", "odds": f"{real_odds:.2f}"})
+            summary_rows.append({
+                "dt": dt_sort,
+                "time": c_str,
+                "match": f["match"],
+                "title": title,
+                "pick": f"{short_pick}{conf_tag}",
+                "odds": f"{real_odds:.2f}",
+                "walkaway_odds": f"{bet_walkaway:.2f}" if bet_walkaway else None,
+            })
 
     print(f"5. Відправка зведення ({len(summary_rows)} подій)...")
     if summary_rows:
         summary_rows.sort(key=lambda x: x["dt"])
         lines = ["📋 <b>ЗВЕДЕННЯ СТАВОК (AI-ВЕРДИКТ)</b>"]
         for i, r in enumerate(summary_rows, 1):
-            lines.append(f"<b>{i}. {esc(r['match'])}</b>\n   🕒 <code>{esc(r['time'])}</code> | <i>{esc(r['title'])}</i>\n   🎯 <b>{esc(r['pick'])}</b> — Коеф: <code>{r['odds']}</code>")
+            walkaway_str = f" | 🛑 <b>Поріг: ≥ {r['walkaway_odds']}</b>" if r.get("walkaway_odds") else ""
+            lines.append(f"<b>{i}. {esc(r['match'])}</b>\n   🕒 <code>{esc(r['time'])}</code> | <i>{esc(r['title'])}</i>\n   🎯 <b>{esc(r['pick'])}</b> — Коеф: <code>{r['odds']}</code>{walkaway_str}")
 
         # Посилання на гостьовий дашборд (SPEC-30)
         from statmonitor.config import DASHBOARD_URL

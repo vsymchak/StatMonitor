@@ -199,7 +199,7 @@ def cmd_bets(cur):
 
     try:
         cur.execute("""
-            SELECT id, match_name, sport, pick_label, odds, stake_uah, commence_time, kelly_pct, confidence_score, risk_level, COALESCE(is_real_bet, FALSE) 
+            SELECT id, match_name, sport, pick_label, odds, stake_uah, commence_time, kelly_pct, confidence_score, risk_level, COALESCE(is_real_bet, FALSE), walkaway_odds 
             FROM paper_bets 
             WHERE status='PENDING' 
             ORDER BY commence_time ASC;
@@ -208,7 +208,7 @@ def cmd_bets(cur):
     except Exception:
         try:
             cur.execute("""
-                SELECT id, match_name, sport, pick_label, odds, stake_uah, commence_time, kelly_pct, confidence_score, risk_level 
+                SELECT id, match_name, sport, pick_label, odds, stake_uah, commence_time, kelly_pct, confidence_score, risk_level, COALESCE(is_real_bet, FALSE) 
                 FROM paper_bets 
                 WHERE status='PENDING' 
                 ORDER BY commence_time ASC;
@@ -217,7 +217,7 @@ def cmd_bets(cur):
         except Exception:
             try:
                 cur.execute("""
-                    SELECT id, match_name, sport, pick_label, odds, stake_uah, commence_time, kelly_pct 
+                    SELECT id, match_name, sport, pick_label, odds, stake_uah, commence_time, kelly_pct, confidence_score, risk_level 
                     FROM paper_bets 
                     WHERE status='PENDING' 
                     ORDER BY commence_time ASC;
@@ -226,14 +226,23 @@ def cmd_bets(cur):
             except Exception:
                 try:
                     cur.execute("""
-                        SELECT id, match_name, sport, pick_label, odds, stake_uah, commence_time 
+                        SELECT id, match_name, sport, pick_label, odds, stake_uah, commence_time, kelly_pct 
                         FROM paper_bets 
                         WHERE status='PENDING' 
                         ORDER BY commence_time ASC;
                     """)
                     rows = cur.fetchall()
                 except Exception:
-                    rows = []
+                    try:
+                        cur.execute("""
+                            SELECT id, match_name, sport, pick_label, odds, stake_uah, commence_time 
+                            FROM paper_bets 
+                            WHERE status='PENDING' 
+                            ORDER BY commence_time ASC;
+                        """)
+                        rows = cur.fetchall()
+                    except Exception:
+                        rows = []
 
     if not rows:
         return "ℹ️ <b>Наразі немає активних ставок у грі.</b>\nВсі попередні парі розраховано або очікується новий сигнал."
@@ -242,7 +251,14 @@ def cmd_bets(cur):
     for i, r in enumerate(rows, 1):
         conf_badge = ""
         is_real = False
-        if len(r) >= 11:
+        w_odds = None
+        if len(r) >= 12:
+            bid, m_name, sport, pick_lbl, odds, stake, c_time, k_pct, c_score, r_lvl, is_real, w_odds = r[:12]
+            id_prefix = f"[ID #{bid}] "
+            if c_score is not None:
+                r_txt = f", {r_lvl} Risk" if r_lvl else ""
+                conf_badge = f"\n   ⭐ AI Confidence: <b>{c_score}/10</b> (<i>{r_txt.lstrip(', ')}</i>)"
+        elif len(r) >= 11:
             bid, m_name, sport, pick_lbl, odds, stake, c_time, k_pct, c_score, r_lvl, is_real = r[:11]
             id_prefix = f"[ID #{bid}] "
             if c_score is not None:
@@ -275,10 +291,11 @@ def cmd_bets(cur):
 
         real_badge = " 🟢 [REAL]" if is_real else ""
         pct_badge = f" (<b>{pct_val:.1f}%</b> банку за Келлі)" if pct_val is not None else ""
+        w_badge = f" | 🛑 Поріг: ≥ <code>{float(w_odds):.2f}</code>" if (w_odds is not None) else ""
         lines.append(
             f"<b>{i}. {id_prefix}{esc(m_name)}{real_badge}</b>\n"
             f"   🕒 Старт (Київ): <code>{c_str}</code>\n"
-            f"   🎯 Вибір: <b>{esc(pick_lbl)}</b> (Коеф: <code>{float(odds):.2f}</code>)\n"
+            f"   🎯 Вибір: <b>{esc(pick_lbl)}</b> (Коеф: <code>{float(odds):.2f}</code>{w_badge})\n"
             f"   💵 Ставка: <code>{float(stake):.2f} грн</code>{pct_badge}{conf_badge}\n"
         )
     lines.append("✏️ <i>Щоб змінити коефіцієнт ставки:</i> <code>/edit_odds &lt;ID&gt; &lt;новий_коеф&gt;</code>")
@@ -388,10 +405,21 @@ def handle_command(cmd_text, chat_id, cur, conn):
         from statmonitor.paper_trading import update_pending_bet_odds
         ok, msg, old_k = update_pending_bet_odds(cur, conn, bet_id, new_k)
         if ok:
-            cur.execute("SELECT match_name, pick_label, stake_uah, odds FROM paper_bets WHERE id=%s;", (bet_id,))
-            row = cur.fetchone()
-            m_name, pk, stk, k = row
+            w_odds = None
+            try:
+                cur.execute("SELECT match_name, pick_label, stake_uah, odds, walkaway_odds FROM paper_bets WHERE id=%s;", (bet_id,))
+                row = cur.fetchone()
+                m_name, pk, stk, k, w_odds = row
+            except Exception:
+                cur.execute("SELECT match_name, pick_label, stake_uah, odds FROM paper_bets WHERE id=%s;", (bet_id,))
+                row = cur.fetchone()
+                m_name, pk, stk, k = row
+
             pot_prof = round(float(stk) * (float(k) - 1.0), 2)
+            warning_ev = ""
+            if w_odds is not None and float(k) < float(w_odds):
+                warning_ev = f"\n\n⚠️ <b>УВАГА (-EV):</b> Новий коефіцієнт (<code>{float(k):.2f}</code>) опустився нижче допустимого порогу Walkaway (<b>≥ <code>{float(w_odds):.2f}</code></b>)!"
+
             resp = (
                 "✅ <b>Коефіцієнт успішно змінено!</b>\n\n"
                 f"⚽ <b>Матч:</b> {esc(m_name)}\n"
@@ -399,6 +427,7 @@ def handle_command(cmd_text, chat_id, cur, conn):
                 f"💰 <b>Ставка:</b> <code>{float(stk):.2f} грн</code>\n"
                 f"📉 <b>Коефіцієнт:</b> <code>{old_k:.2f}</code> ➔ <b><code>{float(k):.2f}</code></b>\n"
                 f"💵 <b>Очікуваний виграш:</b> <b><code>+{pot_prof:.2f} грн</code></b>"
+                f"{warning_ev}"
             )
             return resp, DEFAULT_KEYBOARD
         else:
