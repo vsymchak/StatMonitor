@@ -1240,34 +1240,37 @@ def run_streamlit_app():
         if history_df.empty and status_filter in ("Всі ставки", "✅ Розраховані (Settled)") and (bets_df is not None and not bets_df.empty and "status" in bets_df.columns):
             history_df = bets_df[bets_df["status"].isin(["WON", "LOST", "VOID"])].copy()
 
-        st.markdown(f"""
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 18px; margin-bottom: 8px;">
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    <span style="font-size: 14px; font-weight: 700; color: #1E293B;">📜 Історія ставок</span>
-                    <span style="background: #E2E8F0; color: #334155; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 6px;">{len(history_df)}</span>
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
+        with st.expander(f"📜 Історія ставок ({len(history_df)})", expanded=True):
+            if not history_df.empty:
+                h_disp = history_df.copy()
+                h_disp["ID"] = h_disp["id"].apply(lambda x: f"#{x}")
+                if "commence_time" in h_disp.columns:
+                    h_disp["Час"] = h_disp["commence_time"].apply(format_kyiv_time)
+                h_disp["Турнір"] = h_disp["sport"].apply(_get_league_name)
+                h_disp["Подія"] = h_disp.get("match_name", "")
+                if "match_score" in h_disp.columns:
+                    h_disp["Рахунок"] = h_disp["match_score"].apply(
+                        lambda x: str(x).strip() if (x is not None and str(x).strip() and str(x).strip().lower() not in ("none", "null", "nan", "")) else "—"
+                    )
+                else:
+                    h_disp["Рахунок"] = "—"
+                h_disp["Маркет"] = h_disp.get("pick_label", "")
+                h_disp["Коеф."] = h_disp["odds"].apply(lambda x: f"{float(x):.2f}" if x else "—")
+                h_disp["CLV (+EV)"] = h_disp.apply(_format_clv, axis=1)
+                h_disp["ШІ Сигнал"] = h_disp.apply(_get_ai_score_badge, axis=1)
+                h_disp["% банку"] = h_disp.apply(_get_kelly_badge, axis=1)
+                h_disp["Сума"] = h_disp["stake_uah"].apply(lambda x: f"{float(x):,.0f} ₴" if x else "—")
+                h_disp["Результат"] = h_disp.apply(_format_result, axis=1)
 
-        if not history_df.empty:
-            h_disp = history_df.copy()
-            h_disp["ID"] = h_disp["id"].apply(lambda x: f"#{x}")
-            if "commence_time" in h_disp.columns:
-                h_disp["Час"] = h_disp["commence_time"].apply(format_kyiv_time)
-            h_disp["Турнір"] = h_disp["sport"].apply(_get_league_name)
-            h_disp["Подія"] = h_disp.get("match_name", "")
-            h_disp["Маркет"] = h_disp.get("pick_label", "")
-            h_disp["Коеф."] = h_disp["odds"].apply(lambda x: f"{float(x):.2f}" if x else "—")
-            h_disp["CLV (+EV)"] = h_disp.apply(_format_clv, axis=1)
-            h_disp["ШІ Сигнал"] = h_disp.apply(_get_ai_score_badge, axis=1)
-            h_disp["% банку"] = h_disp.apply(_get_kelly_badge, axis=1)
-            h_disp["Сума"] = h_disp["stake_uah"].apply(lambda x: f"{float(x):,.0f} ₴" if x else "—")
-            h_disp["Результат"] = h_disp.apply(_format_result, axis=1)
-
-            cols_history_show = [c for c in ["ID", "Час", "Турнір", "Подія", "Маркет", "Коеф.", "CLV (+EV)", "ШІ Сигнал", "% банку", "Сума", "Результат"] if c in h_disp.columns]
-            st.dataframe(h_disp[cols_history_show], use_container_width=True, hide_index=True)
-        else:
-            st.info("ℹ️ Немає розрахованих ставок в історії за обраними фільтрами.")
+                cols_history_show = [
+                    c for c in [
+                        "ID", "Час", "Турнір", "Подія", "Рахунок", "Маркет",
+                        "Коеф.", "CLV (+EV)", "ШІ Сигнал", "% банку", "Сума", "Результат"
+                    ] if c in h_disp.columns
+                ]
+                st.dataframe(h_disp[cols_history_show], use_container_width=True, hide_index=True)
+            else:
+                st.info("ℹ️ Немає розрахованих ставок в історії за обраними фільтрами.")
 
     # ---------------- ВКЛАДКА 2: AI-АНАЛІТИКА GEMINI ----------------
     with tab_ai:
