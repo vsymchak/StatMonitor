@@ -1221,6 +1221,14 @@ def run_streamlit_app():
             if status_filter in ("Всі ставки", "⏳ Тільки активні (Pending)"):
                 pending_df = bets_df[bets_df["status"] == "PENDING"].copy()
 
+        # Сортування активних ставок за часом події у порядку зростання (найближчі події зверху)
+        if not pending_df.empty and "commence_time" in pending_df.columns:
+            try:
+                pending_df["_sort_time"] = pd.to_datetime(pending_df["commence_time"], utc=True)
+                pending_df = pending_df.sort_values(by="_sort_time", ascending=True).drop(columns=["_sort_time"])
+            except Exception:
+                pending_df = pending_df.sort_values(by="commence_time", ascending=True)
+
         st.markdown(f"""
             <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 14px; margin-bottom: 8px;">
                 <div style="display: flex; align-items: center; gap: 8px;">
