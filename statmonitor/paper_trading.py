@@ -644,11 +644,18 @@ def manual_settle_bet(cur, conn, bet_id, score_str, forced_status=None):
     скасованих матчів або подій, яких немає в автоматичному API).
     """
     try:
-        cur.execute("SELECT id, match_name, pick_label, odds, stake_uah FROM paper_bets WHERE id=%s;", (bet_id,))
+        cur.execute("""
+            SELECT id, match_name, pick_label, odds, stake_uah, 
+                   COALESCE(is_real_bet, FALSE), real_stake_uah, real_odds 
+            FROM paper_bets WHERE id=%s;
+        """, (bet_id,))
         row = cur.fetchone()
         if not row:
             return False, f"Ставку #{bet_id} не знайдено."
-        bid, m_name, pk, odds, st = row
+        bid, m_name, pk, odds, st = row[:5]
+        is_real = bool(row[5]) if len(row) > 5 and row[5] is not None else False
+        r_stake = row[6] if len(row) > 6 else None
+        r_odds = row[7] if len(row) > 7 else None
 
         res = (forced_status or "").upper() if forced_status else None
         if not res or res not in ("WON", "LOST", "VOID"):
@@ -659,9 +666,20 @@ def manual_settle_bet(cur, conn, bet_id, score_str, forced_status=None):
                 res = eval_outcome(pk, m_name, hs, as_)
 
         if res in ("WON", "LOST", "VOID"):
-            prof = round(float(st) * (float(odds) - 1.0), 2) if res == "WON" else (round(-float(st), 2) if res == "LOST" else 0.0)
+            eff_st = float(r_stake or st) if (is_real and r_stake) else float(st)
+            eff_k = float(r_odds or odds) if (is_real and r_odds) else float(odds)
+            prof = round(eff_st * (eff_k - 1.0), 2) if res == "WON" else (round(-eff_st, 2) if res == "LOST" else 0.0)
             cur.execute("UPDATE paper_bets SET status=%s, match_score=%s, profit_uah=%s, settled_at=NOW() WHERE id=%s;", (res, score_str, prof, bid))
             conn.commit()
+
+            # SPEC-31: Якщо це реальна ставка, проводимо розрахунок у реальному леджері
+            if is_real:
+                try:
+                    from statmonitor.real_bankroll import settle_real_bet_in_ledger
+                    settle_real_bet_in_ledger(cur, conn, bid, res, prof, eff_st)
+                except Exception as real_err:
+                    print(f"Помилка фіксації реального результату в леджері: {real_err}")
+
             return True, f"Ставку #{bid} ({m_name}) успішно розраховано як {res} ({score_str}) з профітом {prof:+.2f} грн."
         return False, f"Не вдалося визначити статус WON/LOST/VOID для рахунку '{score_str}'."
     except Exception as e:
@@ -678,7 +696,12 @@ def settle_and_report(cur, conn):
 
     try:
         # Прискорений розрахунок: опитуємо результати вже через 85 хвилин після старту (захист через completed=True)
-        cur.execute("SELECT id, event_id, sport, match_name, pick_label, odds, stake_uah FROM paper_bets WHERE status='PENDING' AND commence_time < NOW() - INTERVAL '85 minutes';")
+        cur.execute("""
+            SELECT id, event_id, sport, match_name, pick_label, odds, stake_uah,
+                   COALESCE(is_real_bet, FALSE), real_stake_uah, real_odds
+            FROM paper_bets 
+            WHERE status='PENDING' AND commence_time < NOW() - INTERVAL '85 minutes';
+        """)
         pending = cur.fetchall()
         if pending:
             scores = {}
@@ -703,7 +726,12 @@ def settle_and_report(cur, conn):
                     except Exception as req_e:
                         print(f"Помилка запиту рахунків для {sp}: {req_e}")
                         break
-            for bid, eid, sp, m_name, pk, odds, st in pending:
+            for r_p in pending:
+                bid, eid, sp, m_name, pk, odds, st = r_p[:7]
+                is_real = bool(r_p[7]) if len(r_p) > 7 and r_p[7] is not None else False
+                real_st = r_p[8] if len(r_p) > 8 else None
+                real_k = r_p[9] if len(r_p) > 9 else None
+
                 ev = scores.get(eid)
                 if not ev:
                     continue
@@ -713,8 +741,16 @@ def settle_and_report(cur, conn):
                     continue
                 res = eval_outcome(pk, f"{ev.get('home_team')} - {ev.get('away_team')}", hs, as_)
                 if res in ("WON", "LOST", "VOID"):
-                    prof = round(float(st) * (float(odds) - 1), 2) if res == "WON" else (round(-float(st), 2) if res == "LOST" else 0.0)
+                    eff_st = float(real_st or st) if (is_real and real_st) else float(st)
+                    eff_k = float(real_k or odds) if (is_real and real_k) else float(odds)
+                    prof = round(eff_st * (eff_k - 1), 2) if res == "WON" else (round(-eff_st, 2) if res == "LOST" else 0.0)
                     cur.execute("UPDATE paper_bets SET status=%s, match_score=%s, profit_uah=%s, settled_at=NOW() WHERE id=%s;", (res, f"{hs}:{as_}", prof, bid))
+                    if is_real:
+                        try:
+                            from statmonitor.real_bankroll import settle_real_bet_in_ledger
+                            settle_real_bet_in_ledger(cur, conn, bid, res, prof, eff_st)
+                        except Exception as real_err:
+                            print(f"settle_real_bet_in_ledger err: {real_err}")
             conn.commit()
     except Exception as e:
         if conn:

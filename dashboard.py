@@ -341,13 +341,36 @@ def fetch_data(db_url):
         except Exception:
             pass
 
+        # 6. Real Bankroll Management (SPEC-31)
+        real_summary = {
+            "current_balance": 10000.0,
+            "initial_bank": 10000.0,
+            "total_real_bets": 0,
+            "pending_real": 0,
+            "won_real": 0,
+            "lost_real": 0,
+            "void_real": 0,
+            "real_turnover": 0.0,
+            "real_profit": 0.0,
+            "real_roi_pct": 0.0,
+            "real_win_rate": 0.0,
+        }
+        real_ledger_data = pd.DataFrame() if pd is not None else []
+        try:
+            from statmonitor.real_bankroll import ensure_real_bankroll_tables, get_real_bankroll_summary
+            ensure_real_bankroll_tables(cur, conn)
+            real_summary = get_real_bankroll_summary(cur, conn)
+            real_ledger_data = query_to_dataframe(cur, "SELECT * FROM real_bankroll_ledger ORDER BY created_at DESC, id DESC LIMIT 50;")
+        except Exception as rbe:
+            print("Real bankroll fetch err:", rbe)
+
         cur.close()
         conn.close()
-        return bets_data, ai_data, sched_data, hb_data, poll_data, None
+        return bets_data, ai_data, sched_data, hb_data, poll_data, real_summary, real_ledger_data, None
     except Exception as e:
         if conn:
             conn.close()
-        return None, None, None, None, None, str(e)
+        return None, None, None, None, None, {}, None, str(e)
 
 def run_streamlit_app():
     import streamlit as st
@@ -513,10 +536,25 @@ def run_streamlit_app():
         st.info("💡 Підказка: у правому верхньому кутку відкрийте `Settings` -> `Secrets` і збережіть `SUPABASE_DB_URL`.")
         return
 
-    bets_df, ai_df, sched_df, heartbeat_df, poll_df, db_err = fetch_data(db_url)
+    bets_df, ai_df, sched_df, heartbeat_df, poll_df, real_summary, real_ledger_df, db_err = fetch_data(db_url)
     if db_err:
         st.error(f"❌ Помилка з'єднання з базою Supabase:\n\n`{db_err}`")
         return
+
+    if not real_summary or not isinstance(real_summary, dict):
+        real_summary = {
+            "current_balance": 10000.0,
+            "initial_bank": 10000.0,
+            "total_real_bets": 0,
+            "pending_real": 0,
+            "won_real": 0,
+            "lost_real": 0,
+            "void_real": 0,
+            "real_turnover": 0.0,
+            "real_profit": 0.0,
+            "real_roi_pct": 0.0,
+            "real_win_rate": 0.0,
+        }
 
     metrics = compute_metrics(bets_df)
 
@@ -643,28 +681,49 @@ def run_streamlit_app():
     # 3. ЄДИНИЙ ЩІЛЬНИЙ РЯДОК KPI-МЕТРИК (6 КАРТОК У 1 РЯД, висота ~66px)
     kpi1, kpi2, kpi3, kpi4, kpi5, kpi6 = st.columns(6)
 
-    # Картка 1: Банкрол
-    profit_val = metrics["net_profit"]
-    kpi1.metric(
-        label="💰 Банкрол (Paper Bank)",
-        value=f"{metrics['current_bank']:,.2f} ₴",
-        delta=f"{profit_val:+,.0f} ₴" if profit_val != 0 else "0 ₴",
-    )
+    # Картка 1-3: Динамічно за обраним режимом банку (Paper чи Real)
+    is_real_view = st.session_state.get("filter_bank_mode_v2") == "🟢 Тільки реальні (Real)"
 
-    # Картка 2: ROI / Оборот
-    roi_val = metrics["roi_pct"]
-    kpi2.metric(
-        label="📈 ROI / Оборот",
-        value=f"{roi_val:+.2f}%",
-        delta=f"Об: {metrics['turnover']:,.0f} ₴",
-    )
+    if is_real_view:
+        r_prof = real_summary.get("real_profit", 0.0)
+        kpi1.metric(
+            label="💵 Банкрол (Real Bank)",
+            value=f"{real_summary.get('current_balance', 10000.0):,.2f} ₴",
+            delta=f"{r_prof:+,.0f} ₴" if r_prof != 0 else "0 ₴",
+        )
+        kpi2.metric(
+            label="📈 Real ROI / Оборот",
+            value=f"{real_summary.get('real_roi_pct', 0.0):+.2f}%",
+            delta=f"Об: {real_summary.get('real_turnover', 0.0):,.0f} ₴",
+        )
+        kpi3.metric(
+            label="🎯 Real Вінрейт",
+            value=f"{real_summary.get('real_win_rate', 0.0):.1f}%",
+            delta=f"{real_summary.get('total_real_bets', 0)} (в грі: {real_summary.get('pending_real', 0)})",
+        )
+    else:
+        # Картка 1: Банкрол
+        profit_val = metrics["net_profit"]
+        kpi1.metric(
+            label="💰 Банкрол (Paper Bank)",
+            value=f"{metrics['current_bank']:,.2f} ₴",
+            delta=f"{profit_val:+,.0f} ₴" if profit_val != 0 else "0 ₴",
+        )
 
-    # Картка 3: Вінрейт
-    kpi3.metric(
-        label="🎯 Вінрейт (Win Rate)",
-        value=f"{metrics['win_rate']:.1f}%",
-        delta=f"{metrics['total_bets']} (в грі: {metrics['pending']})",
-    )
+        # Картка 2: ROI / Оборот
+        roi_val = metrics["roi_pct"]
+        kpi2.metric(
+            label="📈 ROI / Оборот",
+            value=f"{roi_val:+.2f}%",
+            delta=f"Об: {metrics['turnover']:,.0f} ₴",
+        )
+
+        # Картка 3: Вінрейт
+        kpi3.metric(
+            label="🎯 Вінрейт (Win Rate)",
+            value=f"{metrics['win_rate']:.1f}%",
+            delta=f"{metrics['total_bets']} (в грі: {metrics['pending']})",
+        )
 
     # Картка 4: Max Drawdown
     dd_pct = dd_stats["max_drawdown_pct"]
@@ -737,6 +796,24 @@ def run_streamlit_app():
             </div>
         """, unsafe_allow_html=True)
 
+    # SPEC-31: Банер стану реального банку (якщо є активність або налаштований баланс)
+    if real_summary.get("total_real_bets", 0) > 0 or real_summary.get("current_balance", 10000.0) != 10000.0:
+        p_sign = "+" if real_summary.get('real_profit', 0) > 0 else ""
+        st.markdown(f"""
+            <div style="font-size: 11.5px; color: #166534; background: #F0FDF4; border: 1px solid #BBF7D0; border-radius: 8px; padding: 4px 12px; margin-top: 4px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <span>🟢</span>
+                    <b>Реальний банк (Real Bankroll):</b> <code>{real_summary.get('current_balance', 10000.0):,.2f} ₴</code> &nbsp;|&nbsp; 
+                    <b>Чистий прибуток:</b> <b><code>{p_sign}{real_summary.get('real_profit', 0.0):,.2f} ₴</code></b> &nbsp;|&nbsp; 
+                    <b>Real ROI:</b> <b><code>{real_summary.get('real_roi_pct', 0.0):+.2f}%</code></b> &nbsp;|&nbsp; 
+                    <b>Оборот:</b> <code>{real_summary.get('real_turnover', 0.0):,.2f} ₴</code>
+                </div>
+                <div>
+                    <b>Реальних ставок:</b> <b>{real_summary.get('total_real_bets', 0)}</b> &nbsp;(⏳ в грі: <b>{real_summary.get('pending_real', 0)}</b> &nbsp;|&nbsp; 🟢 {real_summary.get('won_real', 0)}W &nbsp;|&nbsp; 🔴 {real_summary.get('lost_real', 0)}L)
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+
     # 4. ВКЛАДКИ НАВІГАЦІЇ
     tab_titles = [
         "📊 Ставки та Капітал",
@@ -766,7 +843,7 @@ def run_streamlit_app():
                 s_map = {}
 
         # 3. КОМПАКТНА ПАНЕЛЬ ФІЛЬТРІВ В ОДИН РЯДОК (Висота ~38px)
-        col_f1, col_f2, col_f3, col_f4, col_f5 = st.columns([3, 2, 2, 1.8, 1])
+        col_f1, col_f2, col_f3, col_f4, col_f5, col_f6 = st.columns([2.5, 1.8, 1.8, 1.8, 1.5, 1])
 
         all_sports = (
             sorted(list({str(s) for s in df_all["sport"].dropna().unique() if str(s) != "nan"}))
@@ -790,19 +867,24 @@ def run_streamlit_app():
             sel_market = st.selectbox("🎯 Маркет:", market_options, index=0, key="filter_market_v2")
 
         with col_f3:
+            bank_mode_options = ["🔘 Всі ставки", "🟢 Тільки реальні (Real)", "⚪ Тільки віртуальні (Paper)"]
+            sel_bank_mode = st.selectbox("💼 Режим:", bank_mode_options, index=0, key="filter_bank_mode_v2")
+
+        with col_f4:
             status_options = ["Всі ставки", "Розраховані", "В грі (Pending)"]
             sel_status = st.selectbox("📌 Статус:", status_options, index=0, key="filter_status_v2")
 
-        with col_f4:
+        with col_f5:
             period_options = ["Все", "30 днів", "7 днів"]
             sel_period = st.selectbox("📅 Період:", period_options, index=0, key="filter_period_v2")
 
-        with col_f5:
+        with col_f6:
             st.write("")
             st.write("")
             if st.button("↺ Скинути", key="btn_reset_filters", use_container_width=True):
                 st.session_state["filter_sports_v2"] = []
                 st.session_state["filter_market_v2"] = "Всі маркети"
+                st.session_state["filter_bank_mode_v2"] = "🔘 Всі ставки"
                 st.session_state["filter_status_v2"] = "Всі ставки"
                 st.session_state["filter_period_v2"] = "Все"
                 st.rerun()
@@ -810,6 +892,15 @@ def run_streamlit_app():
         # Фільтрація датасету
         filtered_df = df_all.copy() if (df_all is not None and hasattr(df_all, "empty") and not df_all.empty) else pd.DataFrame()
         if not filtered_df.empty:
+            if sel_bank_mode == "🟢 Тільки реальні (Real)":
+                if "is_real_bet" in filtered_df.columns:
+                    filtered_df = filtered_df[filtered_df["is_real_bet"] == True]
+                else:
+                    filtered_df = filtered_df.iloc[0:0]
+            elif sel_bank_mode == "⚪ Тільки віртуальні (Paper)":
+                if "is_real_bet" in filtered_df.columns:
+                    filtered_df = filtered_df[(filtered_df["is_real_bet"] != True) | (filtered_df["is_real_bet"].isna())]
+
             if sel_sports:
                 filtered_df = filtered_df[filtered_df["sport"].isin(sel_sports)]
             if sel_market != "Всі маркети" and "pick_label" in filtered_df.columns:
@@ -1243,6 +1334,10 @@ def run_streamlit_app():
             p_disp["ID"] = p_disp["id"].apply(lambda x: f"#{x}")
             if "commence_time" in p_disp.columns:
                 p_disp["Час"] = p_disp["commence_time"].apply(format_kyiv_time)
+            p_disp["Режим"] = p_disp.apply(
+                lambda r: f"🟢 Real ({r.get('bookmaker_name') or 'БК'})" if (r.get("is_real_bet") is True or str(r.get("is_real_bet")).lower() in ("true", "t", "1")) else "⚪ Paper",
+                axis=1
+            )
             p_disp["Турнір"] = p_disp["sport"].apply(lambda sp: _get_league_name(sp, with_icon=True))
             p_disp["Подія"] = p_disp.get("match_name", "")
             p_disp["Маркет"] = p_disp.get("pick_label", "").apply(_clean_pick_label)
@@ -1252,10 +1347,204 @@ def run_streamlit_app():
             p_disp["% банку (Келлі)"] = p_disp.apply(_get_kelly_badge, axis=1)
             p_disp["Результат"] = "⏳ В грі (Pending)"
 
-            cols_pending_show = [c for c in ["ID", "Час", "Турнір", "Подія", "Маркет", "Коеф.", "ШІ Сигнал", "% банку (Келлі)", "Сума", "Результат"] if c in p_disp.columns]
+            cols_pending_show = [c for c in ["ID", "Час", "Режим", "Турнір", "Подія", "Маркет", "Коеф.", "ШІ Сигнал", "% банку (Келлі)", "Сума", "Результат"] if c in p_disp.columns]
             st.dataframe(p_disp[cols_pending_show], use_container_width=True, hide_index=True)
 
             if is_admin:
+                # SPEC-31: 1. OCR купона БК через Gemini Vision
+                with st.expander("🧾 Завантаження та OCR купона БК (Gemini Vision)", expanded=False):
+                    st.markdown("""
+                        <div style="font-size: 12px; color: #475569; margin-bottom: 8px;">
+                            📸 Завантажте фотографію або скріншот купона ставки з букмекерської контори (<b>Favbet</b>, <b>Vbet</b>, <b>Bet365</b> тощо).
+                            ШІ Gemini Vision автоматично розпізнає подію, маркет, коефіцієнт та суму і зіставить купон з активними ставками системи.
+                        </div>
+                    """, unsafe_allow_html=True)
+                    upl_slip = st.file_uploader(
+                        "Оберіть файл зображення купона:",
+                        type=["png", "jpg", "jpeg", "webp"],
+                        key="ocr_slip_uploader_v1"
+                    )
+                    if upl_slip is not None:
+                        col_img_prev, col_img_ocr = st.columns([1, 1.3])
+                        with col_img_prev:
+                            st.image(upl_slip, caption="Завантажений купон БК", use_container_width=True)
+                        with col_img_ocr:
+                            if st.button("🔍 Розпізнати купон через Gemini Vision", key="btn_run_gemini_ocr_v1", use_container_width=True):
+                                with st.spinner("Аналіз зображення купона через Gemini Vision..."):
+                                    from statmonitor.slip_ocr import parse_bet_slip_with_gemini
+                                    res_ocr = parse_bet_slip_with_gemini(upl_slip.getvalue(), mime_type=upl_slip.type)
+                                    st.session_state["last_bet_slip_ocr"] = res_ocr
+
+                            last_ocr = st.session_state.get("last_bet_slip_ocr")
+                            if last_ocr:
+                                if last_ocr.get("success"):
+                                    bm = last_ocr.get("bookmaker", "Невідомо")
+                                    m_n = last_ocr.get("match_name", "—")
+                                    pk = last_ocr.get("pick_label", "—")
+                                    k_val = float(last_ocr.get("odds", 0.0) or 0.0)
+                                    stk_val = float(last_ocr.get("stake_uah", 0.0) or 0.0)
+                                    pot_val = float(last_ocr.get("potential_win_uah", 0.0) or 0.0)
+                                    tid = last_ocr.get("ticket_id")
+
+                                    st.markdown(f"""
+                                        <div style="background: #F0FDF4; border: 1px solid #BBF7D0; border-radius: 8px; padding: 10px; margin-bottom: 10px; font-size: 12.5px;">
+                                            <div>🏢 <b>Букмекер:</b> <code>{bm}</code> {f"(Квиток #{tid})" if tid else ""}</div>
+                                            <div>⚽ <b>Подія:</b> <b>{m_n}</b></div>
+                                            <div>🎯 <b>Маркет:</b> <code>{pk}</code></div>
+                                            <div>📉 <b>Коефіцієнт:</b> <code>{k_val:.2f}</code> &nbsp;|&nbsp; 💵 <b>Ставка:</b> <code>{stk_val:,.2f} ₴</code></div>
+                                            <div>🏆 <b>Потенційний виграш:</b> <code>+{pot_val:,.2f} ₴</code></div>
+                                        </div>
+                                    """, unsafe_allow_html=True)
+
+                                    from statmonitor.slip_ocr import match_slip_with_pending_bets, apply_slip_to_bet
+                                    p_list = pending_df.to_dict("records") if not pending_df.empty else []
+                                    matched_id, conf_pct, m_info = match_slip_with_pending_bets(last_ocr, p_list)
+
+                                    if matched_id:
+                                        st.success(f"🎯 Знайдено збіг з активною ставкою #{matched_id} (впевненість: {conf_pct}%): {m_info.get('matched_name')} | {m_info.get('matched_pick')}")
+                                    else:
+                                        st.info("ℹ️ Точного збігу не знайдено автоматично. Оберіть ставку вручну зі списку нижче:")
+
+                                    target_options = {}
+                                    for _, r_bet in pending_df.iterrows():
+                                        opt_lbl = f"#{r_bet['id']} | {r_bet.get('match_name')} ({r_bet.get('pick_label')}) — {float(r_bet.get('odds', 0)):.2f}"
+                                        target_options[opt_lbl] = r_bet["id"]
+
+                                    default_idx = 0
+                                    if matched_id:
+                                        for idx, opt_id in enumerate(target_options.values()):
+                                            if opt_id == matched_id:
+                                                default_idx = idx
+                                                break
+
+                                    if target_options:
+                                        sel_target_lbl = st.selectbox("Прив'язати купон до ставки:", list(target_options.keys()), index=default_idx, key="sel_ocr_target_bet_v1")
+                                        chosen_bet_id = target_options[sel_target_lbl]
+
+                                        if st.button("✅ Прив'язати купон та позначити як Real Bet", key="btn_apply_ocr_slip_v1", use_container_width=True):
+                                            conn_ocr, err_ocr = get_db_connection(db_url)
+                                            if conn_ocr:
+                                                cur_ocr = conn_ocr.cursor()
+                                                try:
+                                                    ok_a, msg_a = apply_slip_to_bet(cur_ocr, conn_ocr, chosen_bet_id, last_ocr)
+                                                    if ok_a:
+                                                        st.success(f"🎉 {msg_a}")
+                                                        try:
+                                                            from statmonitor.notifier import send_tg
+                                                            send_tg(f"🧾 <b>Купон БК успішно прив'язано через веб-дашборд:</b>\n{msg_a}")
+                                                        except Exception:
+                                                            pass
+                                                        st.session_state["last_bet_slip_ocr"] = None
+                                                        st.rerun()
+                                                    else:
+                                                        st.error(f"❌ {msg_a}")
+                                                finally:
+                                                    cur_ocr.close()
+                                                    conn_ocr.close()
+                                    else:
+                                        st.warning("⚠️ Немає активних ставок у системі для прив'язки купона.")
+                                else:
+                                    st.error(f"❌ Помилка розпізнавання: {last_ocr.get('error', 'Невідома помилка')}")
+
+                # SPEC-31: 2. Керування реальним банком (Ledger)
+                with st.expander("💵 Керування реальним банком (Real Bankroll Ledger)", expanded=False):
+                    col_rb1, col_rb2, col_rb3, col_rb4 = st.columns(4)
+                    col_rb1.metric("🏦 Поточний баланс", f"{real_summary.get('current_balance', 10000.0):,.2f} ₴")
+                    col_rb2.metric("💰 Початковий банк", f"{real_summary.get('initial_bank', 10000.0):,.2f} ₴")
+                    col_rb3.metric("📈 Чистий прибуток", f"{real_summary.get('real_profit', 0.0):+,.2f} ₴")
+                    col_rb4.metric("📊 Real ROI", f"{real_summary.get('real_roi_pct', 0.0):+.2f}%")
+
+                    st.markdown("##### 📝 Внесення транзакції в леджер")
+                    col_tx1, col_tx2, col_tx3, col_tx4 = st.columns([2, 1.5, 3, 1.5])
+                    with col_tx1:
+                        tx_type_sel = st.selectbox(
+                            "Тип транзакції:",
+                            ["📥 Депозит (DEPOSIT)", "📤 Виведення (WITHDRAWAL)", "⚙️ Коригування (ADJUSTMENT)"],
+                            key="sel_tx_type_v1"
+                        )
+                    with col_tx2:
+                        tx_amt = st.number_input("Сума (грн):", min_value=1.0, max_value=1000000.0, value=1000.0, step=100.0, key="num_tx_amt_v1")
+                    with col_tx3:
+                        tx_comment = st.text_input("Коментар / Призначення:", placeholder="Поповнення банкролу", key="txt_tx_desc_v1")
+                    with col_tx4:
+                        st.write("")
+                        st.write("")
+                        if st.button("💾 Провести", key="btn_save_real_tx_v1", use_container_width=True):
+                            raw_tx_type = "DEPOSIT" if "DEPOSIT" in tx_type_sel else ("WITHDRAWAL" if "WITHDRAWAL" in tx_type_sel else "ADJUSTMENT")
+                            conn_tx, err_tx = get_db_connection(db_url)
+                            if conn_tx:
+                                cur_tx = conn_tx.cursor()
+                                try:
+                                    from statmonitor.real_bankroll import record_real_transaction
+                                    ok_tx, new_b, msg_tx = record_real_transaction(cur_tx, conn_tx, raw_tx_type, tx_amt, description=tx_comment or tx_type_sel)
+                                    if ok_tx:
+                                        st.success(f"✅ {msg_tx}")
+                                        st.rerun()
+                                    else:
+                                        st.error(f"❌ {msg_tx}")
+                                finally:
+                                    cur_tx.close()
+                                    conn_tx.close()
+
+                    if isinstance(real_ledger_df, pd.DataFrame) and not real_ledger_df.empty:
+                        st.markdown("##### 📜 Журнал останніх транзакцій леджера")
+                        disp_ledger = real_ledger_df.copy()
+                        if "created_at" in disp_ledger.columns:
+                            disp_ledger["Час"] = disp_ledger["created_at"].apply(format_kyiv_time)
+                        disp_ledger["Тип"] = disp_ledger["transaction_type"]
+                        disp_ledger["Сума"] = disp_ledger["amount_uah"].apply(lambda x: f"{float(x):+,.2f} ₴")
+                        disp_ledger["Баланс після"] = disp_ledger["balance_after_uah"].apply(lambda x: f"{float(x):,.2f} ₴")
+                        disp_ledger["Опис"] = disp_ledger.get("description", "—")
+                        cols_l_show = [c for c in ["id", "Час", "Тип", "Сума", "Баланс після", "Опис"] if c in disp_ledger.columns]
+                        st.dataframe(disp_ledger[cols_l_show], use_container_width=True, hide_index=True)
+
+                # SPEC-31: 3. Ручне перемикання режиму ставки (Paper <-> Real)
+                with st.expander("🟢/⚪ Ручне перемикання режиму ставки (Paper <-> Real)", expanded=False):
+                    toggle_options = {}
+                    for _, r_bet in pending_df.iterrows():
+                        c_time_str = format_kyiv_time(r_bet.get('commence_time'))
+                        time_badge = f" [🕒 {c_time_str}]" if c_time_str else ""
+                        cur_mode = "🟢 REAL" if r_bet.get("is_real_bet") else "⚪ Paper"
+                        sp_icon = get_sport_icon(r_bet.get('sport'))
+                        t_lbl = f"ID #{r_bet['id']} [{cur_mode}] | {sp_icon} {r_bet.get('match_name', '')} ({r_bet.get('pick_label', '')}){time_badge}"
+                        toggle_options[t_lbl] = r_bet["id"]
+
+                    sel_t_lbl = st.selectbox("Оберіть активну ставку для перемикання:", list(toggle_options.keys()), key="sel_toggle_bet_v1")
+                    sel_t_id = toggle_options[sel_t_lbl]
+                    t_bet_row = pending_df[pending_df["id"] == sel_t_id].iloc[0]
+
+                    col_t1, col_t2, col_t3, col_t4 = st.columns([1.5, 1.5, 1.5, 1.5])
+                    with col_t1:
+                        is_real_chk = st.checkbox("🟢 Реальна ставка (is_real_bet)", value=bool(t_bet_row.get("is_real_bet")), key="chk_is_real_v1")
+                    with col_t2:
+                        r_stk_inp = st.number_input("Фактична сума (грн):", min_value=10.0, max_value=50000.0, value=float(t_bet_row.get("real_stake_uah") or t_bet_row.get("stake_uah") or 250.0), step=50.0, key="num_real_stk_v1")
+                    with col_t3:
+                        r_odds_inp = st.number_input("Фактичний коефіцієнт:", min_value=1.01, max_value=50.0, value=float(t_bet_row.get("real_odds") or t_bet_row.get("odds") or 1.85), step=0.01, format="%.2f", key="num_real_odds_v1")
+                    with col_t4:
+                        r_bm_inp = st.selectbox("Букмекер:", ["Favbet", "Vbet", "GGbet", "Bet365", "Інший"], key="sel_real_bm_v1")
+
+                    if st.button("💾 Зберегти статус ставки", key="btn_save_bet_mode_v1", use_container_width=True):
+                        conn_tog, err_tog = get_db_connection(db_url)
+                        if conn_tog:
+                            cur_tog = conn_tog.cursor()
+                            try:
+                                from statmonitor.real_bankroll import toggle_real_bet
+                                ok_tog, msg_tog = toggle_real_bet(
+                                    cur_tog, conn_tog, sel_t_id,
+                                    is_real=is_real_chk,
+                                    real_stake=r_stk_inp if is_real_chk else None,
+                                    real_odds=r_odds_inp if is_real_chk else None,
+                                    bookmaker=r_bm_inp if is_real_chk else None
+                                )
+                                if ok_tog:
+                                    st.success(f"✅ {msg_tog}")
+                                    st.rerun()
+                                else:
+                                    st.error(f"❌ {msg_tog}")
+                            finally:
+                                cur_tog.close()
+                                conn_tog.close()
+
                 with st.expander("✏️ Редагування коефіцієнта (Edit Odds для активної ставки)", expanded=False):
                     bet_options = {}
                     for _, r_bet in pending_df.iterrows():
@@ -1374,6 +1663,10 @@ def run_streamlit_app():
                 h_disp["ID"] = h_disp["id"].apply(lambda x: f"#{x}")
                 if "commence_time" in h_disp.columns:
                     h_disp["Час"] = h_disp["commence_time"].apply(format_kyiv_time)
+                h_disp["Режим"] = h_disp.apply(
+                    lambda r: f"🟢 Real ({r.get('bookmaker_name') or 'БК'})" if (r.get("is_real_bet") is True or str(r.get("is_real_bet")).lower() in ("true", "t", "1")) else "⚪ Paper",
+                    axis=1
+                )
                 h_disp["Турнір"] = h_disp["sport"].apply(lambda sp: _get_league_name(sp, with_icon=True))
                 h_disp["Подія"] = h_disp.get("match_name", "")
                 if "match_score" in h_disp.columns:
@@ -1392,7 +1685,7 @@ def run_streamlit_app():
 
                 cols_history_show = [
                     c for c in [
-                        "ID", "Час", "Турнір", "Подія", "Рахунок", "Маркет",
+                        "ID", "Час", "Режим", "Турнір", "Подія", "Рахунок", "Маркет",
                         "Коеф.", "CLV (+EV)", "ШІ Сигнал", "% банку", "Сума", "Результат"
                     ] if c in h_disp.columns
                 ]

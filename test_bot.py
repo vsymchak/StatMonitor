@@ -206,5 +206,102 @@ class TestBot(unittest.TestCase):
         self.assertIn("1.58", resp)
         self.assertIn("58.00 грн", resp)
 
+    @patch("statmonitor.bot.TG_CHAT_ID", "123456789")
+    @patch("statmonitor.real_bankroll.get_real_bankroll_summary")
+    def test_cmd_real_bank(self, mock_summary):
+        from statmonitor.bot import cmd_real_bank
+        mock_summary.return_value = {
+            "current_balance": 14250.0,
+            "initial_bank": 10000.0,
+            "real_profit": 4250.0,
+            "real_roi_pct": 28.5,
+            "real_win_rate": 65.0,
+            "real_turnover": 15000.0,
+            "total_real_bets": 12,
+            "won_real": 7,
+            "lost_real": 4,
+            "pending_real": 1,
+            "void_real": 0,
+        }
+        cur = MockCursor()
+        conn = MockConn()
+        txt = cmd_real_bank(cur, conn)
+        self.assertIn("РЕАЛЬНИЙ БАНКРОЛ", txt)
+        self.assertIn("14,250.00 грн", txt)
+        self.assertIn("+4,250.00 грн", txt)
+        self.assertIn("+28.5%", txt)
+        self.assertIn("65.0%", txt)
+
+    @patch("statmonitor.bot.TG_CHAT_ID", "123456789")
+    @patch("statmonitor.real_bankroll.get_real_bankroll_summary")
+    def test_handle_command_real_bank(self, mock_summary):
+        mock_summary.return_value = {
+            "current_balance": 10000.0,
+            "initial_bank": 10000.0,
+            "real_profit": 0.0,
+            "real_roi_pct": 0.0,
+            "real_win_rate": 0.0,
+            "real_turnover": 0.0,
+            "total_real_bets": 0,
+            "won_real": 0,
+            "lost_real": 0,
+            "pending_real": 0,
+            "void_real": 0,
+        }
+        cur = MockCursor()
+        conn = MockConn()
+        resp, markup = handle_command("/real_bank", 123456789, cur, conn)
+        self.assertIn("РЕАЛЬНИЙ БАНКРОЛ", resp)
+        self.assertIsNotNone(markup)
+
+    @patch("statmonitor.bot.TG_CHAT_ID", "123456789")
+    @patch("statmonitor.bot.TG_BOT_TOKEN", "fake_bot_token")
+    @patch("requests.get")
+    @patch("statmonitor.slip_ocr.parse_bet_slip_with_gemini")
+    @patch("statmonitor.slip_ocr.apply_slip_to_bet")
+    def test_process_telegram_update_photo_ocr(self, mock_apply, mock_ocr, mock_get):
+        from statmonitor.bot import process_telegram_update
+
+        # Mock Telegram getFile & file download
+        mock_file_info = MagicMock()
+        mock_file_info.json.return_value = {"ok": True, "result": {"file_path": "photos/slip.jpg"}}
+        mock_img_data = MagicMock()
+        mock_img_data.status_code = 200
+        mock_img_data.content = b"fake_slip_bytes"
+
+        mock_get.side_effect = [mock_file_info, mock_img_data]
+
+        mock_ocr.return_value = {
+            "success": True,
+            "bookmaker": "Favbet",
+            "match_name": "Arsenal - Chelsea",
+            "pick_label": "П1",
+            "odds": 1.95,
+            "stake_uah": 300.0,
+            "potential_win_uah": 585.0,
+            "ticket_id": "T12345"
+        }
+        mock_apply.return_value = (True, "Ставку #42 успішно оновлено як 🟢 Реальна ставка")
+
+        cur = MockCursor(fetchall_data=[(42, "Arsenal - Chelsea", "П1", 1.95, 300.0)])
+        conn = MockConn()
+
+        update = {
+            "update_id": 2002,
+            "message": {
+                "chat": {"id": 123456789},
+                "photo": [
+                    {"file_id": "small_id"},
+                    {"file_id": "large_id"}
+                ]
+            }
+        }
+        with patch("statmonitor.bot.send_tg") as mock_send:
+            res = process_telegram_update(update, cur, conn)
+            self.assertIn("КУПОН БК УСПІШНО РОЗПІЗНАНО", res)
+            self.assertIn("Favbet", res)
+            self.assertIn("Arsenal - Chelsea", res)
+            mock_apply.assert_called_once()
+
 if __name__ == "__main__":
     unittest.main()

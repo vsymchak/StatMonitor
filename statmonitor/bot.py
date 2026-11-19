@@ -14,7 +14,7 @@ from statmonitor.notifier import send_tg, esc, fmt_kyiv
 
 DEFAULT_KEYBOARD = {
     "keyboard": [
-        [{"text": "/status"}, {"text": "/bank"}],
+        [{"text": "/status"}, {"text": "/bank"}, {"text": "/real_bank"}],
         [{"text": "/bets"}, {"text": "/schedule"}],
         [{"text": "/today"}, {"text": "/digest"}, {"text": "/run_now"}],
     ],
@@ -32,16 +32,18 @@ def cmd_start_help():
     from statmonitor.config import DASHBOARD_URL
     return (
         "🤖 <b>StatMonitor AI Assistant</b>\n\n"
-        "Ваш персональний бот моніторингу коефіцієнтів, Smart Money та віртуального трейдингу.\n\n"
+        "Ваш персональний бот моніторингу коефіцієнтів, Smart Money та віртуального/реального трейдингу.\n\n"
         "📋 <b>Доступні команди:</b>\n"
         "  • <b>/status</b> — Стан сервісу, пульс Watchdog, квоти ліг\n"
-        "  • <b>/bank</b> — Фінансовий баланс, вільний капітал, ROI\n"
+        "  • <b>/bank</b> — Віртуальний банк (Paper Trading), вільні кошти, ROI\n"
+        "  • <b>/real_bank</b> — Реальний банкрол (Real Money), баланс леджера, оборот\n"
         "  • <b>/bets</b> — Активні ставки у грі (PENDING) з їхніми ID\n"
         "  • <b>/edit_odds &lt;ID&gt; &lt;коеф&gt;</b> — Змінити коефіцієнт нерозрахованої ставки\n"
         "  • <b>/today</b> — Результати розрахованих ставок за день\n"
         "  • <b>/digest</b> — Тижневий графічний дайджест ефективності та ROI\n"
         "  • <b>/schedule</b> — Контрольні точки найближчих перевірок\n"
         "  • <b>/run_now</b> — Негайний позачерговий запуск сканування\n"
+        "  • 📷 <b>Фото купона БК</b> — Надішліть фото або скріншот ставки для Gemini Vision OCR\n"
         "  • <b>/help</b> — Показати це меню підказки\n\n"
         f"🌐 <b>Веб-дашборд:</b> <a href='{DASHBOARD_URL}'>Відкрити гостьовий дашборд</a>"
     )
@@ -152,6 +154,41 @@ def cmd_bank(cur):
     ])
     return "\n".join(lines)
 
+def cmd_real_bank(cur, conn=None):
+    try:
+        from statmonitor.real_bankroll import get_real_bankroll_summary
+        summary = get_real_bankroll_summary(cur, conn)
+    except Exception as e:
+        return f"⚠️ <b>Помилка отримання даних реального банку:</b> {esc(e)}"
+
+    c_bal = summary.get("current_balance", 10000.0)
+    init_b = summary.get("initial_bank", 10000.0)
+    prof = summary.get("real_profit", 0.0)
+    roi = summary.get("real_roi_pct", 0.0)
+    wr = summary.get("real_win_rate", 0.0)
+    turn = summary.get("real_turnover", 0.0)
+    tot = summary.get("total_real_bets", 0)
+    won = summary.get("won_real", 0)
+    lost = summary.get("lost_real", 0)
+    pend = summary.get("pending_real", 0)
+    void = summary.get("void_real", 0)
+
+    p_sign = "+" if prof > 0 else ""
+
+    lines = [
+        "💵 <b>РЕАЛЬНИЙ БАНКРОЛ (REAL MONEY MODE)</b>\n",
+        f"🏦 <b>Поточний капітал:</b> <b><code>{c_bal:,.2f} грн</code></b>",
+        f"💰 <b>Початковий банк:</b> <code>{init_b:,.2f} грн</code>",
+        f"📈 <b>Чистий прибуток:</b> <b><code>{p_sign}{prof:,.2f} грн</code></b>",
+        f"📊 <b>Real ROI:</b> <b><code>{p_sign}{roi}%</code></b> | <b>Вінрейт:</b> <code>{wr}%</code>",
+        f"🔄 <b>Реальний оборот:</b> <code>{turn:,.2f} грн</code>\n",
+        f"🎯 <b>Реальних ставок у системі ({tot}):</b>",
+        f"  🟢 Виграно: <b>{won}</b> | 🔴 Програно: <b>{lost}</b>",
+        f"  ⚪ Повернень: <b>{void}</b> | ⏳ В грі: <b>{pend}</b>\n",
+        "💡 <i>Надішліть фото або скріншот купона БК (Favbet/Vbet) для автоматичного розпізнавання через Gemini OCR.</i>",
+    ]
+    return "\n".join(lines)
+
 def cmd_bets(cur):
     try:
         cur.execute("SELECT COALESCE(SUM(profit_uah), 0) FROM paper_bets WHERE status IN ('WON', 'LOST', 'VOID');")
@@ -162,7 +199,7 @@ def cmd_bets(cur):
 
     try:
         cur.execute("""
-            SELECT id, match_name, sport, pick_label, odds, stake_uah, commence_time, kelly_pct, confidence_score, risk_level 
+            SELECT id, match_name, sport, pick_label, odds, stake_uah, commence_time, kelly_pct, confidence_score, risk_level, COALESCE(is_real_bet, FALSE) 
             FROM paper_bets 
             WHERE status='PENDING' 
             ORDER BY commence_time ASC;
@@ -171,7 +208,7 @@ def cmd_bets(cur):
     except Exception:
         try:
             cur.execute("""
-                SELECT id, match_name, sport, pick_label, odds, stake_uah, commence_time, kelly_pct 
+                SELECT id, match_name, sport, pick_label, odds, stake_uah, commence_time, kelly_pct, confidence_score, risk_level 
                 FROM paper_bets 
                 WHERE status='PENDING' 
                 ORDER BY commence_time ASC;
@@ -180,14 +217,23 @@ def cmd_bets(cur):
         except Exception:
             try:
                 cur.execute("""
-                    SELECT id, match_name, sport, pick_label, odds, stake_uah, commence_time 
+                    SELECT id, match_name, sport, pick_label, odds, stake_uah, commence_time, kelly_pct 
                     FROM paper_bets 
                     WHERE status='PENDING' 
                     ORDER BY commence_time ASC;
                 """)
                 rows = cur.fetchall()
             except Exception:
-                rows = []
+                try:
+                    cur.execute("""
+                        SELECT id, match_name, sport, pick_label, odds, stake_uah, commence_time 
+                        FROM paper_bets 
+                        WHERE status='PENDING' 
+                        ORDER BY commence_time ASC;
+                    """)
+                    rows = cur.fetchall()
+                except Exception:
+                    rows = []
 
     if not rows:
         return "ℹ️ <b>Наразі немає активних ставок у грі.</b>\nВсі попередні парі розраховано або очікується новий сигнал."
@@ -195,7 +241,14 @@ def cmd_bets(cur):
     lines = [f"🎯 <b>АКТИВНІ СТАВКИ В ГРІ ({len(rows)}):</b>\n"]
     for i, r in enumerate(rows, 1):
         conf_badge = ""
-        if len(r) >= 10:
+        is_real = False
+        if len(r) >= 11:
+            bid, m_name, sport, pick_lbl, odds, stake, c_time, k_pct, c_score, r_lvl, is_real = r[:11]
+            id_prefix = f"[ID #{bid}] "
+            if c_score is not None:
+                r_txt = f", {r_lvl} Risk" if r_lvl else ""
+                conf_badge = f"\n   ⭐ AI Confidence: <b>{c_score}/10</b> (<i>{r_txt.lstrip(', ')}</i>)"
+        elif len(r) >= 10:
             bid, m_name, sport, pick_lbl, odds, stake, c_time, k_pct, c_score, r_lvl = r[:10]
             id_prefix = f"[ID #{bid}] "
             if c_score is not None:
@@ -220,9 +273,10 @@ def cmd_bets(cur):
         elif current_bank > 0 and float(stake) > 0:
             pct_val = round((float(stake) / current_bank) * 100, 1)
 
+        real_badge = " 🟢 [REAL]" if is_real else ""
         pct_badge = f" (<b>{pct_val:.1f}%</b> банку за Келлі)" if pct_val is not None else ""
         lines.append(
-            f"<b>{i}. {id_prefix}{esc(m_name)}</b>\n"
+            f"<b>{i}. {id_prefix}{esc(m_name)}{real_badge}</b>\n"
             f"   🕒 Старт (Київ): <code>{c_str}</code>\n"
             f"   🎯 Вибір: <b>{esc(pick_lbl)}</b> (Коеф: <code>{float(odds):.2f}</code>)\n"
             f"   💵 Ставка: <code>{float(stake):.2f} грн</code>{pct_badge}{conf_badge}\n"
@@ -359,6 +413,8 @@ def handle_command(cmd_text, chat_id, cur, conn):
         return "✅ <b>Щотижневий графічний дайджест сформовано та надіслано в чат!</b>", DEFAULT_KEYBOARD
     elif cmd == "schedule":
         return cmd_schedule(cur), DEFAULT_KEYBOARD
+    elif cmd in ("real_bank", "realbank", "real"):
+        return cmd_real_bank(cur, conn), DEFAULT_KEYBOARD
     elif cmd == "run_now":
         return cmd_run_now(), DEFAULT_KEYBOARD
     else:
@@ -375,8 +431,77 @@ def process_telegram_update(update, cur, conn):
         return None
 
     chat_id = msg.get("chat", {}).get("id")
+    if not chat_id:
+        return None
+
+    # SPEC-31: Обробка фотографій купонів БК (Gemini Bet Slip OCR)
+    if msg.get("photo"):
+        if not is_authorized(chat_id):
+            send_tg("⛔ <b>Доступ обмежено.</b>", chat_id=chat_id)
+            return "UNAUTHORIZED"
+        photos = msg.get("photo", [])
+        if photos and TG_BOT_TOKEN:
+            try:
+                best_photo = photos[-1]
+                file_id = best_photo.get("file_id")
+                fi_resp = requests.get(f"https://api.telegram.org/bot{TG_BOT_TOKEN}/getFile?file_id={file_id}", timeout=10).json()
+                if fi_resp.get("ok"):
+                    f_path = fi_resp["result"]["file_path"]
+                    d_url = f"https://api.telegram.org/file/bot{TG_BOT_TOKEN}/{f_path}"
+                    img_resp = requests.get(d_url, timeout=25)
+                    if img_resp.status_code == 200:
+                        send_tg("🔍 <b>Обробка купона БК через Gemini Vision API...</b>\nЗачекайте декілька секунд.", chat_id=chat_id)
+                        from statmonitor.slip_ocr import parse_bet_slip_with_gemini, match_slip_with_pending_bets, apply_slip_to_bet
+                        slip_data = parse_bet_slip_with_gemini(img_resp.content)
+                        if not slip_data.get("success"):
+                            err_m = slip_data.get("error", "Невідома помилка розпізнавання.")
+                            send_tg(f"⚠️ <b>Не вдалося розпізнати купон:</b>\n<code>{esc(err_m)}</code>", chat_id=chat_id)
+                            return "OCR_ERROR"
+
+                        cur.execute("SELECT id, match_name, pick_label, odds, stake_uah FROM paper_bets WHERE status='PENDING';")
+                        pending_rows = [{"id": r[0], "match_name": r[1], "pick_label": r[2], "odds": r[3], "stake_uah": r[4]} for r in cur.fetchall()]
+
+                        matched_id, conf, match_info = match_slip_with_pending_bets(slip_data, pending_rows)
+
+                        bm = slip_data.get("bookmaker", "Невідомо")
+                        m_name = slip_data.get("match_name", "—")
+                        pick = slip_data.get("pick_label", "—")
+                        k = slip_data.get("odds", 0.0)
+                        stk = slip_data.get("stake_uah", 0.0)
+                        pot = slip_data.get("potential_win_uah", 0.0)
+                        tid = slip_data.get("ticket_id")
+                        tid_str = f" [Квиток #{tid}]" if tid else ""
+
+                        if matched_id:
+                            ok_apply, apply_msg = apply_slip_to_bet(cur, conn, matched_id, slip_data)
+                            resp_ocr = (
+                                f"🧾 <b>КУПОН БК УСПІШНО РОЗПІЗНАНО ТА ПРИВ'ЯЗАНО!</b>\n\n"
+                                f"🏢 <b>Букмекер:</b> <code>{esc(bm)}</code>{esc(tid_str)}\n"
+                                f"⚽ <b>Подія:</b> <b>{esc(m_name)}</b>\n"
+                                f"🎯 <b>Маркет:</b> <code>{esc(pick)}</code>\n"
+                                f"📉 <b>Коефіцієнт:</b> <code>{float(k):.2f}</code>\n"
+                                f"💵 <b>Реальна ставка:</b> <code>{float(stk):,.2f} грн</code> (Виграш: <code>+{float(pot):,.2f} грн</code>)\n\n"
+                                f"🔗 <b>Прив'язано до ставки:</b> <code>#ID {matched_id}</code> (Збіг: <b>{conf}%</b>)\n"
+                                f"🟢 Ставку переведено в статус: <b>Реальна (Real Money)</b>"
+                            )
+                        else:
+                            resp_ocr = (
+                                f"🧾 <b>КУПОН РОЗПІЗНАНО (БЕЗ АВТОМАТИЧНОГО ЗБІГУ)</b>\n\n"
+                                f"🏢 <b>Букмекер:</b> <code>{esc(bm)}</code>{esc(tid_str)}\n"
+                                f"⚽ <b>Подія:</b> {esc(m_name)}\n"
+                                f"🎯 <b>Маркет:</b> <code>{esc(pick)}</code>\n"
+                                f"📉 <b>Коефіцієнт:</b> <code>{float(k):.2f}</code> | 💵 <b>Сума:</b> <code>{float(stk):,.2f} грн</code>\n\n"
+                                f"ℹ️ <i>Серед активних ставок (PENDING) не знайдено точного збігу. Перевірте список /bets або внесіть зміни через веб-дашборд.</i>"
+                            )
+
+                        send_tg(resp_ocr, chat_id=chat_id, reply_markup=DEFAULT_KEYBOARD)
+                        return resp_ocr
+            except Exception as e:
+                send_tg(f"⚠️ <b>Помилка обробки фото:</b> {esc(e)}", chat_id=chat_id)
+                return "PHOTO_ERROR"
+
     text = msg.get("text")
-    if not chat_id or not text:
+    if not text:
         return None
 
     resp_text, markup = handle_command(text, chat_id, cur, conn)
