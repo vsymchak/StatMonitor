@@ -39,6 +39,7 @@ def cmd_start_help():
         "  • <b>/real_bank</b> — Реальний банкрол (Real Money), баланс леджера, оборот\n"
         "  • <b>/bets</b> — Активні ставки у грі (PENDING) з їхніми ID\n"
         "  • <b>/edit_odds &lt;ID&gt; &lt;коеф&gt;</b> — Змінити коефіцієнт нерозрахованої ставки\n"
+        "  • <b>/settle &lt;ID&gt; &lt;рахунок|статус&gt;</b> — Розрахувати/виправити ставку (напр. <code>/settle 56 7:6, 7:5 won</code>)\n"
         "  • <b>/today</b> — Результати розрахованих ставок за день\n"
         "  • <b>/digest</b> — Тижневий графічний дайджест ефективності та ROI\n"
         "  • <b>/schedule</b> — Контрольні точки найближчих перевірок\n"
@@ -432,6 +433,48 @@ def handle_command(cmd_text, chat_id, cur, conn):
             return resp, DEFAULT_KEYBOARD
         else:
             return f"❌ <b>Помилка оновлення:</b>\n{esc(msg)}", DEFAULT_KEYBOARD
+    elif cmd in ("settle", "settle_bet", "fix_bet"):
+        if len(parts) < 2:
+            return (
+                "ℹ️ <b>Формат команди розрахунку / виправлення ставки:</b>\n"
+                "<code>/settle &lt;ID&gt; &lt;рахунок або статус&gt; [статус: won|lost|void]</code>\n\n"
+                "<i>Приклади:</i>\n"
+                "  • <code>/settle 56 7:6, 7:5</code> — авто-розрахунок за сетами та геймами\n"
+                "  • <code>/settle 56 won</code> — примусово встановити WON\n"
+                "  • <code>/settle 56 7:6, 7:5 won</code> — зберегти рахунок і встановити WON\n",
+                DEFAULT_KEYBOARD,
+            )
+        try:
+            bet_id = int(parts[1])
+        except ValueError:
+            return "⚠️ <b>ID ставки має бути числом (наприклад: <code>/settle 56 won</code>).</b>", DEFAULT_KEYBOARD
+
+        forced_res = None
+        score_val = ""
+        tail = parts[2:] if len(parts) > 2 else []
+
+        for t in tail:
+            tl = t.lower().strip(",;")
+            if tl in ("won", "win", "+", "виграш"):
+                forced_res = "WON"
+            elif tl in ("lost", "loss", "-", "програш"):
+                forced_res = "LOST"
+            elif tl in ("void", "push", "0", "повернення"):
+                forced_res = "VOID"
+
+        # Формуємо рахунок із тексту
+        joined_tail = " ".join(tail)
+        clean_score = re.sub(r"\b(won|win|lost|loss|void|push|виграш|програш|повернення)\b", "", joined_tail, flags=re.IGNORECASE).strip()
+        if clean_score:
+            score_val = clean_score
+
+        from statmonitor.paper_trading import manual_settle_bet
+        ok, msg = manual_settle_bet(cur, conn, bet_id, score_val or "—", forced_status=forced_res)
+        if ok:
+            return f"✅ <b>Результат ставки оновлено!</b>\n\n{esc(msg)}", DEFAULT_KEYBOARD
+        else:
+            return f"❌ <b>Помилка розрахунку ставки #{bet_id}:</b>\n{esc(msg)}", DEFAULT_KEYBOARD
+
     elif cmd == "today":
         return cmd_today(cur), DEFAULT_KEYBOARD
     elif cmd in ("digest", "weekly_digest"):

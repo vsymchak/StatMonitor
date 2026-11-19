@@ -627,6 +627,120 @@ def place_paper_bet(cur, conn, ev_id, sport, match, c_time, pick_lbl, odds, drop
         print(f"Place bet err: {e}")
         return False
 
+def parse_score_sets_and_games(score_str):
+    """
+    Розбирає рядок рахунку:
+    - Простий футбольний/баскетбольний: '2:1', '108:95' ->
+        pairs=[(2, 1)], is_multi=False
+    - Багатосетовий (теніс, волейбол): '7:6, 7:5', '7-6; 7-5', '6:4 3:6 6:2' ->
+        pairs=[(7, 6), (7, 5)], is_multi=True, sets=(2, 0), games=(14, 11)
+    """
+    raw = str(score_str or "").strip()
+    pairs = re.findall(r"(\d+)\s*[:\-]\s*(\d+)", raw)
+    if not pairs:
+        return None
+    int_pairs = [(int(h), int(a)) for h, a in pairs]
+    if len(int_pairs) == 1:
+        h, a = int_pairs[0]
+        return {
+            "is_multi": False,
+            "h_sc": h,
+            "a_sc": a,
+            "h_sets": h,
+            "a_sets": a,
+            "h_games": h,
+            "a_games": a,
+            "pairs": int_pairs,
+        }
+    h_sets = sum(1 for h, a in int_pairs if h > a)
+    a_sets = sum(1 for h, a in int_pairs if a > h)
+    h_games = sum(h for h, a in int_pairs)
+    a_games = sum(a for h, a in int_pairs)
+    return {
+        "is_multi": True,
+        "h_sc": h_sets,
+        "a_sc": a_sets,
+        "h_sets": h_sets,
+        "a_sets": a_sets,
+        "h_games": h_games,
+        "a_games": a_games,
+        "pairs": int_pairs,
+    }
+
+def eval_outcome_from_score(pick_lbl, match_name, score_str):
+    """
+    Оцінює результат ставки на основі рядка рахунку score_str,
+    підтримуючи як звичайні рахунки (футбол/хокей/баскетбол), так і багатосетові тенісні матчі.
+    """
+    raw = str(score_str or "").strip()
+    if raw.upper() in ("WON", "LOST", "VOID"):
+        return raw.upper()
+
+    parsed = parse_score_sets_and_games(raw)
+    if not parsed:
+        return None
+
+    p = str(pick_lbl or "").lower().strip()
+    m_name = str(match_name or "").strip()
+    parts = [x.strip().lower() for x in m_name.split(" - ", 1)] if " - " in m_name else []
+    h_t, a_t = (parts[0], parts[1]) if len(parts) == 2 else ("", "")
+
+    # Обидві заб'ють (BTTS - SPEC-23)
+    if re.search(r"(?:^|\b|\()(?:оз|обидві\s+заб'ють|btts)\s*[:\-\s]\s*(?:так|yes|\+)(?:\b|\)|$)", p) or p in ("btts yes", "оз: так", "оз - так", "обидві заб'ють: так", "обидві заб'ють (так)"):
+        return "WON" if (parsed["h_games"] > 0 and parsed["a_games"] > 0) else "LOST"
+    if re.search(r"(?:^|\b|\()(?:оз|обидві\s+заб'ють|btts)\s*[:\-\s]\s*(?:ні|no|\-)(?:\b|\)|$)", p) or p in ("btts no", "оз: ні", "оз - ні", "обидві заб'ють: ні", "обидві заб'ють (ні)"):
+        return "WON" if (parsed["h_games"] == 0 or parsed["a_games"] == 0) else "LOST"
+
+    if not parsed["is_multi"]:
+        return eval_outcome(pick_lbl, match_name, parsed["h_sc"], parsed["a_sc"])
+
+    # Багатосетовий розрахунок (Теніс / Волейбол)
+    h_sets = parsed["h_sets"]
+    a_sets = parsed["a_sets"]
+    h_games = parsed["h_games"]
+    a_games = parsed["a_games"]
+
+    # 1. Moneyline (П1 / П2 / Перемога)
+    if re.search(r"(?:^|\b|\()п1(?:\b|\)|$)", p) or (h_t and h_t in p):
+        return "WON" if h_sets > a_sets else ("LOST" if a_sets > h_sets else ("WON" if h_games > a_games else "LOST"))
+    if re.search(r"(?:^|\b|\()п2(?:\b|\)|$)", p) or (a_t and a_t in p):
+        return "WON" if a_sets > h_sets else ("LOST" if h_sets > a_sets else ("WON" if a_games > h_games else "LOST"))
+    if re.search(r"(?:^|\b|\()[хx](?:\b|\)|$)", p) or "нічия" in p:
+        return "WON" if (h_sets == a_sets and h_games == a_games) else "LOST"
+
+    # 2. Фора (Handicap)
+    m_f = re.search(r"ф([12])\s*\(?([+-]?[0-9.]+)\)?", p)
+    if m_f:
+        side = m_f.group(1)
+        hv = float(m_f.group(2))
+        diff_sets = (h_sets + hv - a_sets) if side == "1" else (a_sets + hv - h_sets)
+        diff_games = (h_games + hv - a_games) if side == "1" else (a_games + hv - h_games)
+
+        # Для малих фор (<= 2.5) це може бути фора по сетах (-1.5/+1.5) або по геймах.
+        # Якщо хоча б один вимір покриває фору:
+        if abs(hv) <= 2.5:
+            if diff_sets > 0 or diff_games > 0:
+                return "WON"
+            if diff_sets < 0 and diff_games < 0:
+                return "LOST"
+            return "VOID"
+        # Для більших фор (> 2.5) у тенісі фора завжди по геймах
+        return "WON" if diff_games > 0 else ("LOST" if diff_games < 0 else "VOID")
+
+    # 3. Тотали (Over / Under)
+    m_tb = re.search(r"(?:тб|over)\s*\(?([0-9.]+)\)?", p)
+    if m_tb:
+        ln = float(m_tb.group(1))
+        tot = (h_games + a_games) if ln > 5.0 else (h_sets + a_sets)
+        return "WON" if tot > ln else ("LOST" if tot < ln else "VOID")
+    m_tm = re.search(r"(?:тм|under)\s*\(?([0-9.]+)\)?", p)
+    if m_tm:
+        ln = float(m_tm.group(1))
+        tot = (h_games + a_games) if ln > 5.0 else (h_sets + a_sets)
+        return "WON" if tot < ln else ("LOST" if tot > ln else "VOID")
+
+    return None
+
 def eval_outcome(pick_lbl, match_name, h_sc, a_sc):
     p = str(pick_lbl or "").lower().strip()
     m_name = str(match_name or "").strip()
@@ -746,11 +860,8 @@ def manual_settle_bet(cur, conn, bet_id, score_str, forced_status=None):
 
         res = (forced_status or "").upper() if forced_status else None
         if not res or res not in ("WON", "LOST", "VOID"):
-            # Спробуємо визначити результат за рахунком
-            m = re.search(r"(\d+)\s*[:\-]\s*(\d+)", str(score_str))
-            if m:
-                hs, as_ = int(m.group(1)), int(m.group(2))
-                res = eval_outcome(pk, m_name, hs, as_)
+            # Спробуємо визначити результат за рахунком (підтримує футбол, баскетбол і багатосетові тенісні матчі)
+            res = eval_outcome_from_score(pk, m_name, score_str)
 
         if res in ("WON", "LOST", "VOID"):
             if is_shadow or b_status == "FILTERED":
@@ -791,6 +902,23 @@ def manual_settle_bet(cur, conn, bet_id, score_str, forced_status=None):
         return False, f"Помилка розрахунку ставки: {e}"
 
 def settle_and_report(cur, conn):
+    # SPEC-Fix: Автоматичне виправлення некоректно розрахованої ставки #56 (Ben Shelton - Rafael Jodar 7:6, 7:5 -> WON)
+    try:
+        cur.execute("""
+            UPDATE paper_bets
+            SET status = 'WON',
+                profit_uah = ROUND(stake_uah * (odds - 1.0), 2),
+                match_score = '7:6, 7:5',
+                settled_at = COALESCE(settled_at, NOW())
+            WHERE id = 56 
+              AND status = 'LOST' 
+              AND (match_score LIKE '%7%6%' OR match_name ILIKE '%Shelton%');
+        """)
+        conn.commit()
+    except Exception:
+        if conn:
+            conn.rollback()
+
     # SPEC-20: Спочатку фіксуємо Closing Line для ставок, де матч розпочинається або вже почався
     try:
         capture_closing_lines(cur, conn)
