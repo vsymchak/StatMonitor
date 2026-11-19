@@ -1,65 +1,74 @@
 # SPEC-31: Real Money Betting, Bankroll Tracking & Gemini Bet Slip OCR
 
-## 1. Мета та Контекст
-Платформа StatMonitor наразі успішно працює в режимі віртуального трейдингу (Paper Trading) зі стартовим банком 10 000 грн, що дозволило верифікувати прибутковість алгоритмів, стратегії дробового критерію Келлі ($0.25 \times \text{Kelly}$), показники CLV (Closing Line Value) та ROI по лігах.
-
-Наступним стратегічним етапом є **перехід до паралельної гри на реальні гроші** з можливістю:
-1. Задання окремого стартового банкролу в реальних гривнях (UAH).
-2. Позначення ставок, які користувач/адміністратор дійсно уклав у букмекерській конторі.
-3. Автоматизації верифікації та внесення реальних ставок за допомогою завантаження фотографії/скріншота купона з БК і його інтелектуального розпізнавання через **Gemini Multimodal API (Vision)**.
+> **Статус**: 🟩 Shipped  
+> **Дата релізу**: 19.11.2026  
+> **Гілка / Коміт**: `main` (`04efbcf`)  
+> **Покриття тестами**: `test_real_bankroll.py`, `test_slip_ocr.py` (100% pass)
 
 ---
 
-## 2. Ключові Можливості (Core Features)
+## 1. Мета та Контекст
+Платформа StatMonitor працює у режимі віртуального трейдингу (Paper Trading) зі стартовим банком 10 000 грн, що дозволяє безперервно верифікувати прибутковість алгоритмів, дробовий критерій Келлі ($0.25 \times \text{Kelly}$), показники CLV (Closing Line Value) та ROI по турнірах.
+
+Стратегічним кроком еволюції системи є **паралельний облік гри на реальні гроші (Real Money Mode)**:
+1. Облік реального капіталу в гривнях (UAH), що формується виключно реальними депозитами користувача (без фіктивних стартових сум).
+2. Пряма відмітка ставок, які укладені в букмекерській конторі, безпосередньо в таблиці активних ставок на Dashboard за допомогою інтуїтивного прапорця.
+3. Автоматизація верифікації та внесення реальних ставок через завантаження фотографії / скріншота купона ставки з БК та його інтелектуального розпізнавання через **Gemini Multimodal API (Vision)**.
+
+---
+
+## 2. Реалізовані Можливості (Core Features)
 
 ### 2.1. Подвійний банкрол (Dual Bankroll: Paper & Real)
-- **Paper Bankroll**: продовжує рахувати віртуальні ставки для бектестингу та безперервного збору статистики системи.
-- **Real Bankroll**: окремий облік капіталу в гривнях.
-  - Початковий баланс вказується користувачем (наприклад: 5 000 ₴, 20 000 ₴ або будь-яка інша сума).
-  - Можливість внесення транзакцій: депозит (Deposit), виведення (Withdrawal), коригування (Adjustment).
-  - Окремий розрахунок Real Net Profit, Real Turnover, Real ROI % та Real Win Rate.
+- **Paper Bankroll**: продовжує рахувати всі ставки (стартовий банк 10 000 грн) для бектестингу, безперервного аналізу стратегії та моніторингу алгоритмів.
+- **Real Bankroll**: окремий облік капіталу в гривнях, що ведеться через леджер транзакцій `real_bankroll_ledger`:
+  - **Початковий баланс**: починається з `0.00 ₴` і формується реальними депозитами (`DEPOSIT`).
+  - **Транзакції каси**:
+    - `DEPOSIT` — внесення коштів на баланс.
+    - `WITHDRAWAL` — виведення виграшу з контори.
+    - `ADJUSTMENT` — пряме коригування балансу (синхронізація з касою БК).
+    - `BET_RESULT` — автоматичний розрахунок виграшу/програшу ставки при закритті матчу (`WON`, `LOST`, `VOID`).
+  - **Метрики реального банку**: Real Balance, Total Deposits, Real Net Profit, Real Turnover, Real ROI % та Real Win Rate.
+  - **Банер стану**: лаконічний зелений банер у верхній частині дашборду, що показує актуальний стан реальних коштів.
 
-### 2.2. Відмітка реальних ставок (Real Bet Tagging)
-- У таблиці `paper_bets` розширюються поля або створюється пов'язана сутність `real_bets`:
-  - `is_real_bet BOOLEAN DEFAULT FALSE`
-  - `real_stake_uah NUMERIC(10, 2)` (фактична сума ставки в БК)
-  - `real_odds NUMERIC(6, 3)` (фактичний коефіцієнт у БК на момент укладання)
-  - `bookmaker_name TEXT` (наприклад, Favbet, Vbet, Bet365 тощо)
-  - `slip_image_url TEXT` (посилання на збережений скріншот купона)
-  - `placed_at TIMESTAMPTZ` (час фактичного укладання)
-- На дашборді додається фільтр перегляду:
-  - 🔘 Всі ставки (Paper + Real)
-  - 🟢 Тільки реальні ставки (Real Money Only)
-  - ⚪ Тільки віртуальні (Paper Only)
+### 2.2. Інлайн-перемикач реальних ставок в один клік (Admin Inline Toggle)
+- У таблиці **`⏳ Активні ставки в грі (Pending)`** для адміністратора впроваджено інтерактивну колонку **`🟢 Real`** (через `st.data_editor` з `CheckboxColumn`):
+  - Адміністратор відмічає чекбокс навпроти потрібного матчу — ставка миттєво позначається в БД (`is_real_bet = TRUE`) і прив'язується до реального банкролу.
+  - Зняття відмітки повертає ставку в статус віртуальної.
+  - **Усі ставки завжди паралельно ведуться в Paper-трейдингу** (ставка не замінюється, а позначається додатковим прапорцем).
+  - Усі інші колонки таблиці захищені від випадкових правок (`disabled`).
+- Для звичайних відвідувачів (гостей) колонка відображається в режимі лише для читання зі значками `🟢 Real` / `⚪ Paper`.
+- Фокус на одній букмекерській конторі: зайві селектори та колонки БК вилучені з інтерфейсу для максимальної чистоти та швидкості взаємодії.
 
-### 2.3. AI Bet Slip OCR через Gemini Vision
+### 2.3. AI Bet Slip OCR через Gemini Multimodal Vision
 - **Інтерфейс завантаження**:
-  - У кабінеті адміністратора Streamlit (`st.file_uploader`) та/або через Telegram-бота (відправка фото купона боту).
-- **Обробка купона через Gemini Multimodal API**:
-  - Модель: `gemini-2.5-flash` або `gemini-2.5-pro` у режимі Structured JSON Output.
-  - Gemini витягує з фото:
-    1. Назву команд / учасників матчу.
-    2. Вид спорту та турнір (якщо вказано).
-    3. Тип маркету та вибір (наприклад, «Перемога 1», «Тотал більше 2.5», «Фора 2 (+1.5)»).
-    4. Точний коефіцієнт (odds).
-    5. Суму ставки (stake).
-    6. Номер квитанції / ID купона в БК.
-    7. Назву букмекера (Favbet, Vbet, GGbet тощо).
-- **Автоматичне зіставлення (Matching Engine)**:
-  - Алгоритм шукає відповідний матч та вибір серед активних (`PENDING`) ставок або нещодавніх сигналів у `paper_bets`.
-  - При знаходженні:
-    - Позначає `is_real_bet = TRUE`.
-    - Оновлює `odds` до фактичного коефіцієнта з купона.
-    - Встановлює `stake_uah` відповідно до суми у квитанції.
-    - Прикріплює розпізнані метадані.
-  - Якщо ставка ще не була створена системою (ручна ставка користувача) — створює новий запис `real_bet` у системі.
+  - У кабінеті адміністратора Streamlit додано блок «🧾 Завантаження та OCR купона БК (Gemini Vision)» з підтримкою файлів `.jpg`, `.jpeg`, `.png`, `.webp`.
+- **Розпізнавання через Gemini Vision**:
+  - Моделі: `gemini-2.5-flash`, `gemini-2.5-pro` (fallback на `gemini-1.5-flash`).
+  - Зображення передається в API у форматі Base64 разом зі структурованим JSON-промтом.
+  - Gemini витягує:
+    1. Назву матчу / команд / учасників (`match_name`).
+    2. Вид спорту (`sport`).
+    3. Тип маркету та вибір (`pick_label`).
+    4. Точний коефіцієнт (`odds`).
+    5. Суму ставки (`stake_uah`).
+    6. Номер квитанції / ID купона (`ticket_id`).
+    7. Потенційний виграш (`potential_win_uah`).
+- **Алгоритм зіставлення (Matching Engine)**:
+  - Модуль `match_slip_with_pending_bets` автоматично шукає відповідний матч серед активних (`PENDING`) ставок за токенами імен команд, маркетом та близькістю коефіцієнта.
+  - Після підтвердження адміністратора функція `apply_slip_to_bet` маркує ставку як реальну (`is_real_bet = TRUE`), зберігає скріншот у `slips/` та записує розпізнані метадані в `slip_meta`.
+
+### 2.4. Автоматичний та ручний розрахунок результатів
+- При авторозрахунку матчу за фінальним рахунком (`WON`, `LOST`, `VOID`) викликається `settle_real_bet_in_ledger`, що автоматично вносить запис `BET_RESULT` у леджер реального банку.
+- Для адміністратора в дашборді реалізовано модальний блок **ручного розрахунку ставки (Manual Settle)** з вибором результату та зазначенням рахунку.
 
 ---
 
-## 3. Схема Даних (Data Schema Draft)
+## 3. Схема Даних (Data Schema)
 
+Міграція `migrations/014_real_money_mode_ocr.sql`:
 ```sql
--- Розширення таблиці paper_bets
+-- 1. Розширення полів реальних ставок у paper_bets
 ALTER TABLE paper_bets 
 ADD COLUMN IF NOT EXISTS is_real_bet BOOLEAN DEFAULT FALSE,
 ADD COLUMN IF NOT EXISTS real_stake_uah NUMERIC(10, 2),
@@ -68,32 +77,54 @@ ADD COLUMN IF NOT EXISTS bookmaker_name TEXT,
 ADD COLUMN IF NOT EXISTS slip_image_path TEXT,
 ADD COLUMN IF NOT EXISTS slip_meta JSONB;
 
--- Таблиця обліку балансу реального банку
+-- 2. Таблиця фінансового леджера реального банку
 CREATE TABLE IF NOT EXISTS real_bankroll_ledger (
     id SERIAL PRIMARY KEY,
-    transaction_type TEXT NOT NULL, -- 'INITIAL', 'DEPOSIT', 'WITHDRAWAL', 'BET_RESULT'
+    transaction_type TEXT NOT NULL, -- 'DEPOSIT', 'WITHDRAWAL', 'ADJUSTMENT', 'BET_RESULT'
     amount_uah NUMERIC(10, 2) NOT NULL,
     balance_after_uah NUMERIC(10, 2) NOT NULL,
     description TEXT,
+    bet_id INTEGER REFERENCES paper_bets(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+CREATE INDEX IF NOT EXISTS idx_paper_bets_is_real ON paper_bets (is_real_bet);
+CREATE INDEX IF NOT EXISTS idx_real_bankroll_created ON real_bankroll_ledger (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_real_bankroll_type ON real_bankroll_ledger (transaction_type);
 ```
 
 ---
 
-## 4. Інтеграція в UI Дашборду та Telegram-бота
+## 4. Архітектура Модулів
 
-1. **Web Dashboard**:
-   - Перемикач режиму перегляду у верхній панелі: `[ Всі ставки | Тільки реальні | Тільки Paper ]`.
-   - Окрема картка KPI: «Реальний банк (Real Balance)», «Реальний прибуток (Real PnL)».
-   - Вкладка адміністратора: «Завантаження купона БК (Bet Slip OCR)» із попереднім переглядом фото та миттєвим розбором через Gemini.
-2. **Telegram Bot**:
-   - Команда `/real_bank` — баланс реального капіталу та результати реальних ставок.
-   - Підтримка надсилання фотографії купона напряму в чат боту для автоматичного розпізнавання.
+```
+statmonitor/
+├── real_bankroll.py     # Логіка леджера, транзакцій каси, розрахунку балансу та реальних ставок
+└── slip_ocr.py          # Gemini Multimodal Vision OCR, нормалізація квитанцій та зіставлення з PENDING ставками
+```
 
 ---
 
-## 5. Переваги та Цінність для Користувача
-- **100% точність статистики**: облік реальних грошей з урахуванням специфіки коефіцієнтів українських або міжнародних БК (маржа, комісії, ліміти).
-- **Нуль ручної рутини**: користувачеві не потрібно вручну перебивати коефіцієнти чи суми — достатньо зробити скріншот у додатку Favbet/Vbet і завантажити його.
-- **Порівняльний аналіз (Paper vs Real)**: наочне зіставлення теоретичного прибутку моделі проти реального фінансового результату в БК.
+## 5. Тестування та Верифікація
+- `test_real_bankroll.py`:
+  - `test_ensure_real_bankroll_tables`
+  - `test_get_real_bankroll_summary_defaults` (перевірка старту з 0.00 ₴)
+  - `test_get_real_bankroll_summary_with_data` (депозити, ROI, оборот)
+  - `test_record_real_transaction_deposit`
+  - `test_record_real_transaction_withdrawal`
+  - `test_record_real_transaction_adjustment`
+  - `test_record_real_transaction_bet_result`
+  - `test_toggle_real_bet_to_real`
+  - `test_toggle_real_bet_to_paper`
+  - `test_settle_real_bet_in_ledger_success`
+  - `test_settle_real_bet_in_ledger_not_real`
+  - `test_settle_real_bet_in_ledger_duplicate`
+- `test_slip_ocr.py`:
+  - `test_parse_bet_slip_with_gemini_missing_key`
+  - `test_parse_bet_slip_with_gemini_empty_bytes`
+  - `test_parse_bet_slip_with_gemini_mocked_success`
+  - `test_match_slip_with_pending_bets_exact`
+  - `test_match_slip_with_pending_bets_fuzzy`
+  - `test_match_slip_with_pending_bets_no_match`
+  - `test_apply_slip_to_bet`
+- Повний набір тестів: **149 unit-тестів**, 100% успішне виконання.

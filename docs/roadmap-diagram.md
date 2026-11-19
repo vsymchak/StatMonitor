@@ -1,6 +1,6 @@
 # Візуальна діаграма дорожньої карти (Roadmap diagram)
 
-**32 з 33 кроків реалізовано (32 Shipped, 1 Planned)** · Детальний опис: [roadmap.md](roadmap.md)
+**33 з 33 кроків реалізовано (33 Shipped, 0 Planned) · 149 Unit Tests** · Детальний опис: [roadmap.md](roadmap.md)
 
 > 🟩 **Реалізовано (Shipped)** · 🟧 **У розробці (In Progress)** · 🟪 **Заплановано (Idea)** · ⬜ **Концепт (Fog)**  
 > Колонки — це послідовні хвилі виконання (**Execution Waves**). Стрілка показує залежність («потрібен для»).
@@ -72,7 +72,7 @@ flowchart LR
     end
 
     subgraph Wave10["Хвиля 10: Реальний трейдинг та Bet Slip OCR"]
-        31["31 · Гра на реальні гроші & Slip OCR<br><small>Реальний банк, фото купона через Gemini Vision</small><br><b>M</b>"]:::idea
+        31["31 · Гра на реальні гроші & Slip OCR<br><small>Реальний банк, фото купона через Gemini Vision</small><br><b>M</b>"]:::shipped
     end
 
     %% Залежності Хвилі 1 і 2
