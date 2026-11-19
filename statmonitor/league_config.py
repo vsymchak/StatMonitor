@@ -115,6 +115,7 @@ def sync_leagues_to_db(cur, conn, config=None, force=False):
             cur.execute("SELECT COUNT(*) FROM league_thresholds;")
             cnt = cur.fetchone()[0]
             if cnt > 0:
+                conn.commit()
                 return True, f"Таблиця вже містить {cnt} ліг."
 
         cfg = config or load_leagues_config()
@@ -125,7 +126,7 @@ def sync_leagues_to_db(cur, conn, config=None, force=False):
         for item in leagues:
             cur.execute("""
                 INSERT INTO league_thresholds (sport_key, title, category, enabled, min_drop_pct, min_odds, max_odds, markets, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, NOW())
                 ON CONFLICT (sport_key) DO UPDATE SET
                     title = EXCLUDED.title,
                     category = EXCLUDED.category,
@@ -177,7 +178,7 @@ def save_league_threshold(cur, conn, sport_key, title=None, category=None, enabl
 
         cur.execute("""
             INSERT INTO league_thresholds (sport_key, title, category, enabled, min_drop_pct, min_odds, max_odds, markets, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, NOW())
             ON CONFLICT (sport_key) DO UPDATE SET
                 title = EXCLUDED.title,
                 category = EXCLUDED.category,

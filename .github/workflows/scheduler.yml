@@ -1,9 +1,9 @@
 name: StatMonitor Auto Check
 
 on:
-  # Резервний розклад GitHub Actions (кожні 30 хв: наприклад 14:15, 14:45, 15:15) для гарантії запуску
+  # Резервний регулярний розклад GitHub Actions (кожні 15 хв: 00, 15, 30, 45)
   schedule:
-    - cron: '15,45 * * * *'
+    - cron: '*/15 * * * *'
   # Високоточний миттєвий запуск через Webhook / Cloudflare Worker / UI Дашборд
   workflow_dispatch:
     inputs:

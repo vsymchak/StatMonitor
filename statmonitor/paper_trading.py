@@ -677,7 +677,8 @@ def settle_and_report(cur, conn):
         print(f"CLV capture in settle_and_report err: {clv_e}")
 
     try:
-        cur.execute("SELECT id, event_id, sport, match_name, pick_label, odds, stake_uah FROM paper_bets WHERE status='PENDING' AND commence_time < NOW() - INTERVAL '2 hours 15 minutes';")
+        # Прискорений розрахунок: опитуємо результати вже через 85 хвилин після старту (захист через completed=True)
+        cur.execute("SELECT id, event_id, sport, match_name, pick_label, odds, stake_uah FROM paper_bets WHERE status='PENDING' AND commence_time < NOW() - INTERVAL '85 minutes';")
         pending = cur.fetchall()
         if pending:
             scores = {}

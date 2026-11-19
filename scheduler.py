@@ -120,7 +120,8 @@ def generate_schedule_points(events, pending_bets, now_utc=None, horizon_hours=3
             continue
         if c_time.tzinfo is None:
             c_time = c_time.replace(tzinfo=timezone.utc)
-        settle_t = c_time + timedelta(minutes=115)
+        # Розрахунок через 95 хвилин після початку (футбол/теніс ~95хв, захищено completed=True)
+        settle_t = c_time + timedelta(minutes=95)
         if settle_t >= now_utc - timedelta(minutes=15) and settle_t <= now_utc + timedelta(hours=horizon_hours):
             m_name = b.get("match_name") or b.get("event_id") or "матч"
             points.append({
