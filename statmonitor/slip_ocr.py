@@ -10,11 +10,10 @@ import base64
 import requests
 from statmonitor.config import GEMINI_API_KEY, EXHAUSTED_MODELS
 
-OCR_PROMPT = """Ти професійний експерт із розпізнавання букмекерських купонів, квитанцій та скріншотів ставок (Favbet, Vbet, Bet365, GGbet тощо).
+OCR_PROMPT = """Ти професійний експерт із розпізнавання купонів, квитанцій та скріншотів ставок.
 Уважно проаналізуй зображення купона та витягни точні параметри ставки.
 Поверни результат строго у форматі JSON за такою схемою:
 {
-  "bookmaker": "Назва букмекера (Favbet, Vbet, Bet365 тощо) або 'Невідомо'",
   "ticket_id": "Номер квитка / ID ставки або null",
   "match_name": "Команда 1 - Команда 2 (або Гравець 1 - Гравець 2)",
   "sport": "Вид спорту (soccer, basketball, tennis, icehockey тощо)",
@@ -183,16 +182,17 @@ def apply_slip_to_bet(cur, conn, bet_id, slip_data, image_path=None):
         from statmonitor.real_bankroll import toggle_real_bet
         real_stake = float(slip_data.get("stake_uah", 0) or 0)
         real_odds = float(slip_data.get("odds", 0) or 0)
-        bookmaker = slip_data.get("bookmaker", "Невідомо")
+        bookmaker = slip_data.get("bookmaker")
 
         meta = {
             "ticket_id": slip_data.get("ticket_id"),
-            "bookmaker": bookmaker,
             "ocr_match": slip_data.get("match_name"),
             "ocr_pick": slip_data.get("pick_label"),
             "potential_win_uah": slip_data.get("potential_win_uah"),
             "image_path": image_path
         }
+        if bookmaker:
+            meta["bookmaker"] = bookmaker
 
         ok, msg = toggle_real_bet(
             cur, conn, bet_id,

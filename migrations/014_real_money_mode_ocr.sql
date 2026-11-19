@@ -25,7 +25,6 @@ CREATE TABLE IF NOT EXISTS real_bankroll_ledger (
 CREATE INDEX IF NOT EXISTS idx_real_bankroll_created ON real_bankroll_ledger (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_real_bankroll_type ON real_bankroll_ledger (transaction_type);
 
--- 3. Ініціалізація початкового реального банку за замовчуванням (10,000 грн), якщо таблиця порожня
-INSERT INTO real_bankroll_ledger (transaction_type, amount_uah, balance_after_uah, description)
-SELECT 'INITIAL', 10000.00, 10000.00, 'Початковий реальний банк'
-WHERE NOT EXISTS (SELECT 1 FROM real_bankroll_ledger);
+-- 3. Очищення автоматичного початкового балансу (реальний банк формується депозитами користувача)
+DELETE FROM real_bankroll_ledger 
+WHERE transaction_type = 'INITIAL' AND description = 'Початковий реальний банк';

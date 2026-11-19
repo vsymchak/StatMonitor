@@ -40,8 +40,9 @@ class TestRealBankroll(unittest.TestCase):
     def test_get_real_bankroll_summary_defaults(self):
         cur = MockCursor(fetchone_data=None)
         summary = get_real_bankroll_summary(cur)
-        self.assertEqual(summary["current_balance"], 10000.0)
-        self.assertEqual(summary["initial_bank"], 10000.0)
+        self.assertEqual(summary["current_balance"], 0.0)
+        self.assertEqual(summary["initial_bank"], 0.0)
+        self.assertEqual(summary["total_deposits"], 0.0)
         self.assertEqual(summary["total_real_bets"], 0)
         self.assertEqual(summary["real_profit"], 0.0)
         self.assertEqual(summary["real_roi_pct"], 0.0)
@@ -55,7 +56,7 @@ class TestRealBankroll(unittest.TestCase):
             if call_count[0] == 1:
                 return (12450.00,) # balance_after_uah
             elif call_count[0] == 2:
-                return (10000.00,) # initial
+                return (10000.00, 0.0) # deposits, withdrawals
             elif call_count[0] == 3:
                 # count, pending, won, lost, void, turnover, profit
                 return (5, 1, 3, 1, 0, 1000.00, 2450.00)
@@ -65,6 +66,7 @@ class TestRealBankroll(unittest.TestCase):
         summary = get_real_bankroll_summary(cur)
         self.assertEqual(summary["current_balance"], 12450.00)
         self.assertEqual(summary["initial_bank"], 10000.00)
+        self.assertEqual(summary["total_deposits"], 10000.00)
         self.assertEqual(summary["total_real_bets"], 5)
         self.assertEqual(summary["won_real"], 3)
         self.assertEqual(summary["lost_real"], 1)
