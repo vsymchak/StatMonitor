@@ -989,189 +989,8 @@ def run_streamlit_app():
                 else:
                     st.info("ℹ️ Очікування розрахунку ставок для побудови ROI по лігах.")
 
-        # 5. НИЖНЯ СМУГА: МІНІ-ЖУРНАЛ ОСТАННІХ СТАВОК (High-Density Table)
-        st.markdown("""
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 6px; margin-bottom: 6px;">
-                <div style="display: flex; align-items: center; gap: 6px;">
-                    <span style="font-size: 13px; font-weight: 600; color: #1E293B;">📋 Останні операції в журналі ставок</span>
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-
-        if not filtered_df.empty:
-            recent_disp = filtered_df.head(10).copy()
-            
-            # Форматування стовпців для охайного мінімалістичного вигляду
-            if "commence_time" in recent_disp.columns:
-                recent_disp["Час"] = recent_disp["commence_time"].apply(format_kyiv_time)
-            if "sport" in recent_disp.columns:
-                recent_disp["Турнір"] = recent_disp["sport"].map(lambda x: s_map.get(x, x))
-            recent_disp["Подія"] = recent_disp.get("match_name", "")
-            recent_disp["Маркет"] = recent_disp.get("pick_label", "")
-            recent_disp["Коеф."] = recent_disp["odds"].apply(lambda x: f"{float(x):.2f}" if x else "—")
-            recent_disp["Сума"] = recent_disp["stake_uah"].apply(lambda x: f"{float(x):,.0f} ₴" if x else "—")
-            
-            def _format_result(r):
-                st_code = r.get("status")
-                p = r.get("profit_uah")
-                if st_code == "WON":
-                    return f"🟢 +{float(p):,.2f} ₴" if p else "🟢 Виграш"
-                elif st_code == "LOST":
-                    return f"🔴 {float(p):,.2f} ₴" if p else "🔴 Програш"
-                elif st_code == "VOID":
-                    return "⚪ 0.00 ₴ (Повернення)"
-                else:
-                    return "⏳ В грі (Pending)"
-
-            def _format_clv(r):
-                clv_val = r.get("clv_pct")
-                beat_val = r.get("beat_closing_line")
-                b_k = r.get("odds")
-                c_k = r.get("closing_odds")
-                if (clv_val is None or pd.isna(clv_val)) and b_k and c_k:
-                    clv_val, beat_val = calculate_clv_value(b_k, c_k)
-                if clv_val is not None and not (pd is not None and pd.isna(clv_val)):
-                    try:
-                        cf = float(clv_val)
-                        if beat_val is True or cf > 0:
-                            return f"+{cf:.1f}% 🏆"
-                        elif cf < 0:
-                            return f"{cf:.1f}%"
-                        return f"{cf:.1f}%"
-                    except Exception:
-                        pass
-                return "—"
-
-            def _get_ai_score_badge(r):
-                try:
-                    # 1. Якщо у БД вже є значення, відмінне від однакового дефолту 8
-                    cs = r.get("confidence_score")
-                    if cs is not None and not (pd is not None and pd.isna(cs)):
-                        try:
-                            val_cs = int(cs)
-                            if 1 <= val_cs <= 10 and val_cs != 8:
-                                return f"⭐ {val_cs}/10"
-                        except Exception:
-                            pass
-
-                    # 2. Якщо це активна ставка в грі (Pending) - диференціюємо за Kelly % та коефіцієнтом
-                    st_code = str(r.get("status") or "")
-                    if st_code == "PENDING":
-                        k_pct = r.get("kelly_pct")
-                        if k_pct is not None and not (pd is not None and pd.isna(k_pct)):
-                            try:
-                                kp = float(k_pct)
-                                if kp >= 3.5:
-                                    return "⭐ 9/10"
-                                elif kp >= 2.5:
-                                    return "⭐ 8/10"
-                                else:
-                                    return "⭐ 7/10"
-                            except Exception:
-                                pass
-
-                        try:
-                            k_odds = float(r.get("odds") or 2.0)
-                            if k_odds <= 1.50:
-                                return "⭐ 9/10"
-                            elif k_odds <= 2.20:
-                                return "⭐ 8/10"
-                            else:
-                                return "⭐ 7/10"
-                        except Exception:
-                            pass
-
-                        return "⭐ 8/10"
-
-                    # 3. Для збережених розрахованих або дефолтних ставок
-                    if cs is not None and not (pd is not None and pd.isna(cs)):
-                        try:
-                            val_cs = int(cs)
-                            if 1 <= val_cs <= 10:
-                                return f"⭐ {val_cs}/10"
-                        except Exception:
-                            pass
-
-                    return "—"
-                except Exception:
-                    return "—"
-
-            recent_disp["Результат"] = recent_disp.apply(_format_result, axis=1)
-            recent_disp["CLV (+EV)"] = recent_disp.apply(_format_clv, axis=1)
-            recent_disp["ШІ Сигнал"] = recent_disp.apply(_get_ai_score_badge, axis=1)
-
-            cols_show = [c for c in ["Час", "Турнір", "Подія", "Маркет", "Коеф.", "ШІ Сигнал", "CLV (+EV)", "Сума", "Результат"] if c in recent_disp.columns]
-            st.dataframe(recent_disp[cols_show], use_container_width=True, hide_index=True)
-        else:
-            st.info("Немає ставок за обраними фільтрами.")
-
-        # 6. РОЗГОРТАЛЬНІ ДЕТАЛЬНІ ТАБЛИЦІ (Архів, В грі, Сегментація)
-        with st.expander("⏳ Активні ставки в грі (Pending) & Редагування коефіцієнтів"):
-            pending_df = filtered_df[filtered_df["status"] == "PENDING"].copy() if not filtered_df.empty else pd.DataFrame()
-            if not pending_df.empty:
-                curr_bank_val = metrics.get("current_bank", INITIAL_BANKROLL)
-                def get_kelly_badge(r):
-                    if "kelly_pct" in r and r["kelly_pct"] is not None and not (pd is not None and pd.isna(r["kelly_pct"])):
-                        try:
-                            return f"{float(r['kelly_pct']):.1f}%"
-                        except Exception:
-                            pass
-                    try:
-                        stk = float(r.get("stake_uah", 0) or 0)
-                        if curr_bank_val and curr_bank_val > 0 and stk > 0:
-                            return f"{(stk / curr_bank_val) * 100:.1f}%"
-                    except Exception:
-                        pass
-                    return "2.5%"
-
-                pending_df["% банку (Келлі)"] = pending_df.apply(get_kelly_badge, axis=1)
-                pending_df["Час (Київ)"] = pending_df["commence_time"].apply(format_kyiv_time)
-                pending_df["ШІ Сигнал"] = pending_df.apply(_get_ai_score_badge, axis=1)
-                if "sport" in pending_df.columns:
-                    pending_df["Турнір"] = pending_df["sport"].map(lambda x: s_map.get(x, x))
-                disp_p_cols = [c for c in ["id", "Турнір", "match_name", "pick_label", "odds", "stake_uah", "% банку (Келлі)", "ШІ Сигнал", "Час (Київ)"] if c in pending_df.columns]
-                st.dataframe(pending_df[disp_p_cols], use_container_width=True, hide_index=True)
-
-                if is_admin:
-                    st.markdown("##### ✏️ Редагування коефіцієнта (Edit Odds)")
-                    bet_options = {}
-                    for _, r_bet in pending_df.iterrows():
-                        c_time_str = format_kyiv_time(r_bet.get('commence_time'))
-                        time_badge = f" [🕒 {c_time_str}]" if c_time_str else ""
-                        k_badge = get_kelly_badge(r_bet)
-                        stk_val = float(r_bet.get('stake_uah', 0) or 0)
-                        b_lbl = f"ID #{r_bet['id']} | {r_bet.get('match_name', '')} ({r_bet.get('pick_label', '')}){time_badge} — {stk_val:.2f} ₴ ({k_badge}) | Коеф: {float(r_bet.get('odds', 0)):.2f}"
-                        bet_options[b_lbl] = r_bet["id"]
-
-                    sel_lbl = st.selectbox("Оберіть ставку:", list(bet_options.keys()), key="sel_pending_bet_v2")
-                    sel_id = bet_options[sel_lbl]
-                    curr_odds_val = float(pending_df[pending_df["id"] == sel_id]["odds"].iloc[0])
-
-                    col_ed1, col_ed2 = st.columns([3, 1])
-                    with col_ed1:
-                        new_k_input = st.number_input("Новий коефіцієнт:", min_value=1.01, max_value=50.00, value=curr_odds_val, step=0.01, format="%.2f", key="num_new_odds_v2")
-                    with col_ed2:
-                        st.write("")
-                        st.write("")
-                        if st.button("💾 Оновити", key="btn_save_odds_v2", use_container_width=True):
-                            conn_edit, err_conn = get_db_connection(db_url)
-                            if conn_edit:
-                                cur_edit = conn_edit.cursor()
-                                try:
-                                    from statmonitor.paper_trading import update_pending_bet_odds
-                                    ok, msg, _ = update_pending_bet_odds(cur_edit, conn_edit, sel_id, new_k_input)
-                                    if ok:
-                                        st.success(f"✅ {msg}")
-                                        st.rerun()
-                                    else:
-                                        st.error(f"❌ {msg}")
-                                finally:
-                                    cur_edit.close()
-                                    conn_edit.close()
-            else:
-                st.info("Немає активних ставок у грі.")
-
-        with st.expander("📊 Детальна сегментація за лігами та типами маркетів (Breakdown)"):
+        # 4. ДЕТАЛЬНА СЕГМЕНТАЦІЯ ЗА ЛІГАМИ ТА ТИПАМИ МАРКЕТІВ (Зразу під графіками)
+        with st.expander("📊 Детальна сегментація за лігами та типами маркетів (Breakdown)", expanded=True):
             clv_metrics = calculate_clv_metrics(filtered_df if not filtered_df.empty else all_settled)
             if clv_metrics.get("total_with_clv", 0) > 0:
                 beat_clr = "#16A34A" if clv_metrics["beat_line_pct"] >= 50.0 else "#EAB308"
@@ -1237,6 +1056,218 @@ def run_streamlit_app():
                     st.dataframe(m_table, use_container_width=True, hide_index=True)
                 else:
                     st.caption("Немає даних.")
+
+        # Спільні функції форматування рядків
+        try:
+            from statmonitor.league_config import load_leagues_config
+            all_title_map = {lg["key"]: lg.get("title", lg["key"]) for lg in load_leagues_config().get("leagues", [])}
+        except Exception:
+            all_title_map = {}
+
+        def _get_league_name(sp):
+            return all_title_map.get(sp, s_map.get(sp, sp))
+
+        def _format_result(r):
+            st_code = r.get("status")
+            p = r.get("profit_uah")
+            if st_code == "WON":
+                return f"🟢 +{float(p):,.2f} ₴" if p else "🟢 Виграш"
+            elif st_code == "LOST":
+                return f"🔴 {float(p):,.2f} ₴" if p else "🔴 Програш"
+            elif st_code == "VOID":
+                return "⚪ 0.00 ₴ (Повернення)"
+            else:
+                return "⏳ В грі (Pending)"
+
+        def _format_clv(r):
+            clv_val = r.get("clv_pct")
+            beat_val = r.get("beat_closing_line")
+            b_k = r.get("odds")
+            c_k = r.get("closing_odds")
+            if (clv_val is None or pd.isna(clv_val)) and b_k and c_k:
+                clv_val, beat_val = calculate_clv_value(b_k, c_k)
+            if clv_val is not None and not (pd is not None and pd.isna(clv_val)):
+                try:
+                    cf = float(clv_val)
+                    if beat_val is True or cf > 0:
+                        return f"+{cf:.1f}% 🏆"
+                    elif cf < 0:
+                        return f"{cf:.1f}%"
+                    return f"{cf:.1f}%"
+                except Exception:
+                    pass
+            return "—"
+
+        def _get_ai_score_badge(r):
+            try:
+                cs = r.get("confidence_score")
+                if cs is not None and not (pd is not None and pd.isna(cs)):
+                    try:
+                        val_cs = int(cs)
+                        if 1 <= val_cs <= 10 and val_cs != 8:
+                            return f"⭐ {val_cs}/10"
+                    except Exception:
+                        pass
+
+                st_code = str(r.get("status") or "")
+                if st_code == "PENDING":
+                    k_pct = r.get("kelly_pct")
+                    if k_pct is not None and not (pd is not None and pd.isna(k_pct)):
+                        try:
+                            kp = float(k_pct)
+                            if kp >= 3.5:
+                                return "⭐ 9/10"
+                            elif kp >= 2.5:
+                                return "⭐ 8/10"
+                            else:
+                                return "⭐ 7/10"
+                        except Exception:
+                            pass
+
+                    try:
+                        k_odds = float(r.get("odds") or 2.0)
+                        if k_odds <= 1.50:
+                            return "⭐ 9/10"
+                        elif k_odds <= 2.20:
+                            return "⭐ 8/10"
+                        else:
+                            return "⭐ 7/10"
+                    except Exception:
+                        pass
+
+                    return "⭐ 8/10"
+
+                if cs is not None and not (pd is not None and pd.isna(cs)):
+                    try:
+                        val_cs = int(cs)
+                        if 1 <= val_cs <= 10:
+                            return f"⭐ {val_cs}/10"
+                    except Exception:
+                        pass
+
+                return "—"
+            except Exception:
+                return "—"
+
+        curr_bank_val = metrics.get("current_bank", INITIAL_BANKROLL)
+        def _get_kelly_badge(r):
+            if "kelly_pct" in r and r["kelly_pct"] is not None and not (pd is not None and pd.isna(r["kelly_pct"])):
+                try:
+                    return f"{float(r['kelly_pct']):.1f}%"
+                except Exception:
+                    pass
+            try:
+                stk = float(r.get("stake_uah", 0) or 0)
+                if curr_bank_val and curr_bank_val > 0 and stk > 0:
+                    return f"{(stk / curr_bank_val) * 100:.1f}%"
+            except Exception:
+                pass
+            return "2.5%"
+
+        # 5. АКТИВНІ СТАВКИ У ГРІ (В стилі журналу операцій з укр. назвами та доп. колонками)
+        pending_df = filtered_df[filtered_df["status"] == "PENDING"].copy() if (not filtered_df.empty and "status" in filtered_df.columns) else pd.DataFrame()
+        if pending_df.empty and (bets_df is not None and not bets_df.empty and "status" in bets_df.columns):
+            if status_filter in ("Всі ставки", "⏳ Тільки активні (Pending)"):
+                pending_df = bets_df[bets_df["status"] == "PENDING"].copy()
+
+        st.markdown(f"""
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 14px; margin-bottom: 8px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 14px; font-weight: 700; color: #1E293B;">⏳ Активні ставки в грі (Pending)</span>
+                    <span style="background: #FEF3C7; color: #92400E; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 6px;">{len(pending_df)}</span>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        if not pending_df.empty:
+            p_disp = pending_df.copy()
+            p_disp["ID"] = p_disp["id"].apply(lambda x: f"#{x}")
+            if "commence_time" in p_disp.columns:
+                p_disp["Час"] = p_disp["commence_time"].apply(format_kyiv_time)
+            p_disp["Турнір"] = p_disp["sport"].apply(_get_league_name)
+            p_disp["Подія"] = p_disp.get("match_name", "")
+            p_disp["Маркет"] = p_disp.get("pick_label", "")
+            p_disp["Коеф."] = p_disp["odds"].apply(lambda x: f"{float(x):.2f}" if x else "—")
+            p_disp["ШІ Сигнал"] = p_disp.apply(_get_ai_score_badge, axis=1)
+            p_disp["Сума"] = p_disp["stake_uah"].apply(lambda x: f"{float(x):,.2f} ₴" if x else "—")
+            p_disp["% банку (Келлі)"] = p_disp.apply(_get_kelly_badge, axis=1)
+            p_disp["Результат"] = "⏳ В грі (Pending)"
+
+            cols_pending_show = [c for c in ["ID", "Час", "Турнір", "Подія", "Маркет", "Коеф.", "ШІ Сигнал", "% банку (Келлі)", "Сума", "Результат"] if c in p_disp.columns]
+            st.dataframe(p_disp[cols_pending_show], use_container_width=True, hide_index=True)
+
+            if is_admin:
+                with st.expander("✏️ Редагування коефіцієнта (Edit Odds для активної ставки)", expanded=False):
+                    bet_options = {}
+                    for _, r_bet in pending_df.iterrows():
+                        c_time_str = format_kyiv_time(r_bet.get('commence_time'))
+                        time_badge = f" [🕒 {c_time_str}]" if c_time_str else ""
+                        k_badge = _get_kelly_badge(r_bet)
+                        stk_val = float(r_bet.get('stake_uah', 0) or 0)
+                        b_lbl = f"ID #{r_bet['id']} | {r_bet.get('match_name', '')} ({r_bet.get('pick_label', '')}){time_badge} — {stk_val:.2f} ₴ ({k_badge}) | Коеф: {float(r_bet.get('odds', 0)):.2f}"
+                        bet_options[b_lbl] = r_bet["id"]
+
+                    sel_lbl = st.selectbox("Оберіть ставку:", list(bet_options.keys()), key="sel_pending_bet_v3")
+                    sel_id = bet_options[sel_lbl]
+                    curr_odds_val = float(pending_df[pending_df["id"] == sel_id]["odds"].iloc[0])
+
+                    col_ed1, col_ed2 = st.columns([3, 1])
+                    with col_ed1:
+                        new_k_input = st.number_input("Новий коефіцієнт:", min_value=1.01, max_value=50.00, value=curr_odds_val, step=0.01, format="%.2f", key="num_new_odds_v3")
+                    with col_ed2:
+                        st.write("")
+                        st.write("")
+                        if st.button("💾 Оновити коефіцієнт", key="btn_save_odds_v3", use_container_width=True):
+                            conn_edit, err_conn = get_db_connection(db_url)
+                            if conn_edit:
+                                cur_edit = conn_edit.cursor()
+                                try:
+                                    from statmonitor.paper_trading import update_pending_bet_odds
+                                    ok, msg, _ = update_pending_bet_odds(cur_edit, conn_edit, sel_id, new_k_input)
+                                    if ok:
+                                        st.success(f"✅ {msg}")
+                                        st.rerun()
+                                    else:
+                                        st.error(f"❌ {msg}")
+                                finally:
+                                    cur_edit.close()
+                                    conn_edit.close()
+        else:
+            st.info("ℹ️ Немає активних ставок у грі.")
+
+        # 6. ІСТОРІЯ СТАВОК (SPEC-33)
+        history_df = filtered_df[filtered_df["status"].isin(["WON", "LOST", "VOID"])].copy() if (not filtered_df.empty and "status" in filtered_df.columns) else pd.DataFrame()
+        if history_df.empty and status_filter in ("Всі ставки", "✅ Розраховані (Settled)") and (bets_df is not None and not bets_df.empty and "status" in bets_df.columns):
+            history_df = bets_df[bets_df["status"].isin(["WON", "LOST", "VOID"])].copy()
+
+        st.markdown(f"""
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 18px; margin-bottom: 8px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 14px; font-weight: 700; color: #1E293B;">📜 Історія ставок</span>
+                    <span style="background: #E2E8F0; color: #334155; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 6px;">{len(history_df)}</span>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        if not history_df.empty:
+            h_disp = history_df.copy()
+            h_disp["ID"] = h_disp["id"].apply(lambda x: f"#{x}")
+            if "commence_time" in h_disp.columns:
+                h_disp["Час"] = h_disp["commence_time"].apply(format_kyiv_time)
+            h_disp["Турнір"] = h_disp["sport"].apply(_get_league_name)
+            h_disp["Подія"] = h_disp.get("match_name", "")
+            h_disp["Маркет"] = h_disp.get("pick_label", "")
+            h_disp["Коеф."] = h_disp["odds"].apply(lambda x: f"{float(x):.2f}" if x else "—")
+            h_disp["CLV (+EV)"] = h_disp.apply(_format_clv, axis=1)
+            h_disp["ШІ Сигнал"] = h_disp.apply(_get_ai_score_badge, axis=1)
+            h_disp["% банку"] = h_disp.apply(_get_kelly_badge, axis=1)
+            h_disp["Сума"] = h_disp["stake_uah"].apply(lambda x: f"{float(x):,.0f} ₴" if x else "—")
+            h_disp["Результат"] = h_disp.apply(_format_result, axis=1)
+
+            cols_history_show = [c for c in ["ID", "Час", "Турнір", "Подія", "Маркет", "Коеф.", "CLV (+EV)", "ШІ Сигнал", "% банку", "Сума", "Результат"] if c in h_disp.columns]
+            st.dataframe(h_disp[cols_history_show], use_container_width=True, hide_index=True)
+        else:
+            st.info("ℹ️ Немає розрахованих ставок в історії за обраними фільтрами.")
 
     # ---------------- ВКЛАДКА 2: AI-АНАЛІТИКА GEMINI ----------------
     with tab_ai:
