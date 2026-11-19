@@ -1107,8 +1107,11 @@ def run_streamlit_app():
         except Exception:
             all_title_map = {}
 
-        def _get_league_name(sp):
-            return all_title_map.get(sp, s_map.get(sp, sp))
+        def _get_league_name(sp, with_icon=False):
+            title = all_title_map.get(sp, s_map.get(sp, sp))
+            if with_icon and sp:
+                return f"{get_sport_icon(sp)} {title}"
+            return title
 
         def _clean_pick_label(lbl):
             if not lbl or not isinstance(lbl, str):
@@ -1232,7 +1235,7 @@ def run_streamlit_app():
             p_disp["ID"] = p_disp["id"].apply(lambda x: f"#{x}")
             if "commence_time" in p_disp.columns:
                 p_disp["Час"] = p_disp["commence_time"].apply(format_kyiv_time)
-            p_disp["Турнір"] = p_disp["sport"].apply(_get_league_name)
+            p_disp["Турнір"] = p_disp["sport"].apply(lambda sp: _get_league_name(sp, with_icon=True))
             p_disp["Подія"] = p_disp.get("match_name", "")
             p_disp["Маркет"] = p_disp.get("pick_label", "").apply(_clean_pick_label)
             p_disp["Коеф."] = p_disp["odds"].apply(lambda x: f"{float(x):.2f}" if x else "—")
@@ -1252,7 +1255,8 @@ def run_streamlit_app():
                         time_badge = f" [🕒 {c_time_str}]" if c_time_str else ""
                         k_badge = _get_kelly_badge(r_bet)
                         stk_val = float(r_bet.get('stake_uah', 0) or 0)
-                        b_lbl = f"ID #{r_bet['id']} | {r_bet.get('match_name', '')} ({r_bet.get('pick_label', '')}){time_badge} — {stk_val:.2f} ₴ ({k_badge}) | Коеф: {float(r_bet.get('odds', 0)):.2f}"
+                        sp_icon = get_sport_icon(r_bet.get('sport'))
+                        b_lbl = f"ID #{r_bet['id']} | {sp_icon} {r_bet.get('match_name', '')} ({r_bet.get('pick_label', '')}){time_badge} — {stk_val:.2f} ₴ ({k_badge}) | Коеф: {float(r_bet.get('odds', 0)):.2f}"
                         bet_options[b_lbl] = r_bet["id"]
 
                     sel_lbl = st.selectbox("Оберіть ставку:", list(bet_options.keys()), key="sel_pending_bet_v3")
@@ -1287,7 +1291,8 @@ def run_streamlit_app():
                         c_time_str = format_kyiv_time(r_bet.get('commence_time'))
                         time_badge = f" [🕒 {c_time_str}]" if c_time_str else ""
                         stk_val = float(r_bet.get('stake_uah', 0) or 0)
-                        s_lbl = f"ID #{r_bet['id']} | {r_bet.get('match_name', '')} ({r_bet.get('pick_label', '')}){time_badge} — {stk_val:.2f} ₴ | Коеф: {float(r_bet.get('odds', 0)):.2f}"
+                        sp_icon = get_sport_icon(r_bet.get('sport'))
+                        s_lbl = f"ID #{r_bet['id']} | {sp_icon} {r_bet.get('match_name', '')} ({r_bet.get('pick_label', '')}){time_badge} — {stk_val:.2f} ₴ | Коеф: {float(r_bet.get('odds', 0)):.2f}"
                         settle_options[s_lbl] = r_bet["id"]
 
                     sel_s_lbl = st.selectbox("Оберіть активну ставку для розрахунку:", list(settle_options.keys()), key="sel_settle_bet_admin_v3")
@@ -1361,7 +1366,7 @@ def run_streamlit_app():
                 h_disp["ID"] = h_disp["id"].apply(lambda x: f"#{x}")
                 if "commence_time" in h_disp.columns:
                     h_disp["Час"] = h_disp["commence_time"].apply(format_kyiv_time)
-                h_disp["Турнір"] = h_disp["sport"].apply(_get_league_name)
+                h_disp["Турнір"] = h_disp["sport"].apply(lambda sp: _get_league_name(sp, with_icon=True))
                 h_disp["Подія"] = h_disp.get("match_name", "")
                 if "match_score" in h_disp.columns:
                     h_disp["Рахунок"] = h_disp["match_score"].apply(
