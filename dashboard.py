@@ -1067,6 +1067,11 @@ def run_streamlit_app():
         def _get_league_name(sp):
             return all_title_map.get(sp, s_map.get(sp, sp))
 
+        def _clean_pick_label(lbl):
+            if not lbl or not isinstance(lbl, str):
+                return ""
+            return re.split(r"\s+(?:або|чи|\/)\s+", str(lbl), maxsplit=1, flags=re.I)[0].strip()
+
         def _format_result(r):
             st_code = r.get("status")
             p = r.get("profit_uah")
@@ -1186,7 +1191,7 @@ def run_streamlit_app():
                 p_disp["Час"] = p_disp["commence_time"].apply(format_kyiv_time)
             p_disp["Турнір"] = p_disp["sport"].apply(_get_league_name)
             p_disp["Подія"] = p_disp.get("match_name", "")
-            p_disp["Маркет"] = p_disp.get("pick_label", "")
+            p_disp["Маркет"] = p_disp.get("pick_label", "").apply(_clean_pick_label)
             p_disp["Коеф."] = p_disp["odds"].apply(lambda x: f"{float(x):.2f}" if x else "—")
             p_disp["ШІ Сигнал"] = p_disp.apply(_get_ai_score_badge, axis=1)
             p_disp["Сума"] = p_disp["stake_uah"].apply(lambda x: f"{float(x):,.2f} ₴" if x else "—")
@@ -1321,7 +1326,7 @@ def run_streamlit_app():
                     )
                 else:
                     h_disp["Рахунок"] = "—"
-                h_disp["Маркет"] = h_disp.get("pick_label", "")
+                h_disp["Маркет"] = h_disp.get("pick_label", "").apply(_clean_pick_label)
                 h_disp["Коеф."] = h_disp["odds"].apply(lambda x: f"{float(x):.2f}" if x else "—")
                 h_disp["CLV (+EV)"] = h_disp.apply(_format_clv, axis=1)
                 h_disp["ШІ Сигнал"] = h_disp.apply(_get_ai_score_badge, axis=1)

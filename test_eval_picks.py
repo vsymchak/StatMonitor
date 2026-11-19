@@ -193,6 +193,17 @@ class TestExtractShortPick(unittest.TestCase):
         )
         self.assertEqual(extract_short_pick(ai_text, "fallback"), "П2 (Chelsea)")
 
+    def test_strips_alternative_picks(self):
+        # Якщо Gemini пропонує два маркери через "або", "чи" або "/"
+        ai_text = "📌 **Коротка ставка:** Ф2 (+7.5) або П2"
+        self.assertEqual(extract_short_pick(ai_text, "fallback"), "Ф2 (+7.5)")
+
+        ai_text2 = "📌 **Коротка ставка:** ТБ 2.5 чи Обидві заб'ють"
+        self.assertEqual(extract_short_pick(ai_text2, "fallback"), "ТБ 2.5")
+
+        ai_text3 = "📌 **Коротка ставка:** П1 / Ф1(0)"
+        self.assertEqual(extract_short_pick(ai_text3, "fallback"), "П1")
+
 
 class TestParsePickLabel(unittest.TestCase):
     """Тестування розбору ставок на маркет, сторону та фору/тотал (SPEC-18)."""
