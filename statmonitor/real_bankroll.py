@@ -4,6 +4,8 @@ StatMonitor - Real Bankroll Management (SPEC-31: Wave 10).
 """
 
 from decimal import Decimal
+from datetime import datetime, timezone
+from statmonitor.config import KYIV_TZ
 
 def ensure_real_bankroll_tables(cur, conn):
     """Створює необхідні таблиці та колонки для режиму гри на реальні гроші."""
@@ -256,11 +258,297 @@ def settle_real_bet_in_ledger(cur, conn, bet_id, status, profit_uah, stake_uah=N
         return False, f"Помилка фіксації результату ставки в леджері: {e}"
 
 
-def prepare_real_stakes_batch(cur, bet_ids, fraction=0.10, min_stake=20.0, max_pct=0.05):
+def check_daily_stop_loss(cur, threshold_pct=7.0, now_dt=None):
+    """
+    SPEC-36: Перевіряє денний Stop-Loss Circuit Breaker.
+    Якщо результат ставок за поточну добу (з 00:00 за Києвом) призвів до просідання >= threshold_pct,
+    спрацьовує блокування відкриття нових реальних ставок.
+    """
+    try:
+        if now_dt is None:
+            now_dt = datetime.now(KYIV_TZ)
+        elif now_dt.tzinfo is None:
+            now_dt = now_dt.replace(tzinfo=KYIV_TZ)
+
+        today_start_kyiv = now_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+        today_start_utc = today_start_kyiv.astimezone(timezone.utc)
+
+        # 1. Результат закритих ставок за сьогодні (BET_RESULT)
+        cur.execute("""
+            SELECT COALESCE(SUM(amount_uah), 0)
+            FROM real_bankroll_ledger
+            WHERE transaction_type = 'BET_RESULT' AND created_at >= %s;
+        """, (today_start_utc,))
+        row_pnl = cur.fetchone()
+        try:
+            daily_pnl = float(row_pnl[0]) if (row_pnl and row_pnl[0] is not None) else 0.0
+        except (ValueError, TypeError):
+            daily_pnl = 0.0
+
+        # 2. Баланс на початок доби (останній баланс до 00:00 сьогодні)
+        cur.execute("""
+            SELECT balance_after_uah
+            FROM real_bankroll_ledger
+            WHERE created_at < %s
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1;
+        """, (today_start_utc,))
+        row_start_b = cur.fetchone()
+
+        if row_start_b and row_start_b[0] is not None:
+            try:
+                start_balance = float(row_start_b[0])
+            except (ValueError, TypeError):
+                start_balance = 0.0
+        else:
+            cur.execute("SELECT COALESCE(SUM(amount_uah) FILTER (WHERE transaction_type = 'DEPOSIT'), 0) FROM real_bankroll_ledger;")
+            row_dep = cur.fetchone()
+            try:
+                start_balance = float(row_dep[0]) if (row_dep and row_dep[0] is not None) else 0.0
+            except (ValueError, TypeError):
+                start_balance = 0.0
+
+        if start_balance > 0 and daily_pnl < 0:
+            drawdown_pct = round((abs(daily_pnl) / start_balance) * 100.0, 2)
+        else:
+            drawdown_pct = 0.0
+
+        is_triggered = bool(drawdown_pct >= threshold_pct and start_balance > 0)
+
+        if is_triggered:
+            msg = f"🛑 Stop-Loss активовано: денне просідання {drawdown_pct:.1f}% перевищує ліміт {threshold_pct}%. Нові реальні ставки заблоковано до 00:00."
+        elif daily_pnl < 0:
+            msg = f"⚠️ Денне просідання: -{abs(daily_pnl):,.2f} ₴ ({drawdown_pct:.1f}% / ліміт {threshold_pct}%)."
+        elif daily_pnl > 0:
+            msg = f"🟢 Денний прибуток: +{daily_pnl:,.2f} ₴ (Stop-Loss у нормі)."
+        else:
+            msg = "🟢 Денний PnL: 0.00 ₴ (Stop-Loss у нормі)."
+
+        return {
+            "is_triggered": is_triggered,
+            "daily_pnl_uah": round(daily_pnl, 2),
+            "start_balance_uah": round(start_balance, 2),
+            "drawdown_pct": drawdown_pct,
+            "threshold_pct": float(threshold_pct),
+            "message": msg
+        }
+    except Exception as e:
+        return {
+            "is_triggered": False,
+            "daily_pnl_uah": 0.0,
+            "start_balance_uah": 0.0,
+            "drawdown_pct": 0.0,
+            "threshold_pct": float(threshold_pct),
+            "message": f"Помилка розрахунку Stop-Loss: {e}"
+        }
+
+
+def check_max_exposure(cur, new_stake_total=0.0, max_exposure_pct=20.0):
+    """
+    SPEC-36: Перевіряє сумарну одночасну експозицію реального банку.
+    Ліміт: відкриті ставки у грі (PENDING) не повинні перевищувати max_exposure_pct (20%) капіталу.
+    """
+    try:
+        cur.execute("SELECT balance_after_uah FROM real_bankroll_ledger ORDER BY created_at DESC, id DESC LIMIT 1;")
+        row_b = cur.fetchone()
+        try:
+            current_balance = float(row_b[0]) if (row_b and row_b[0] is not None) else 0.0
+        except (ValueError, TypeError):
+            current_balance = 0.0
+
+        cur.execute("SELECT COALESCE(SUM(amount_uah) FILTER (WHERE transaction_type = 'DEPOSIT'), 0) FROM real_bankroll_ledger;")
+        row_dep = cur.fetchone()
+        try:
+            total_deposits = float(row_dep[0]) if (row_dep and row_dep[0] is not None) else 0.0
+        except (ValueError, TypeError):
+            total_deposits = 0.0
+
+        base_capital = max(current_balance, total_deposits)
+
+        cur.execute("""
+            SELECT COALESCE(SUM(COALESCE(real_stake_uah, stake_uah)), 0), COUNT(*)
+            FROM paper_bets
+            WHERE is_real_bet = TRUE AND status = 'PENDING';
+        """)
+        row_exp = cur.fetchone()
+        current_exposure = 0.0
+        pending_count = 0
+        if row_exp and len(row_exp) > 0:
+            try:
+                current_exposure = float(row_exp[0] or 0.0)
+            except (ValueError, TypeError):
+                current_exposure = 0.0
+            if len(row_exp) > 1:
+                try:
+                    pending_count = int(row_exp[1] or 0)
+                except (ValueError, TypeError):
+                    pending_count = 0
+
+        new_stk = float(new_stake_total or 0.0)
+        projected_exposure = current_exposure + new_stk
+
+        if base_capital > 0:
+            exposure_pct = round((projected_exposure / base_capital) * 100.0, 1)
+        else:
+            exposure_pct = 0.0
+
+        is_breached = bool(exposure_pct > max_exposure_pct and base_capital > 0)
+
+        if is_breached:
+            msg = f"⚠️ Перевищення експозиції: сума у грі ({projected_exposure:,.2f} ₴, {exposure_pct}%) перевищує ліміт {max_exposure_pct}% від банку ({base_capital:,.2f} ₴)."
+        else:
+            msg = f"🟢 Експозиція у нормі: {projected_exposure:,.2f} ₴ ({exposure_pct}% / ліміт {max_exposure_pct}%)."
+
+        return {
+            "is_breached": is_breached,
+            "current_exposure_uah": round(current_exposure, 2),
+            "new_stake_uah": round(new_stk, 2),
+            "projected_exposure_uah": round(projected_exposure, 2),
+            "exposure_pct": exposure_pct,
+            "max_exposure_pct": float(max_exposure_pct),
+            "base_capital_uah": round(base_capital, 2),
+            "pending_count": pending_count,
+            "message": msg
+        }
+    except Exception as e:
+        return {
+            "is_breached": False,
+            "current_exposure_uah": 0.0,
+            "new_stake_uah": 0.0,
+            "projected_exposure_uah": 0.0,
+            "exposure_pct": 0.0,
+            "max_exposure_pct": float(max_exposure_pct),
+            "base_capital_uah": 0.0,
+            "pending_count": 0,
+            "message": f"Помилка розрахунку експозиції: {e}"
+        }
+
+
+def check_correlation_guard(cur, candidate_bet_ids=None):
+    """
+    SPEC-36: Захист від корельованих ставок.
+    Виявляє ситуації, коли кілька реальних ставок припадають на одну й ту саму подію (матч).
+    """
+    try:
+        cur.execute("""
+            SELECT id, event_id, match_name, pick_label
+            FROM paper_bets
+            WHERE is_real_bet = TRUE AND status = 'PENDING';
+        """)
+        active_rows = cur.fetchall() or []
+
+        candidate_rows = []
+        c_ids = [int(i) for i in (candidate_bet_ids or []) if str(i).isdigit()]
+        if c_ids:
+            cur.execute("""
+                SELECT id, event_id, match_name, pick_label
+                FROM paper_bets
+                WHERE id = ANY(%s);
+            """, (c_ids,))
+            candidate_rows = cur.fetchall() or []
+
+        matches_map = {}
+        for r in active_rows:
+            if not r or len(r) < 3:
+                continue
+            bid = r[0]
+            eid = r[1] if len(r) > 1 else None
+            m_name = r[2] if len(r) > 2 else ""
+            pick = r[3] if len(r) > 3 else ""
+
+            key = str(eid or m_name or bid).strip().lower()
+            if key not in matches_map:
+                matches_map[key] = {"match_name": m_name, "bets": []}
+            matches_map[key]["bets"].append({"id": bid, "pick": pick, "type": "ACTIVE_PENDING"})
+
+        for r in candidate_rows:
+            if not r or len(r) < 3:
+                continue
+            bid = r[0]
+            eid = r[1] if len(r) > 1 else None
+            m_name = r[2] if len(r) > 2 else ""
+            pick = r[3] if len(r) > 3 else ""
+
+            key = str(eid or m_name or bid).strip().lower()
+            if key not in matches_map:
+                matches_map[key] = {"match_name": m_name, "bets": []}
+            if not any(b["id"] == bid for b in matches_map[key]["bets"]):
+                matches_map[key]["bets"].append({"id": bid, "pick": pick, "type": "CANDIDATE"})
+
+        correlated_matches = []
+        for key, data in matches_map.items():
+            if len(data["bets"]) > 1:
+                correlated_matches.append({
+                    "match_name": data["match_name"],
+                    "count": len(data["bets"]),
+                    "bets": data["bets"]
+                })
+
+        has_correlations = len(correlated_matches) > 0
+        if has_correlations:
+            details = ", ".join([f"'{c['match_name']}' ({c['count']} ставки)" for c in correlated_matches])
+            msg = f"⚠️ Виявлено кореляцію подій: на один матч припадає кілька ставок ({details}). Рекомендовано обмежитися 1 ставкою на гру."
+        else:
+            msg = "🟢 Кореляцій не виявлено (всі ставки на незалежні події)."
+
+        return {
+            "has_correlations": has_correlations,
+            "correlated_matches": correlated_matches,
+            "message": msg
+        }
+    except Exception as e:
+        return {
+            "has_correlations": False,
+            "correlated_matches": [],
+            "message": f"Помилка аналізу кореляцій: {e}"
+        }
+
+
+def evaluate_real_risk_guardrails(cur, candidate_configs=None, stop_loss_pct=7.0, max_exposure_pct=20.0):
+    """
+    SPEC-36: Комплексна оцінка ризик-запобіжників реального банку (Circuit Breakers).
+    Повертає статус допуску до відкриття ставок та списки блокувань і попереджень.
+    """
+    candidate_configs = candidate_configs or []
+    candidate_ids = [c["id"] for c in candidate_configs if isinstance(c, dict) and "id" in c]
+    new_stake_total = sum(float(c.get("real_stake") or 0.0) for c in candidate_configs if isinstance(c, dict))
+
+    sl_res = check_daily_stop_loss(cur, threshold_pct=stop_loss_pct)
+    exp_res = check_max_exposure(cur, new_stake_total=new_stake_total, max_exposure_pct=max_exposure_pct)
+    corr_res = check_correlation_guard(cur, candidate_bet_ids=candidate_ids)
+
+    blocks = []
+    warnings = []
+
+    # 1. Жорстке блокування: Денний Stop-Loss
+    if sl_res["is_triggered"]:
+        blocks.append(sl_res["message"])
+
+    # 2. Попередження при перевищенні експозиції
+    if exp_res["is_breached"]:
+        warnings.append(exp_res["message"])
+
+    # 3. Попередження кореляції
+    if corr_res["has_correlations"]:
+        warnings.append(corr_res["message"])
+
+    can_place = len(blocks) == 0
+
+    return {
+        "can_place_bets": can_place,
+        "stop_loss": sl_res,
+        "exposure": exp_res,
+        "correlations": corr_res,
+        "blocks": blocks,
+        "warnings": warnings,
+    }
+
+
+def prepare_real_stakes_batch(cur, bet_ids, fraction=0.10, min_stake=20.0, max_pct=0.05, return_guardrails=False):
     """
     Підготовлює розрахунок розмірів ставок для списку bet_ids
-    строго від балансу реального банку (SPEC-34).
-    Повертає: (real_balance, proposals_list)
+    строго від балансу реального банку (SPEC-34 & SPEC-36).
+    Повертає: (real_balance, proposals_list) або (real_balance, proposals_list, guardrails)
     """
     from statmonitor.novig import calculate_real_stake
 
@@ -269,6 +557,9 @@ def prepare_real_stakes_batch(cur, bet_ids, fraction=0.10, min_stake=20.0, max_p
     real_balance = float(row_b[0]) if (row_b and row_b[0] is not None) else 0.0
 
     if not bet_ids:
+        empty_guard = evaluate_real_risk_guardrails(cur, candidate_configs=[])
+        if return_guardrails:
+            return real_balance, [], empty_guard
         return real_balance, []
 
     # Витягуємо інформацію про вибрані ставки
@@ -307,16 +598,32 @@ def prepare_real_stakes_batch(cur, bet_ids, fraction=0.10, min_stake=20.0, max_p
             "status_msg": status_msg
         })
 
+    # Оцінюємо ризики для попередніх розрахунків
+    provisional_configs = [{"id": p["id"], "real_stake": p["recommended_stake"]} for p in proposals]
+    guardrails = evaluate_real_risk_guardrails(cur, candidate_configs=provisional_configs)
+    for p in proposals:
+        p["guardrails"] = guardrails
+
+    if return_guardrails:
+        return real_balance, proposals, guardrails
     return real_balance, proposals
 
 
-def apply_real_stakes_batch(cur, conn, bet_configs):
+def apply_real_stakes_batch(cur, conn, bet_configs, bypass_guardrails=False):
     """
-    Пакетно оновлює ставки, переносячи їх у Реальний банк з визначеними сумами (SPEC-34).
+    Пакетно оновлює ставки, переносячи їх у Реальний банк з визначеними сумами (SPEC-34 & SPEC-36).
+    Перед застосуванням валідує Circuit Breakers (SPEC-36).
     bet_configs: список словників [{'id': 43, 'real_stake': 150.0, 'real_odds': 1.85}]
     """
     if not bet_configs:
         return False, 0, 0.0, "Список ставок для перенесення порожній."
+
+    # SPEC-36: Circuit Breakers Risk Check
+    if not bypass_guardrails:
+        guardrails = evaluate_real_risk_guardrails(cur, candidate_configs=bet_configs)
+        if not guardrails["can_place_bets"]:
+            err_msg = " | ".join(guardrails["blocks"])
+            return False, 0, 0.0, f"Запобіжники капіталу заблокували ставки: {err_msg}"
 
     try:
         updated_count = 0

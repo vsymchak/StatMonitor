@@ -1,7 +1,7 @@
 # Візуальна архітектура системи StatMonitor
 
-> **Проєкт**: StatMonitor — інтелектуальна система спортивного моніторингу прогрузів, віртуального трейдингу (Paper Trading), спостережливості (Web Dashboard), предиктивної AI-аналітики, реального банкролу (Real Money Mode), контрфактичного AI-аудиту (Shadow-Bets) та нульових витрат інфраструктури (Zero-Cost Sync).  
-> **Версія**: 3.7 (Еволюція: Zero-Cost Orchestration Sync + ACID Real Ledger + URL Sanitization Auth + 174 Unit Tests)  
+> **Проєкт**: StatMonitor — інтелектуальна система спортивного моніторингу прогрузів, віртуального трейдингу (Paper Trading), спостережливості (Web Dashboard), предиктивної AI-аналітики, реального банкролу (Real Money Mode), запобіжників капіталу (Circuit Breakers), контрфактичного AI-аудиту (Shadow-Bets) та нульових витрат інфраструктури (Zero-Cost Sync).  
+> **Версія**: 3.8 (Еволюція: Real Money Risk Guardrails Circuit Breakers + Stop-Loss + Max Exposure + 184 Unit Tests)  
 > **Оновлено**: 19.11.2026
 
 ---
@@ -81,7 +81,8 @@ flowchart TD
         T_Beat["system_heartbeat"]:::data
     end
 
-    subgraph TestSuite["🧪 7. Шар якості та тестування (174 unit-тести)"]
+    subgraph TestSuite["🧪 7. Шар якості та тестування (184 unit-тести)"]
+        TestGuardrails["test_risk_guardrails.py (10 тестів)<br>Stop-Loss 7%, Max Exposure 20%, Anti-Correlation"]:::test
         TestSync["test_orchestration_sync.py (5 тестів)<br>Zero-cost gate, ACID ledger delta, reconciliation"]:::test
         TestShadow["test_shadow_bets.py (7 тестів)<br>Shadow bets, FILTERED статус, Counterfactual audit, Brier Score"]:::test
         TestNoVig["test_novig_edge.py (7 тестів)<br>Pinnacle de-vig, p_fair, independent real staking"]:::test
@@ -311,6 +312,11 @@ erDiagram
     - Алгоритм розумного зіставлення `match_slip_with_pending_bets` з активними ставками системи та автоматична прив'язка купона до бази.
   - **Відстеження Closing Line Value (CLV) та Beat the Line % (Крок 20)**: автоматична фіксація лінії закриття за Pinnacle/Betfair (`capture_closing_lines`), розрахунок $CLV\% = ((k_{\text{bet}} / k_{\text{closing}}) - 1) \times 100\%$ та статусу `beat_closing_line`. Відображення в Web Dashboard (стовпець `CLV (+EV)` і блок Breakdown), Telegram-боті (`/bank`) та щоденному звіті.
   - **Підтримка ринку «Обидві заб'ють» (BTTS) та фільтрація чистих тоталів (Крок 23)**: обробка ринку BTTS у футбольних лігах, розрахунок результатів `WON`/`LOST` у `eval_outcome`, інтеграція в медіанні коефіцієнти бенчмарків та математичне відсікання азіатських четвертних тоталів (`.25`/`.75`).
+  - **Запобіжники капіталу Real Money Circuit Breakers (SPEC-36, Крок 36)**:
+    - **Денний Stop-Loss**: підрахунок денного PnL за поточну добу (з 00:00 за Києвом). Блокування відкриття нових ставок при просіданні $\ge 7\%$ від балансу на початок доби (`check_daily_stop_loss`).
+    - **Max Concurrent Exposure**: лімітування суми відкритих ставок до 20% від капіталу (`check_max_exposure`).
+    - **Захист від кореляцій**: виявлення ставок на одну й ту саму гру (`check_correlation_guard`).
+    - **Уніфікований гейт**: `evaluate_real_risk_guardrails` забезпечує захист у `apply_real_stakes_batch` та інтерактивний статус Circuit Breakers у Web Dashboard.
   - **Shadow-Bets & Контрфактичний AI-Аудит (SPEC-35, Крок 35)**:
     - Збереження відсіяних ставок (`status = 'FILTERED'`, `is_shadow = TRUE`) при низькому Confidence Score (< 7) або вердикті пропуску.
     - Нульовий вплив на баланс (`profit_uah = 0.00`) з незалежним відстеженням гіпотетичного PnL (`shadow_profit_uah`).
@@ -339,7 +345,7 @@ erDiagram
   - Ідемпотентний раннер з журналом у `schema_migrations`.
   - Цільові B-Tree індекси на `odds_history`, `events`, `paper_bets`, `real_bankroll_ledger`.
 * **Автоматизований тестовий комплекс (`tests/` та кореневі тести)**:
-  - **174 модульних тести** (100% проходження за $\approx 1$ с) без зовнішніх мережевих викликів.
+  - **184 модульних тести** (100% проходження за $\approx 1$ с) без зовнішніх мережевих викликів.
 * **Zero-Cost Orchestration Sync & ACID Financial Transactions (SPEC-38)**:
   - **Cloudflare Edge Pre-check**: воркер перед викликом `POST /dispatches` перевіряє через Supabase REST API наявність точок розкладу або завершених матчів, запобігаючи спалюванню хвилин білінгу Actions (0 хв на холостих тіках).
   - **ACID-гарантія фінансового леджера**: строга рівність $\sum \text{amount\_uah} \equiv \text{balance\_after\_uah}$, автоматичний розрахунок дельти `ADJUSTMENT` та захист від подвійного зарахування ставок у `settle_real_bet_in_ledger`.

@@ -1462,12 +1462,22 @@ def run_streamlit_app():
                                         </div>
                                     """, unsafe_allow_html=True)
 
-                                    if tot_pct > 20.0:
-                                        st.warning(f"⚠️ Увага: загальна експозиція ({tot_pct}%) перевищує рекомендовані 20% від реального банку!")
+                                    # SPEC-36: Перевірка ризик-запобіжників (Circuit Breakers) перед фіксацією
+                                    from statmonitor.real_bankroll import evaluate_real_risk_guardrails
+                                    guard_eval = evaluate_real_risk_guardrails(cur_calc, candidate_configs=calc_configs)
+
+                                    if guard_eval["stop_loss"]["is_triggered"]:
+                                        st.error(f"🛑 {guard_eval['stop_loss']['message']}")
+                                    if guard_eval["correlations"]["has_correlations"]:
+                                        st.warning(f"⚠️ {guard_eval['correlations']['message']}")
+                                    if guard_eval["exposure"]["is_breached"]:
+                                        st.warning(f"⚠️ {guard_eval['exposure']['message']}")
 
                                     col_save_stk, col_cancel_stk = st.columns([2.0, 1.0])
                                     with col_save_stk:
-                                        if st.button("💾 Зафіксувати ставки в Реальному банку", key="btn_save_real_stakes_batch", type="primary", use_container_width=True):
+                                        btn_disabled = not guard_eval["can_place_bets"]
+                                        btn_help = "Кнопка заблокована: спрацював денний Stop-Loss" if btn_disabled else "Зафіксувати ставки"
+                                        if st.button("💾 Зафіксувати ставки в Реальному банку", key="btn_save_real_stakes_batch", type="primary", use_container_width=True, disabled=btn_disabled, help=btn_help):
                                             ok_app, cnt_app, tot_app, msg_app = apply_real_stakes_batch(cur_calc, conn_calc, calc_configs)
                                             if ok_app:
                                                 st.success(f"✅ {msg_app}")
@@ -1772,22 +1782,59 @@ def run_streamlit_app():
                 st.info("ℹ️ Графік з'явиться після першого депозиту в Касі реального банку нижче.")
 
         with col_r_chart_right:
-            st.markdown("##### 🛡️ Експозиція та Ризик-ліміти")
-            
+            st.markdown("##### 🛡️ Експозиція та Circuit Breakers (SPEC-36)")
+
+            # Оцінка стану запобіжників (Stop-Loss, Max Exposure, Кореляції)
+            sl_info = {"is_triggered": False, "daily_pnl_uah": 0.0, "drawdown_pct": 0.0, "threshold_pct": 7.0}
+            corr_info = {"has_correlations": False, "correlated_matches": []}
+            try:
+                conn_cb, _ = get_db_connection(db_url)
+                if conn_cb:
+                    cur_cb = conn_cb.cursor()
+                    try:
+                        from statmonitor.real_bankroll import evaluate_real_risk_guardrails
+                        cb_eval = evaluate_real_risk_guardrails(cur_cb)
+                        sl_info = cb_eval.get("stop_loss", sl_info)
+                        corr_info = cb_eval.get("correlations", corr_info)
+                    finally:
+                        cur_cb.close()
+                        conn_cb.close()
+            except Exception:
+                pass
+
             exp_ratio = (real_exposure / real_bal) if real_bal > 0 else 0.0
             exp_pct = min(100.0, exp_ratio * 100.0)
-            exp_clr = "#16A34A" if exp_pct <= 25.0 else ("#EAB308" if exp_pct <= 50.0 else "#DC2626")
+            exp_clr = "#16A34A" if exp_pct <= 15.0 else ("#EAB308" if exp_pct <= 20.0 else "#DC2626")
+
+            sl_badge = (
+                '<span style="background: #FEE2E2; color: #991B1B; font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 9999px;">🛑 STOP-LOSS АКТИВОВАНО</span>'
+                if sl_info.get("is_triggered") else
+                f'<span style="background: #DCFCE7; color: #166534; font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 9999px;">🟢 Норма ({sl_info.get("daily_pnl_uah", 0.0):+.0f} ₴ / -{sl_info.get("threshold_pct", 7.0):.0f}%)</span>'
+            )
+            corr_badge = (
+                f'<span style="background: #FEF3C7; color: #92400E; font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 9999px;">⚠️ Кореляція ({len(corr_info.get("correlated_matches", []))})</span>'
+                if corr_info.get("has_correlations") else
+                '<span style="background: #F1F5F9; color: #475569; font-size: 11px; font-weight: 500; padding: 2px 7px; border-radius: 9999px;">🟢 Чисто</span>'
+            )
 
             st.markdown(f"""
                 <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px; margin-bottom: 10px;">
-                    <div style="display: flex; justify-content: space-between; font-size: 12.5px; margin-bottom: 4px;">
-                        <span>🔒 <b>Задіяна експозиція:</b></span>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                        <span style="font-size: 12.5px; font-weight: 600; color: #0F172A;">🛑 Денний Stop-Loss (-7%):</span>
+                        {sl_badge}
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                        <span style="font-size: 12.5px; font-weight: 600; color: #0F172A;">🔗 Анти-кореляція:</span>
+                        {corr_badge}
+                    </div>
+                    <div style="display: flex; justify-content: space-between; font-size: 12px; margin-top: 8px; margin-bottom: 4px;">
+                        <span>🔒 <b>Експозиція (ліміт 20%):</b></span>
                         <span style="font-weight: 700; color: {exp_clr};">{real_exposure:,.2f} ₴ ({exp_pct:.1f}%)</span>
                     </div>
                     <div style="width: 100%; background: #E2E8F0; height: 8px; border-radius: 4px; overflow: hidden; margin-bottom: 8px;">
                         <div style="width: {exp_pct}%; background: {exp_clr}; height: 100%;"></div>
                     </div>
-                    <div style="display: flex; justify-content: space-between; font-size: 12px; color: #475569; border-top: 1px solid #E2E8F0; padding-top: 6px;">
+                    <div style="display: flex; justify-content: space-between; font-size: 11.5px; color: #475569; border-top: 1px solid #E2E8F0; padding-top: 6px;">
                         <span>💵 Вільний залишок коштів:</span>
                         <b>{free_real_balance:,.2f} ₴</b>
                     </div>
