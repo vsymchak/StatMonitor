@@ -239,3 +239,95 @@ def settle_real_bet_in_ledger(cur, conn, bet_id, status, profit_uah, stake_uah=N
         return ok, msg
     except Exception as e:
         return False, f"Помилка фіксації результату ставки в леджері: {e}"
+
+
+def prepare_real_stakes_batch(cur, bet_ids, fraction=0.10, min_stake=20.0, max_pct=0.05):
+    """
+    Підготовлює розрахунок розмірів ставок для списку bet_ids
+    строго від балансу реального банку (SPEC-34).
+    Повертає: (real_balance, proposals_list)
+    """
+    from statmonitor.novig import calculate_real_stake
+
+    cur.execute("SELECT balance_after_uah FROM real_bankroll_ledger ORDER BY created_at DESC, id DESC LIMIT 1;")
+    row_b = cur.fetchone()
+    real_balance = float(row_b[0]) if (row_b and row_b[0] is not None) else 0.0
+
+    if not bet_ids:
+        return real_balance, []
+
+    # Витягуємо інформацію про вибрані ставки
+    cur.execute("""
+        SELECT id, match_name, pick_label, odds, sport, kelly_pct, real_stake_uah, real_odds, is_real_bet
+        FROM paper_bets
+        WHERE id = ANY(%s) AND status = 'PENDING';
+    """, (list(bet_ids),))
+    rows = cur.fetchall()
+
+    proposals = []
+    for r in rows:
+        b_id, m_name, pick, odds, sport, k_pct, cur_r_stake, cur_r_odds, is_real = r
+        eff_odds = float(cur_r_odds or odds or 1.85)
+
+        # Розраховуємо суму від реального балансу
+        rec_stake, rec_pct, status_msg = calculate_real_stake(
+            eff_odds,
+            real_balance,
+            fraction=fraction,
+            min_stake=min_stake,
+            max_pct=max_pct
+        )
+
+        proposals.append({
+            "id": b_id,
+            "match_name": m_name,
+            "pick_label": pick,
+            "odds": eff_odds,
+            "sport": sport,
+            "real_balance": real_balance,
+            "recommended_stake": rec_stake,
+            "recommended_pct": rec_pct,
+            "current_real_stake": float(cur_r_stake) if cur_r_stake else rec_stake,
+            "is_real_bet": bool(is_real),
+            "status_msg": status_msg
+        })
+
+    return real_balance, proposals
+
+
+def apply_real_stakes_batch(cur, conn, bet_configs):
+    """
+    Пакетно оновлює ставки, переносячи їх у Реальний банк з визначеними сумами (SPEC-34).
+    bet_configs: список словників [{'id': 43, 'real_stake': 150.0, 'real_odds': 1.85}]
+    """
+    if not bet_configs:
+        return False, 0, 0.0, "Список ставок для перенесення порожній."
+
+    try:
+        updated_count = 0
+        total_staked = 0.0
+
+        for item in bet_configs:
+            b_id = item.get("id")
+            r_stake = float(item.get("real_stake") or 0.0)
+            r_odds = float(item.get("real_odds") or 0.0) if item.get("real_odds") else None
+
+            if not b_id or r_stake <= 0:
+                continue
+
+            ok, _ = toggle_real_bet(
+                cur, conn, b_id,
+                is_real=True,
+                real_stake=r_stake,
+                real_odds=r_odds
+            )
+            if ok:
+                updated_count += 1
+                total_staked += r_stake
+
+        conn.commit()
+        return True, updated_count, total_staked, f"Успішно перенесено {updated_count} ставок у Реальний банк на загальну суму {total_staked:,.2f} ₴."
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        return False, 0, 0.0, f"Помилка пакетного перенесення ставок: {e}"

@@ -1,8 +1,8 @@
 # Дорожня карта розвитку StatMonitor (SDD Roadmap)
 
-> **Статус**: 33 з 42 кроків реалізовано (33 Shipped, 5 Planned, 4 Idea) · Еволюція Waves 11 & 12 🚀  
+> **Статус**: 34 з 42 кроків реалізовано (34 Shipped, 4 Planned, 4 Idea) · Еволюція Waves 11 & 12 🚀  
 > **Оновлено**: 19.11.2026  
-> **Фокус**: Wave 11 Capital Safety, No-Vig Edge & Independent Real Bankroll Sizing
+> **Фокус**: Step 34 No-Vig Edge, Real Bank Staking & Independent Transfer Shipped!
 
 ---
 
@@ -260,7 +260,7 @@
 
 ### 34. No-Vig Fair Odds, De-vig Staking & Independent Real Bank Sizing
 * **Розмір**: M
-* **Статус**: 🟨 Planned
+* **Статус**: 🟩 Shipped
 * **Опис**: 
   - **Математичний No-Vig Edge**: зняття букмекерської маржі з двосторонньої лінії бенчмарків (Pinnacle/Betfair) $\rightarrow$ отримання справжньої ринкової ймовірності $p_{\text{fair}}$ $\rightarrow$ розрахунок очікуваного математичного очікування $EV = (odds_{\text{БК}} \times p_{\text{fair}}) - 1$. Якщо $EV \le 0$ — ставка вважається мінусовою і блокується (усунення "Steam Chasing").
   - **Незалежний розмір для Реального банку**: оскільки віртуальний банк (10 000 грн) та реальний банк (сформований реальними депозитами) мають різні розміри, розрахунок `real_stake_uah` відокремлюється від Paper-стейкінгу та прив'язується строго до актуального балансу `real_bankroll_ledger`.

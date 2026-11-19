@@ -1347,11 +1347,15 @@ def run_streamlit_app():
             p_disp["Маркет"] = p_disp.get("pick_label", "").apply(_clean_pick_label)
             p_disp["Коеф."] = p_disp["odds"].apply(lambda x: f"{float(x):.2f}" if x else "—")
             p_disp["ШІ Сигнал"] = p_disp.apply(_get_ai_score_badge, axis=1)
-            p_disp["Сума"] = p_disp["stake_uah"].apply(lambda x: f"{float(x):,.2f} ₴" if x else "—")
+            p_disp["Сума (Paper)"] = p_disp["stake_uah"].apply(lambda x: f"{float(x):,.2f} ₴" if x else "—")
+            p_disp["Сума (Real)"] = p_disp.apply(
+                lambda r: f"🟢 {float(r['real_stake_uah']):,.2f} ₴" if (r.get("is_real_bet") and r.get("real_stake_uah")) else "—",
+                axis=1
+            )
             p_disp["% банку (Келлі)"] = p_disp.apply(_get_kelly_badge, axis=1)
             p_disp["Результат"] = "⏳ В грі (Pending)"
 
-            cols_pending_show = [c for c in ["ID", "Час", "🟢 Real", "Турнір", "Подія", "Маркет", "Коеф.", "ШІ Сигнал", "% банку (Келлі)", "Сума", "Результат"] if c in p_disp.columns]
+            cols_pending_show = [c for c in ["ID", "Час", "🟢 Real", "Турнір", "Подія", "Маркет", "Коеф.", "ШІ Сигнал", "% банку (Келлі)", "Сума (Paper)", "Сума (Real)", "Результат"] if c in p_disp.columns]
 
             if is_admin and hasattr(st, "data_editor"):
                 st.caption("ℹ️ *Адміністратор:* відмічайте прапорець у колонці **🟢 Real**, щоб включити ставку в облік реальних грошей. Всі ставки завжди йдуть у Paper-трейдинг.")
@@ -1387,11 +1391,107 @@ def run_streamlit_app():
                                 from statmonitor.real_bankroll import toggle_real_bet
                                 for b_id, b_val in changed_list:
                                     toggle_real_bet(cur_chg, conn_chg, b_id, is_real=b_val)
-                                st.toast(f"✅ Статус ставки #{b_id} оновлено: {'🟢 Real' if b_val else '⚪ Paper'}", icon="💾")
+                                    if b_val:
+                                        st.session_state["show_real_stake_calc"] = True
+                                status_text = "🟢 Real" if b_val else "⚪ Paper"
+                                st.toast(f"✅ Статус ставки #{b_id} оновлено: {status_text}", icon="💾")
                                 st.rerun()
                             finally:
                                 cur_chg.close()
                                 conn_chg.close()
+
+                # SPEC-34: Кнопка переносу в Реальний банк та розрахунку ставок
+                all_checked_real_ids = [
+                    int(str(r.get("ID")).lstrip("#"))
+                    for r in (edited_p.to_dict("records") if edited_p is not None else p_disp.to_dict("records"))
+                    if bool(r.get("🟢 Real"))
+                ]
+
+                col_btn_calc, col_btn_cnt = st.columns([2.5, 1.5])
+                with col_btn_calc:
+                    btn_calc_lbl = f"⚡ Перенести в Реальні ставки & Розрахувати банк ({len(all_checked_real_ids)} обрано)"
+                    if st.button(btn_calc_lbl, key="btn_trigger_real_stake_calc_v1", type="primary" if all_checked_real_ids else "secondary", use_container_width=True):
+                        st.session_state["show_real_stake_calc"] = True
+
+                # SPEC-34: Блок розрахунку та фіксації ставок від реального депозиту
+                if st.session_state.get("show_real_stake_calc"):
+                    st.markdown("""
+                        <div style="background: #F0FDF4; border: 1.5px solid #86EFAC; border-radius: 10px; padding: 10px 14px; margin: 10px 0 14px 0;">
+                            <div style="font-weight: 700; color: #166534; font-size: 13.5px; margin-bottom: 2px;">
+                                💼 Розрахунок реальних ставок від фактичного капіталу (SPEC-34)
+                            </div>
+                            <div style="font-size: 11.5px; color: #374151;">
+                                Розмір ставки для обраних матчів розраховується <b>строго від актуального залишку Реального банку</b> (ультра-консервативний Келлі 0.10 × Kelly, макс. 5% на ставку).
+                            </div>
+                        </div>
+                    """, unsafe_allow_html=True)
+
+                    if not all_checked_real_ids:
+                        st.info("ℹ️ Будь ласка, відмітьте прапорцем **🟢 Real** хоча б одну ставку в таблиці вище для розрахунку.")
+                    else:
+                        conn_calc, _ = get_db_connection(db_url)
+                        if conn_calc:
+                            cur_calc = conn_calc.cursor()
+                            try:
+                                from statmonitor.real_bankroll import prepare_real_stakes_batch, apply_real_stakes_batch
+                                real_bal, proposals = prepare_real_stakes_batch(cur_calc, all_checked_real_ids)
+
+                                if real_bal <= 0:
+                                    st.error(f"❌ Реальний банк порожній ({real_bal:,.2f} ₴). Будь ласка, спочатку внесіть депозит у блоці «Каса реального банку» нижче.")
+                                else:
+                                    st.markdown(f"💰 **Поточний реальний баланс:** <code>{real_bal:,.2f} ₴</code>")
+                                    calc_configs = []
+                                    sum_calc_stakes = 0.0
+
+                                    for p in proposals:
+                                        c_m1, c_m2, c_m3, c_m4 = st.columns([3.0, 1.0, 1.5, 1.8])
+                                        with c_m1:
+                                            st.markdown(f"<b>#{p['id']}</b> {p['match_name']}<br><span style='font-size: 11px; color: #64748B;'>{p['pick_label']}</span>", unsafe_allow_html=True)
+                                        with c_m2:
+                                            st.markdown(f"Коеф: <b>{p['odds']:.2f}</b>", unsafe_allow_html=True)
+                                        with c_m3:
+                                            st.caption(f"Келлі: ~{p['recommended_pct']}% ({p['recommended_stake']:.0f} ₴)")
+                                        with c_m4:
+                                            user_stk = st.number_input(
+                                                "Сума (₴):",
+                                                min_value=10.0,
+                                                max_value=float(max(100.0, real_bal)),
+                                                value=float(p['current_real_stake'] or p['recommended_stake'] or 50.0),
+                                                step=10.0,
+                                                key=f"inp_r_stk_{p['id']}",
+                                                label_visibility="collapsed"
+                                            )
+                                            calc_configs.append({"id": p['id'], "real_stake": user_stk, "real_odds": p['odds']})
+                                            sum_calc_stakes += user_stk
+
+                                    tot_pct = round((sum_calc_stakes / real_bal) * 100.0, 1) if real_bal > 0 else 0.0
+                                    st.markdown(f"""
+                                        <div style="font-size: 12.5px; margin: 8px 0; color: #1E293B;">
+                                            <b>Загальна експозиція:</b> <code>{sum_calc_stakes:,.2f} ₴</code> 
+                                            ({tot_pct}% від реального капіталу)
+                                        </div>
+                                    """, unsafe_allow_html=True)
+
+                                    if tot_pct > 20.0:
+                                        st.warning(f"⚠️ Увага: загальна експозиція ({tot_pct}%) перевищує рекомендовані 20% від реального банку!")
+
+                                    col_save_stk, col_cancel_stk = st.columns([2.0, 1.0])
+                                    with col_save_stk:
+                                        if st.button("💾 Зафіксувати ставки в Реальному банку", key="btn_save_real_stakes_batch", type="primary", use_container_width=True):
+                                            ok_app, cnt_app, tot_app, msg_app = apply_real_stakes_batch(cur_calc, conn_calc, calc_configs)
+                                            if ok_app:
+                                                st.success(f"✅ {msg_app}")
+                                                st.session_state["show_real_stake_calc"] = False
+                                                st.rerun()
+                                            else:
+                                                st.error(f"❌ {msg_app}")
+                                    with col_cancel_stk:
+                                        if st.button("Скасувати", key="btn_cancel_real_stake_calc", use_container_width=True):
+                                            st.session_state["show_real_stake_calc"] = False
+                                            st.rerun()
+                            finally:
+                                cur_calc.close()
+                                conn_calc.close()
             else:
                 ro_disp = p_disp.copy()
                 ro_disp["🟢 Real"] = ro_disp["🟢 Real"].apply(lambda x: "🟢 Real" if x else "⚪ Paper")

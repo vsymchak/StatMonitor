@@ -1,6 +1,6 @@
 # Візуальна діаграма дорожньої карти (Roadmap diagram)
 
-**33 з 42 кроків реалізовано (33 Shipped, 5 Planned, 4 Idea)** · Детальний опис: [roadmap.md](roadmap.md)
+**34 з 42 кроків реалізовано (34 Shipped, 4 Planned, 4 Idea) · 162 Unit Tests** · Детальний опис: [roadmap.md](roadmap.md)
 
 > 🟩 **Реалізовано (Shipped)** · 🟧 **У розробці (In Progress)** · 🟪 **Заплановано (Idea)** · ⬜ **Концепт (Fog)**  
 > Колонки — це послідовні хвилі виконання (**Execution Waves**). Стрілка показує залежність («потрібен для»).
@@ -76,7 +76,7 @@ flowchart LR
     end
 
     subgraph Wave11["Хвиля 11: Захист капіталу & No-Vig Edge"]
-        34["34 · No-Vig Edge & Real Bank Staking<br><small>De-vig fair odds, перенос ставок</small><br><b>M</b>"]:::in_progress
+        34["34 · No-Vig Edge & Real Bank Staking<br><small>De-vig fair odds, перенос ставок</small><br><b>M</b>"]:::shipped
         35["35 · Shadow-ставки (FILTERED)<br><small>A/B бектест корисності AI</small><br><b>S</b>"]:::in_progress
         36["36 · Risk Guardrails Real Bank<br><small>Stop-Loss & Max Exposure</small><br><b>S</b>"]:::in_progress
         37["37 · Walkaway Odds у Telegram<br><small>Мінімальний кеф для входу</small><br><b>S</b>"]:::in_progress
@@ -223,7 +223,7 @@ flowchart LR
 | **31** | **Гра на реальні гроші & Bet Slip OCR** | `M` | 🟩 Shipped | Паралельний облік реальних грошей через фінансовий леджер (депозити, старт з 0 ₴), інтерактивний інлайн-чекбокс 🟢 Real у таблиці активних ставок, Gemini Vision OCR купонів та ручний розрахунок в адмінці. |
 | **32** | **Smart 5-хв Gate (Self-Scheduled)** | `S` | 🟩 Shipped | Відмова від сторонніх сервісів: GitHub Actions кожні 5 хв + програмний шлюз у коді (вікно ±15 хв, розрахунок через 85 хв, periodic 80 хв). При відсутності дій — вихід за 1 сек без витрат квот. |
 | **33** | **Реорганізація UI: Активні та Історія** | `S` | 🟩 Shipped | Сегментація одразу під графіками, заміна журналу на повнорозмірні активні ставки з редагуванням кефів, та окрема таблиця «Історія ставок». |
-| **34** | **No-Vig Edge & Real Bank Staking** | `M` | 🟨 Planned | Розрахунок fair-ймовірностей без маржі з Pinnacle, відсікання -EV та незалежний розрахунок суми ставки від реального депозиту з кнопкою переносу. |
+| **34** | **No-Vig Edge & Real Bank Staking** | `M` | 🟩 Shipped | Розрахунок fair-ймовірностей без маржі з Pinnacle, відсікання -EV та незалежний розрахунок суми ставки від реального депозиту з кнопкою переносу. |
 | **35** | **Shadow-ставки (FILTERED)** | `S` | 🟨 Planned | Збереження відсіяних AI та порогами ліг матчів як тіньових ставок для A/B перевірки корисності моделей на дашборді. |
 | **36** | **Risk Guardrails Real Bank** | `S` | 🟨 Planned | Автоматичний денний Stop-Loss ($\ge 7\%$), ліміт максимальної одночасної експозиції (15–20% від депозиту) та захист від кореляцій. |
 | **37** | **Walkaway Odds у Telegram** | `S` | 🟨 Planned | Індикація у сповіщеннях Telegram мінімально допустимого коефіцієнта для входу (`🎯 Ставити, поки коеф ≥ X.XX`) для захисту від просідання. |
