@@ -50,7 +50,7 @@ def check_alerts_and_notify(sports_map, t_start=None):
     ai_tm = pick(ai_cols, ("created_at", "updated_at", "recorded_at"))
 
     kyiv_now = datetime.now(KYIV_TZ)
-    send_tg(f"✅ коеф. {kyiv_now.strftime('%d.%m.%Y')} оновлено в {kyiv_now.strftime('%H:%M')}")
+    print(f"ℹ️ [Pipeline] Коефіцієнти оновлено о {kyiv_now.strftime('%d.%m.%Y %H:%M')}")
 
     from statmonitor.league_config import get_league_thresholds, load_leagues_config
     leagues_cfg = load_leagues_config()
@@ -230,11 +230,13 @@ def check_alerts_and_notify(sports_map, t_start=None):
     try:
         from scheduler import run_schedule_update, mark_checkpoints_executed
         mark_checkpoints_executed(cur, conn)
-        sched_msg = run_schedule_update(cur, conn)
-        if sched_msg:
-            send_tg(sched_msg)
+        run_schedule_update(cur, conn)
     except Exception as e:
         print(f"Помилка динамічного розкладу: {e}")
+        try:
+            send_tg(f"⚠️ <b>Помилка розкладу:</b> {esc(str(e))}")
+        except Exception:
+            pass
 
     # 7. Запис пульсу сервісу (SPEC-09)
     try:

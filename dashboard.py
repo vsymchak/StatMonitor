@@ -1232,6 +1232,73 @@ def run_streamlit_app():
                                 finally:
                                     cur_edit.close()
                                     conn_edit.close()
+
+                with st.expander("⚖️ Ручний розрахунок результату ставки (Manual Settle)", expanded=False):
+                    settle_options = {}
+                    for _, r_bet in pending_df.iterrows():
+                        c_time_str = format_kyiv_time(r_bet.get('commence_time'))
+                        time_badge = f" [🕒 {c_time_str}]" if c_time_str else ""
+                        stk_val = float(r_bet.get('stake_uah', 0) or 0)
+                        s_lbl = f"ID #{r_bet['id']} | {r_bet.get('match_name', '')} ({r_bet.get('pick_label', '')}){time_badge} — {stk_val:.2f} ₴ | Коеф: {float(r_bet.get('odds', 0)):.2f}"
+                        settle_options[s_lbl] = r_bet["id"]
+
+                    sel_s_lbl = st.selectbox("Оберіть активну ставку для розрахунку:", list(settle_options.keys()), key="sel_settle_bet_admin_v3")
+                    sel_s_id = settle_options[sel_s_lbl]
+                    cur_bet_info = pending_df[pending_df["id"] == sel_s_id].iloc[0]
+
+                    st.markdown(f"""
+                        <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 10px; margin-bottom: 12px; font-size: 13px;">
+                            <b>Подія:</b> {cur_bet_info.get('match_name', '—')} &nbsp;|&nbsp;
+                            <b>Маркет:</b> {cur_bet_info.get('pick_label', '—')} &nbsp;|&nbsp;
+                            <b>Коеф:</b> {float(cur_bet_info.get('odds', 0)):.2f} &nbsp;|&nbsp;
+                            <b>Сума:</b> {float(cur_bet_info.get('stake_uah', 0)):,.2f} ₴
+                        </div>
+                    """, unsafe_allow_html=True)
+
+                    col_st1, col_st2, col_st3 = st.columns([2.5, 2.5, 2])
+                    with col_st1:
+                        score_val = st.text_input("Рахунок матчу (напр. 0:2, 2:1, 108:95):", placeholder="0:2", key="txt_settle_score_v3")
+                    with col_st2:
+                        status_mode = st.selectbox(
+                            "Статус результату:",
+                            ["Автоматично за рахунком", "✅ WON (Виграш)", "❌ LOST (Програш)", "🔄 VOID (Повернення)"],
+                            key="sel_settle_status_v3"
+                        )
+                    with col_st3:
+                        st.write("")
+                        st.write("")
+                        if st.button("⚖️ Розрахувати ставку", key="btn_apply_settle_v3", use_container_width=True):
+                            forced_res = None
+                            if "WON" in status_mode:
+                                forced_res = "WON"
+                            elif "LOST" in status_mode:
+                                forced_res = "LOST"
+                            elif "VOID" in status_mode:
+                                forced_res = "VOID"
+
+                            final_score = score_val.strip() if score_val.strip() else ("—" if forced_res else "")
+                            if not final_score and not forced_res:
+                                st.warning("⚠️ Введіть рахунок матчу або оберіть статус (WON/LOST/VOID).")
+                            else:
+                                conn_set, err_set = get_db_connection(db_url)
+                                if conn_set:
+                                    cur_set = conn_set.cursor()
+                                    try:
+                                        from statmonitor.paper_trading import manual_settle_bet
+                                        ok_set, msg_set = manual_settle_bet(cur_set, conn_set, sel_s_id, final_score or "—", forced_status=forced_res)
+                                        if ok_set:
+                                            st.success(f"✅ {msg_set}")
+                                            try:
+                                                from statmonitor.notifier import send_tg
+                                                send_tg(f"⚖️ <b>Ставку #{sel_s_id} розраховано вручну через адмінку:</b>\n{msg_set}")
+                                            except Exception:
+                                                pass
+                                            st.rerun()
+                                        else:
+                                            st.error(f"❌ {msg_set}")
+                                    finally:
+                                        cur_set.close()
+                                        conn_set.close()
         else:
             st.info("ℹ️ Немає активних ставок у грі.")
 
