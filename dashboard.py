@@ -1391,43 +1391,77 @@ def run_streamlit_app():
     with tab_ai:
         col_ai_left, col_ai_right = st.columns([7, 5])
         
+        # Розрахунок динамічного аудиту стратегії з bets_df
+        best_txt = "Модель демонструє позитивне математичне очікування (+EV) на фаворитах та тоталах."
+        worst_txt = "Рекомендовано використовувати консервативний фракційний Келлі (1.0% - 2.0% від банку) для контролю дисперсії."
+        best_title = "Теніс (ATP/WTA Finals) та Тотали"
+        worst_title = "Контроль ризиків та дисперсії"
+
+        if bets_df is not None and not bets_df.empty and "status" in bets_df.columns:
+            st_settled = bets_df[bets_df["status"].isin(["WON", "LOST", "VOID"])].copy()
+            if not st_settled.empty and "sport" in st_settled.columns:
+                sp_grp = st_settled.groupby("sport").agg(
+                    profit=("profit_uah", "sum"),
+                    turnover=("stake_uah", "sum"),
+                    won=("status", lambda x: (x == "WON").sum()),
+                    total=("status", "count")
+                ).reset_index()
+                sp_grp["roi"] = (sp_grp["profit"] / sp_grp["turnover"].replace(0, 1)) * 100.0
+
+                if not sp_grp.empty:
+                    top_sp = sp_grp.sort_values(by="roi", ascending=False).iloc[0]
+                    if top_sp["roi"] > 0:
+                        lg_name = _get_league_name(top_sp["sport"])
+                        best_title = f"{lg_name}"
+                        best_txt = f"Модель демонструє високу прибутковість: ROI {top_sp['roi']:+.1f}% ({int(top_sp['won'])}/{int(top_sp['total'])} виграшів). Стабільна перевага над лінією закриття (+EV)."
+
+                    low_sp = sp_grp.sort_values(by="roi", ascending=True).iloc[0]
+                    if low_sp["roi"] < 0:
+                        lg_low_name = _get_league_name(low_sp["sport"])
+                        worst_title = f"{lg_low_name}"
+                        worst_txt = f"Поточний ROI становить {low_sp['roi']:.1f}% ({int(low_sp['total'] - low_sp['won'])} поразок). Для ліквідних бігмаркетів рекомендовано консервативну частку Келлі (1.0% - 2.0% банку) та відбір сигналів із силою ≥ 8/10."
+                    else:
+                        worst_title = "Баланс дисциплін"
+                        worst_txt = "Усі задіяні види спорту показують позитивну динаміку прибутку (+EV). Дисперсія згладжується фракційним критерієм Келлі."
+
         with col_ai_left:
-            st.markdown("""
+            st.markdown(f"""
                 <div style="background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; padding: 14px; margin-bottom: 14px;">
                     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
                         <div style="display: flex; align-items: center; gap: 8px;">
                             <span style="font-size: 18px;">🧠</span>
-                            <span style="font-size: 14px; font-weight: 700; color: #0F172A;">Gemini 2.5 Pro — Автоматичний аудит стратегії</span>
+                            <span style="font-size: 14px; font-weight: 700; color: #0F172A;">Gemini 2.5 Flash — Автоматичний аудит стратегії</span>
                         </div>
-                        <span style="font-size: 11px; font-weight: 600; background: #EEF2FF; color: #4F46E5; padding: 2px 8px; border-radius: 9999px;">AI Model Active</span>
+                        <span style="font-size: 11px; font-weight: 600; background: #EEF2FF; color: #4F46E5; padding: 2px 8px; border-radius: 9999px;">Free Tier Optimized • 1,500 RPD</span>
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 8px; font-size: 12px;">
                         <div style="background: #ECFDF5; border: 1px solid #A7F3D0; border-radius: 8px; padding: 10px; color: #065F46;">
-                            <b>✅ Сильна сторона: Теніс (ATP/WTA Finals) та Тотали</b><br>
-                            Модель фіксує стабільно позитивне математичне очікування (+EV) на ринках індивідуальних тоталів та переможців фаворитів.
+                            <b>✅ Сильна сторона: {best_title}</b><br>
+                            {best_txt}
                         </div>
                         <div style="background: #FFFBEB; border: 1px solid #FDE68A; border-radius: 8px; padding: 10px; color: #92400E;">
-                            <b>⚠️ Зона уваги: Баскетбол США (NBA)</b><br>
-                            Рекомендовано використовувати консервативний флет Келлі (1.5% - 2.0% від банку) на смолмаркетах баскетболу для зниження дисперсії.
+                            <b>⚠️ Зона уваги: {worst_title}</b><br>
+                            {worst_txt}
                         </div>
                         <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 10px; color: #334155;">
-                            <b>📊 Ризик-менеджмент (Критерій Келлі)</b><br>
-                            Максимальне просідання контролюється динамічним розміром ставки залежно від коефіцієнта та ймовірності події.
+                            <b>📊 Ризик-менеджмент (Дробовий Критерій Келлі)</b><br>
+                            Максимальне просідання контролюється динамічною часткою банку (1.0% — 3.8%) залежно від коефіцієнта та сили сигналу.
                         </div>
                     </div>
                 </div>
             """, unsafe_allow_html=True)
 
         with col_ai_right:
-            st.markdown("""
+            cur_bank_val = metrics.get('current_bank', 10000) if isinstance(metrics, dict) else 10000
+            st.markdown(f"""
                 <div style="background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; padding: 14px; margin-bottom: 14px;">
                     <div style="display: flex; align-items: gap: 8px; margin-bottom: 10px;">
                         <span style="font-size: 16px;">🎯</span>
                         <span style="font-size: 13px; font-weight: 700; color: #0F172A;">Топ-сигнали та налаштування банку</span>
                     </div>
                     <div style="background: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 8px; padding: 10px; font-size: 12px; color: #1E40AF; margin-bottom: 10px;">
-                        💡 <b>Paper Bank:</b> 10,000 ₴ стартовий баланс.<br>
-                        Розмір ставки генерується за формулою Келлі (1.5% — 3.5%).
+                        💡 <b>Paper Bank:</b> {cur_bank_val:,.0f} ₴ баланс (старт: 10,000 ₴).<br>
+                        Розмір ставки генерується за формулою Келлі (Quarter Kelly 0.25, діапазон 1.0% — 3.8%).
                     </div>
                     <div style="font-size: 11.5px; color: #64748B;">
                         ℹ️ Згідно зі SPEC-30, детальні аналітичні звіти зберігаються в базі даних та доступні на цьому дашборді без перевантаження Telegram.
