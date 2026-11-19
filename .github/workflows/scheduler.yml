@@ -1,11 +1,11 @@
 name: StatMonitor Auto Check
 
 on:
-  # Smart Self-Scheduled Executor (кожні 5 хв: 00, 05, 10, 15, 20...)
+  # Smart Self-Scheduled Executor (кожні 15 хв: 00, 15, 30, 45, ...)
   # Програмний шлюз (Smart Gate) у main.py перевіряє таблицю scheduler_plan:
   # якщо немає активних точок (±15 хв) або розрахунків, запуск завершується за 1 сек без витрат квоти.
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '*/15 * * * *'
   # Високоточний миттєвий запуск через Webhook / UI Дашборд / Ручний запуск
   workflow_dispatch:
     inputs:
