@@ -7,8 +7,8 @@
 ## 🗺 Документація та архітектура
 
 * 🏛 **[Візуальна архітектура системи (docs/architecture.md)](docs/architecture.md)** — детальна C4-схема компонентів, модульний пакет `statmonitor/`, потік даних від тригеру до Telegram та Web UI, діаграма бази даних (ERD).
-* 📊 **[Діаграма дорожньої карти SDD (docs/roadmap-diagram.md)](docs/roadmap-diagram.md)** — візуальний прогрес виконання завдань по хвилях (Wave 1–10).
-* 📋 **[Реєстр дорожньої карти (docs/roadmap.md)](docs/roadmap.md)** — повний список 33 кроків еволюції системи за методологією Spec-Driven Development (33 реалізовано, 0 заплановано).
+* 📊 **[Діаграма дорожньої карти SDD (docs/roadmap-diagram.md)](docs/roadmap-diagram.md)** — візуальний прогрес виконання завдань по хвилях (Wave 1–12).
+* 📋 **[Реєстр дорожньої карти (docs/roadmap.md)](docs/roadmap.md)** — повний список 42 кроків еволюції системи за методологією Spec-Driven Development (33 реалізовано, 5 заплановано у Wave 11, 4 у Wave 12).
 * 🧾 **[Специфікація SPEC-31: Real Money Mode & Bet Slip OCR (specs/31-real-money-betting-ocr/specification.md)](specs/31-real-money-betting-ocr/specification.md)** — архітектура подвійного банкролу, фінансового леджера та Gemini Vision OCR.
 * ⚡ **[Налаштування Cloudflare Cron (docs/cloudflare_cron_setup.md)](docs/cloudflare_cron_setup.md)** — конфігурація безсерверного запуску на edge-інфраструктурі Cloudflare.
 
