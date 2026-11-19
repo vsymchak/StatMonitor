@@ -309,12 +309,12 @@ def fetch_data(db_url):
         try:
             from scheduler import ensure_scheduler_tables, run_schedule_update
             ensure_scheduler_tables(cur, conn)
-            sched_data = query_to_dataframe(cur, "SELECT * FROM scheduler_plan ORDER BY target_time ASC LIMIT 50;")
+            sched_data = query_to_dataframe(cur, "SELECT * FROM scheduler_plan WHERE target_time >= NOW() - INTERVAL '6 hours' ORDER BY target_time ASC LIMIT 50;")
             
             if (isinstance(sched_data, pd.DataFrame) and sched_data.empty) or (isinstance(sched_data, list) and not sched_data):
                 try:
                     run_schedule_update(cur, conn)
-                    sched_data = query_to_dataframe(cur, "SELECT * FROM scheduler_plan ORDER BY target_time ASC LIMIT 50;")
+                    sched_data = query_to_dataframe(cur, "SELECT * FROM scheduler_plan WHERE target_time >= NOW() - INTERVAL '6 hours' ORDER BY target_time ASC LIMIT 50;")
                 except Exception as se:
                     print("Auto schedule init err:", se)
         except Exception as e:
@@ -1617,11 +1617,21 @@ def run_streamlit_app():
             if df_sched is not None and not df_sched.empty:
                 disp_sc_df = df_sched.copy()
                 if "target_time" in disp_sc_df.columns:
-                    disp_sc_df["Час запуску (Київ)"] = disp_sc_df["target_time"].apply(format_kyiv_time)
-                if "executed_at" in disp_sc_df.columns:
-                    disp_sc_df["Виконано (Київ)"] = disp_sc_df["executed_at"].apply(format_kyiv_time)
-                disp_sc = [c for c in ["Час запуску (Київ)", "trigger_type", "description", "status", "Виконано (Київ)"] if c in disp_sc_df.columns]
-                st.dataframe(disp_sc_df[disp_sc], use_container_width=True, hide_index=True)
+                    try:
+                        t_cutoff = pd.Timestamp.now(tz="UTC") - pd.Timedelta(hours=6)
+                        t_parsed = pd.to_datetime(disp_sc_df["target_time"], utc=True)
+                        disp_sc_df = disp_sc_df[t_parsed >= t_cutoff].copy()
+                    except Exception:
+                        pass
+                if not disp_sc_df.empty:
+                    if "target_time" in disp_sc_df.columns:
+                        disp_sc_df["Час запуску (Київ)"] = disp_sc_df["target_time"].apply(format_kyiv_time)
+                    if "executed_at" in disp_sc_df.columns:
+                        disp_sc_df["Виконано (Київ)"] = disp_sc_df["executed_at"].apply(format_kyiv_time)
+                    disp_sc = [c for c in ["Час запуску (Київ)", "trigger_type", "description", "status", "Виконано (Київ)"] if c in disp_sc_df.columns]
+                    st.dataframe(disp_sc_df[disp_sc], use_container_width=True, hide_index=True)
+                else:
+                    st.info("ℹ️ Немає актуальних точок розкладу за останні 6 годин.")
             else:
                 st.info("ℹ️ Точки розкладу ще не сформовані.")
 
