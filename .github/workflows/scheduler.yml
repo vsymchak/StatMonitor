@@ -1,10 +1,12 @@
 name: StatMonitor Auto Check
 
 on:
-  # Резервний регулярний розклад GitHub Actions (кожні 15 хв: 00, 15, 30, 45)
+  # Smart Self-Scheduled Executor (кожні 5 хв: 00, 05, 10, 15, 20...)
+  # Програмний шлюз (Smart Gate) у main.py перевіряє таблицю scheduler_plan:
+  # якщо немає активних точок (±15 хв) або розрахунків, запуск завершується за 1 сек без витрат квоти.
   schedule:
-    - cron: '*/15 * * * *'
-  # Високоточний миттєвий запуск через Webhook / Cloudflare Worker / UI Дашборд
+    - cron: '*/5 * * * *'
+  # Високоточний миттєвий запуск через Webhook / UI Дашборд / Ручний запуск
   workflow_dispatch:
     inputs:
       trigger_source:
@@ -40,6 +42,6 @@ jobs:
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          TRIGGER_SOURCE: ${{ github.event.inputs.trigger_source || 'external_webhook' }}
+          TRIGGER_SOURCE: ${{ github.event.inputs.trigger_source || (github.event_name == 'schedule' && 'cron_5m' || 'manual') }}
         run: |
           python -u main.py

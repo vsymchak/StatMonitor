@@ -1,6 +1,6 @@
 # Візуальна діаграма дорожньої карти (Roadmap diagram)
 
-**29 з 31 кроків реалізовано (29 Shipped, 2 Planned)** · Детальний опис: [roadmap.md](roadmap.md)
+**31 з 32 кроків реалізовано (31 Shipped, 1 Planned)** · Детальний опис: [roadmap.md](roadmap.md)
 
 > 🟩 **Реалізовано (Shipped)** · 🟧 **У розробці (In Progress)** · 🟪 **Заплановано (Idea)** · ⬜ **Концепт (Fog)**  
 > Колонки — це послідовні хвилі виконання (**Execution Waves**). Стрілка показує залежність («потрібен для»).
@@ -65,8 +65,9 @@ flowchart LR
 
     subgraph Wave9["Хвиля 9: Розширена аналітика та дайджести"]
         24["24 · Аналітика ROI ліг & Drawdown<br><small>Фільтри, Max Drawdown %</small><br><b>M</b>"]:::shipped
-        25["25 · Керування порогами в UI<br><small>Admin налаштування leagues.json</small><br><b>S</b>"]:::shipped
+        25["25 · Керування лігами & Rate-Limiter<br><small>Admin групування за видами спорту</small><br><b>S</b>"]:::shipped
         26["26 · Щотижневий графічний дайджест<br><small>Sunday Telegram Digest</small><br><b>S</b>"]:::shipped
+        32["32 · Smart 5-хв Gate (Self-Scheduled)<br><small>GitHub 5m + програмний шлюз</small><br><b>S</b>"]:::shipped
     end
 
     subgraph Wave10["Хвиля 10: Реальний трейдинг та Bet Slip OCR"]
@@ -137,6 +138,8 @@ flowchart LR
     4 --> 26
     7 --> 26
     20 --> 26
+    8 --> 32
+    11 --> 32
 
     %% Wave 10 connections
     6 --> 31
@@ -182,3 +185,4 @@ flowchart LR
 | **29** | **Cloudflare Cron & Фільтр шуму** | `S` | 🟩 Shipped | Секундний запуск Cloudflare Cron (`*/20 * * * *`), фокус PRE_MATCH точок тільки на ставках, нічна тиша (00:00–08:00) та усунення спаму Watchdog. |
 | **30** | **Оптимізація TG & Silent AI** | `S` | 🟩 Shipped | Збереження повних AI-вердиктів Gemini у базі даних без перевантаження Telegram, посилання на Guest Web UI та захист від спаму повторними ставками. |
 | **31** | **Гра на реальні гроші & Bet Slip OCR** | `M` | 🟪 Idea | Можливість гри на реальні гроші (UAH), введення реального банку, відмічання реальних ставок, завантаження фото купона БК в адмінці/TG та авторозпізнавання через Gemini Vision. |
+| **32** | **Smart 5-хв Gate (Self-Scheduled)** | `S` | 🟩 Shipped | Відмова від сторонніх сервісів: GitHub Actions кожні 5 хв + програмний шлюз у коді (вікно ±15 хв, розрахунок через 85 хв, periodic 80 хв). При відсутності дій — вихід за 1 сек без витрат квот. |

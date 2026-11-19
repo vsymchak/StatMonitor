@@ -283,6 +283,103 @@ def run_schedule_update(cur, conn):
         print(f"Schedule update err: {e}")
         return ""
 
+def should_execute_pipeline(cur, conn, trigger_source="manual", now_utc=None):
+    """
+    Визначає, чи повинен StatMonitor запускати повний цикл збору лінії The Odds API та аналітики Gemini.
+    Дозволяє запускати GitHub Actions кожні 5 хвилин без марнотратства квоти.
+    
+    Повертає: (should_run: bool, reason: str, run_mode: str)
+      - should_run: True якщо запуск необхідний, False якщо це холостий тік
+      - reason: опис причини запуску або пропуску
+      - run_mode: 'FORCE', 'PRE_MATCH', 'SETTLE', 'DISCOVERY', або 'SKIP'
+    """
+    if now_utc is None:
+        now_utc = datetime.now(timezone.utc)
+
+    src = (trigger_source or "manual").lower().strip()
+
+    # 1. Форсовані або ручні тригери (кнопка в Dashboard, webhook, CLI --force)
+    if src in ("manual", "dashboard_button", "force", "external_webhook", "webhook", "ci_test"):
+        return True, f"Прямий або ручний запуск ({src})", "FORCE"
+
+    if cur is None or conn is None:
+        return True, "Відсутнє з'єднання з БД (безпечний аварійний запуск)", "FORCE"
+
+    ensure_scheduler_tables(cur, conn)
+
+    # 2. Контрольні точки у scheduler_plan:
+    # Чи є запланована точка (PRE_MATCH або SETTLE), цільовий час якої потрапляє у поточне вікно?
+    # Вікно: від (now - 25 хв) до (now + 7 хв) — покриває затримку виконання Actions
+    t_past = now_utc - timedelta(minutes=25)
+    t_future = now_utc + timedelta(minutes=7)
+
+    cur.execute("""
+        SELECT id, trigger_type, description, target_time 
+        FROM scheduler_plan 
+        WHERE status = 'PLANNED' AND target_time >= %s AND target_time <= %s
+        ORDER BY target_time ASC
+        LIMIT 1;
+    """, (t_past, t_future))
+    checkpoint = cur.fetchone()
+
+    if checkpoint:
+        c_id, trig_type, desc, t_target = checkpoint
+        return True, f"Контрольна точка розкладу [{trig_type}]: {desc}", trig_type
+
+    # 3. Перевірка завершених матчів для розрахунку ставок (SETTLE):
+    # Якщо є активна ставка у paper_bets, матч якої почався > 85 хв тому, розраховуємо негайно!
+    cur.execute("""
+        SELECT id, match_name, commence_time 
+        FROM paper_bets 
+        WHERE status = 'PENDING' AND commence_time < NOW() - INTERVAL '85 minutes'
+        ORDER BY commence_time ASC
+        LIMIT 1;
+    """)
+    due_settle = cur.fetchone()
+    if due_settle:
+        b_id, m_name, c_t = due_settle
+        return True, f"Матч завершено ({m_name}), очікує негайного розрахунку", "SETTLE"
+
+    # 4. Періодичний фоновий скан (Discovery Heartbeat):
+    # Якщо не було повного сканування понад 80 хвилин, виконуємо оновлення ліній і розкладу
+    cur.execute("""
+        SELECT last_ping_at 
+        FROM system_heartbeat 
+        WHERE service_name = 'scheduler_run';
+    """)
+    hb_row = cur.fetchone()
+    if not hb_row or hb_row[0] is None:
+        return True, "Перший запуск (пульс сервісу відсутній)", "DISCOVERY"
+
+    last_ping = hb_row[0]
+    if last_ping.tzinfo is None:
+        last_ping = last_ping.replace(tzinfo=timezone.utc)
+
+    minutes_since_ping = (now_utc - last_ping).total_seconds() / 60.0
+    if minutes_since_ping >= 80.0:
+        return True, f"Періодичний скан ліній (минуло {int(minutes_since_ping)} хв з останнього опитування)", "DISCOVERY"
+
+    # 5. Якщо жодна умова не спрацювала — це холостий тік. Пропускаємо без витрат квоти!
+    cur.execute("""
+        SELECT target_time, description 
+        FROM scheduler_plan 
+        WHERE status = 'PLANNED' AND target_time > %s
+        ORDER BY target_time ASC 
+        LIMIT 1;
+    """, (now_utc,))
+    next_pt = cur.fetchone()
+
+    if next_pt:
+        nxt_t, nxt_desc = next_pt
+        if nxt_t.tzinfo is None:
+            nxt_t = nxt_t.replace(tzinfo=timezone.utc)
+        nxt_str = nxt_t.astimezone(KYIV_TZ).strftime("%d.%m %H:%M")
+        reason = f"Немає завдань у поточному вікні. Найближча точка: {nxt_str} ({nxt_desc})"
+    else:
+        reason = "Немає запланованих контрольних точок у найближчій перспективі."
+
+    return False, reason, "SKIP"
+
 if __name__ == "__main__":
     conn = get_db()
     if not conn:

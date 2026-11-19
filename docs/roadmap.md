@@ -1,8 +1,8 @@
 # Дорожня карта розвитку StatMonitor (SDD Roadmap)
 
-> **Статус**: 29 з 31 кроків реалізовано (29 Shipped, 2 Planned) · Еволюція Waves 8, 9 & 10 🎉  
-> **Оновлено**: 18.11.2026  
-> **Фокус**: Cloudflare Edge Cron (Zero Delay) + Scheduler Noise Elimination & Night Silence + Odds Quota & Tennis Discovery
+> **Статус**: 31 з 32 кроків реалізовано (31 Shipped, 1 Planned) · Еволюція Waves 8, 9 & 10 🎉  
+> **Оновлено**: 19.11.2026  
+> **Фокус**: Smart 5-min Self-Scheduled Executor + Grouped League Management (Zero DB Lock) + Settlement Acceleration (85 min)
 
 ---
 
@@ -222,6 +222,12 @@
 * **Статус**: 🟩 Shipped
 * **Опис**: Автоматичний фоновий тригер щонеділі о 22:00 (та команда `/digest`), що генерує та надсилає у Telegram тижневий підсумок: графік зміни капіталу за 7 днів (Matplotlib у пам'яті), топ-3 найбільш прибуткових ставок, показник середнього CLV та загальний ROI тижня.
 * **Залежності**: потрібен крок 4, потрібен крок 7, потрібен крок 20
+
+### 32. Smart 5-minute Self-Scheduled Executor (Programmatic Checkpoint Gating)
+* **Розмір**: S
+* **Статус**: 🟩 Shipped
+* **Опис**: Відмова від залежності від сторонніх сервісів запуску (Cloudflare Workers, cron-job) на користь нативного внутрішнього 5-хвилинного циклу GitHub Actions (`cron: '*/5 * * * *'`) із програмним шлюзом `should_execute_pipeline` у `scheduler.py` та `main.py`. Алгоритм перевіряє таблицю `scheduler_plan` на наявність точок розкладу у вікні $[-25, +7]$ хвилин, наявність ставок для розрахунку (матчі стартували $\ge 85$ хв тому) та періодичний скан ($> 80$ хв). Якщо дій немає, процес безпечно завершується за 1-2 секунди з нульовими витратами квоти The Odds API та Gemini.
+* **Залежності**: потрібен крок 8, потрібен крок 9, потрібен крок 11
 
 ---
 

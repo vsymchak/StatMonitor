@@ -89,10 +89,78 @@ def test_mark_checkpoints_executed():
     assert "UPDATE scheduler_plan" in cur.queries[0][0]
     assert "SET status = 'EXECUTED'" in cur.queries[0][0]
 
+def test_should_execute_pipeline():
+    from scheduler import should_execute_pipeline
+
+    class SmartMockCursor:
+        def __init__(self, checkpoint=None, due_settle=None, last_ping=None, next_point=None):
+            self.checkpoint = checkpoint
+            self.due_settle = due_settle
+            self.last_ping = last_ping
+            self.next_point = next_point
+            self.last_query = ""
+
+        def execute(self, q, params=None):
+            self.last_query = q
+
+        def fetchone(self):
+            if "FROM scheduler_plan" in self.last_query and "target_time >=" in self.last_query:
+                return self.checkpoint
+            if "FROM paper_bets" in self.last_query:
+                return self.due_settle
+            if "FROM system_heartbeat" in self.last_query:
+                return (self.last_ping,) if self.last_ping else None
+            if "FROM scheduler_plan" in self.last_query and "target_time >" in self.last_query:
+                return self.next_point
+            return None
+
+    class MockConn:
+        def commit(self): pass
+
+    # 1. Ручний запуск завжди виконується
+    run, reason, mode = should_execute_pipeline(None, None, trigger_source="manual")
+    assert run is True
+    assert mode == "FORCE"
+
+    # 2. cron_5m з контрольною точкою розкладу (PRE_MATCH)
+    cur = SmartMockCursor(
+        checkpoint=(1, "PRE_MATCH", "Перед грою Arsenal", datetime.now(timezone.utc)),
+    )
+    run, reason, mode = should_execute_pipeline(cur, MockConn(), trigger_source="cron_5m")
+    assert run is True
+    assert mode == "PRE_MATCH"
+
+    # 3. cron_5m з матчем, готовим до розрахунку (SETTLE)
+    cur = SmartMockCursor(
+        due_settle=(10, "Arsenal - Chelsea", datetime.now(timezone.utc) - timedelta(minutes=90))
+    )
+    run, reason, mode = should_execute_pipeline(cur, MockConn(), trigger_source="cron_5m")
+    assert run is True
+    assert mode == "SETTLE"
+
+    # 4. cron_5m з періодичним оновленням ліній (>80 хв)
+    cur = SmartMockCursor(
+        last_ping=datetime.now(timezone.utc) - timedelta(minutes=95)
+    )
+    run, reason, mode = should_execute_pipeline(cur, MockConn(), trigger_source="cron_5m")
+    assert run is True
+    assert mode == "DISCOVERY"
+
+    # 5. cron_5m без подій та зі свіжим сервісом -> холостий тік (SKIP, 0 витрат квоти)
+    cur = SmartMockCursor(
+        last_ping=datetime.now(timezone.utc) - timedelta(minutes=10),
+        next_point=(datetime.now(timezone.utc) + timedelta(minutes=40), "Перед грою Lakers")
+    )
+    run, reason, mode = should_execute_pipeline(cur, MockConn(), trigger_source="cron_5m")
+    assert run is False
+    assert mode == "SKIP"
+    assert "Немає завдань у поточному вікні" in reason
+
 if __name__ == "__main__":
     test_cluster_events()
     test_generate_schedule_points()
     test_generate_schedule_points_no_pending_bets_no_noise()
     test_format_schedule_for_tg()
     test_mark_checkpoints_executed()
+    test_should_execute_pipeline()
     print("Всі юніт-тести планувальника успішно пройдено!")

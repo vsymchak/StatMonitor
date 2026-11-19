@@ -47,16 +47,45 @@ from statmonitor import (
     generate_weekly_digest,
 )
 
-def run_pipeline():
+def run_pipeline(force=False):
     t_start = time.time()
+    import os
     from datetime import datetime
     print("=" * 60)
-    print("🚀 StatMonitor v3.4.1 [Safe match_name + Cloudflare Edge Cron]")
+    print("🚀 StatMonitor v3.4.1 [Smart 5-min Self-Scheduled Executor]")
     try:
         print(f"⏰ Час старту: {datetime.now(KYIV_TZ).strftime('%d.%m.%Y %H:%M:%S')} (Київ)")
     except Exception:
         pass
     print("=" * 60)
+
+    trigger_src = "force" if force else os.environ.get("TRIGGER_SOURCE", "manual")
+
+    # Розумний шлюз виконання (Smart 5-min Gate)
+    if trigger_src.lower() in ("cron_5m", "schedule", "cron"):
+        from scheduler import should_execute_pipeline
+        conn_gate = get_db()
+        if conn_gate:
+            cur_gate = conn_gate.cursor()
+            try:
+                should_run, reason, run_mode = should_execute_pipeline(cur_gate, conn_gate, trigger_source=trigger_src)
+                if not should_run:
+                    print("💤 [Smart Gate] Пропуск виконання (0 витрат квоти The Odds API та Gemini).")
+                    print(f"   Причина: {reason}")
+                    print("=" * 60)
+                    cur_gate.close()
+                    conn_gate.close()
+                    return
+                else:
+                    print(f"⚡ [Smart Gate] Запуск дозволено! Режим: {run_mode}")
+                    print(f"   Причина: {reason}")
+            except Exception as ge:
+                print(f"⚠️ Помилка перевірки Smart Gate: {ge}. Продовжуємо виконання.")
+            finally:
+                if not conn_gate.closed:
+                    cur_gate.close()
+                    conn_gate.close()
+
     s_map = get_sports_map()
     fetch_and_save_odds(s_map)
     check_alerts_and_notify(s_map, t_start=t_start)
@@ -135,5 +164,7 @@ if __name__ == "__main__":
             sys.exit(1)
         custom_url = sys.argv[4] if len(sys.argv) > 4 and not sys.argv[4].startswith("-") else None
         run_edit_odds(b_id, n_k, db_url=custom_url)
+    elif len(sys.argv) > 1 and sys.argv[1] in ("--force", "-f"):
+        run_pipeline(force=True)
     else:
         run_pipeline()

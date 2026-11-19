@@ -1405,229 +1405,211 @@ def run_streamlit_app():
                 </div>
             """, unsafe_allow_html=True)
 
-            from statmonitor.league_config import (
-                load_leagues_config,
-                save_league_threshold,
-                save_all_leagues_to_file,
-                reset_league_thresholds_to_default,
-                fetch_db_leagues,
-            )
-
-            # Безпечне читання конфігурації без блокування DDL
-            all_leagues_list = []
             try:
-                conn_l, err_l = get_db_connection(db_url)
-                if conn_l:
-                    cur_l = conn_l.cursor()
-                    try:
-                        db_lgs = fetch_db_leagues(cur_l)
-                        if db_lgs:
-                            all_leagues_list = db_lgs
-                    except Exception:
-                        pass
-                    finally:
-                        cur_l.close()
-                        conn_l.close()
-            except Exception:
-                pass
+                from statmonitor.league_config import (
+                    load_leagues_config,
+                    save_league_threshold,
+                    save_all_leagues_to_file,
+                    reset_league_thresholds_to_default,
+                )
 
-            if not all_leagues_list:
-                cfg_fallback = load_leagues_config()
-                all_leagues_list = cfg_fallback.get("leagues", [])
+                # Миттєве та надійне зчитування конфігурації ліг (без блокувань чи очікування з'єднань БД)
+                cfg_leagues = load_leagues_config()
+                all_leagues_list = cfg_leagues.get("leagues", [])
 
-            # Ініціалізація стану в session_state
-            if "league_enabled_state" not in st.session_state:
-                st.session_state.league_enabled_state = {
-                    lg["key"]: bool(lg.get("enabled", True)) for lg in all_leagues_list
+                # Ініціалізація стану в session_state
+                if "league_enabled_state" not in st.session_state:
+                    st.session_state.league_enabled_state = {
+                        lg["key"]: bool(lg.get("enabled", True)) for lg in all_leagues_list
+                    }
+
+                # KPI Смуга
+                tot_l_cnt = len(all_leagues_list)
+                act_l_cnt = sum(1 for lg in all_leagues_list if st.session_state.league_enabled_state.get(lg["key"], lg.get("enabled", True)))
+                dis_l_cnt = tot_l_cnt - act_l_cnt
+                avg_drop = (
+                    sum(float(lg.get("min_drop_pct", 5.0)) for lg in all_leagues_list) / tot_l_cnt
+                    if tot_l_cnt > 0 else 5.0
+                )
+
+                kpi_l1, kpi_l2, kpi_l3, kpi_l4 = st.columns(4)
+                kpi_l1.metric("🏆 Всього чемпіонатів", f"{tot_l_cnt}")
+                kpi_l2.metric("🟢 Активних у моніторингу", f"{act_l_cnt}")
+                kpi_l3.metric("⏸️ На паузі (економія квоти)", f"{dis_l_cnt}")
+                kpi_l4.metric("📉 Сер. поріг просідання", f"{avg_drop:.1f}%")
+
+                st.markdown("""
+                    <div style="background: #F0FDF4; border: 1px solid #BBF7D0; border-radius: 8px; padding: 8px 12px; margin-top: 8px; margin-bottom: 12px; font-size: 12px; color: #166534;">
+                        💡 <b>Порада щодо оптимізації квоти (Smart Rate-Limiter):</b> залишайте увімкненими лише ті ліги, де сьогодні проходять матчі (наприклад, NBA вночі або АПЛ/Ла Ліга у вихідні). Це зберігає пул із 2500 кредитів Odds API.
+                    </div>
+                """, unsafe_allow_html=True)
+
+                # Групування за категоріями спорту
+                sports_groups = {
+                    "soccer": {
+                        "title": "⚽ Футбол (Soccer)",
+                        "leagues": [lg for lg in all_leagues_list if lg.get("category", "soccer") == "soccer"],
+                    },
+                    "basketball": {
+                        "title": "🏀 Баскетбол (Basketball)",
+                        "leagues": [lg for lg in all_leagues_list if lg.get("category") == "basketball"],
+                    },
+                    "tennis": {
+                        "title": "🎾 Теніс (Tennis)",
+                        "leagues": [lg for lg in all_leagues_list if lg.get("category") == "tennis"],
+                    },
                 }
 
-            # KPI Смуга
-            tot_l_cnt = len(all_leagues_list)
-            act_l_cnt = sum(1 for lg in all_leagues_list if st.session_state.league_enabled_state.get(lg["key"], lg.get("enabled", True)))
-            dis_l_cnt = tot_l_cnt - act_l_cnt
-            avg_drop = (
-                sum(float(lg.get("min_drop_pct", 5.0)) for lg in all_leagues_list) / tot_l_cnt
-                if tot_l_cnt > 0 else 5.0
-            )
+                for cat_key, grp in sports_groups.items():
+                    grp_leagues = grp["leagues"]
+                    if not grp_leagues:
+                        continue
 
-            kpi_l1, kpi_l2, kpi_l3, kpi_l4 = st.columns(4)
-            kpi_l1.metric("🏆 Всього чемпіонатів", f"{tot_l_cnt}")
-            kpi_l2.metric("🟢 Активних у моніторингу", f"{act_l_cnt}")
-            kpi_l3.metric("⏸️ На паузі (економія квоти)", f"{dis_l_cnt}")
-            kpi_l4.metric("📉 Сер. поріг просідання", f"{avg_drop:.1f}%")
-
-            st.markdown("""
-                <div style="background: #F0FDF4; border: 1px solid #BBF7D0; border-radius: 8px; padding: 8px 12px; margin-top: 8px; margin-bottom: 12px; font-size: 12px; color: #166534;">
-                    💡 <b>Порада щодо оптимізації квоти (Smart Rate-Limiter):</b> залишайте увімкненими лише ті ліги, де сьогодні проходять матчі (наприклад, NBA вночі або АПЛ/Ла Ліга у вихідні). Це зберігає пул із 2500 кредитів Odds API.
-                </div>
-            """, unsafe_allow_html=True)
-
-            # Групування за категоріями спорту
-            sports_groups = {
-                "soccer": {
-                    "title": "⚽ Футбол (Soccer)",
-                    "leagues": [lg for lg in all_leagues_list if lg.get("category", "soccer") == "soccer"],
-                },
-                "basketball": {
-                    "title": "🏀 Баскетбол (Basketball)",
-                    "leagues": [lg for lg in all_leagues_list if lg.get("category") == "basketball"],
-                },
-                "tennis": {
-                    "title": "🎾 Теніс (Tennis)",
-                    "leagues": [lg for lg in all_leagues_list if lg.get("category") == "tennis"],
-                },
-            }
-
-            for cat_key, grp in sports_groups.items():
-                grp_leagues = grp["leagues"]
-                if not grp_leagues:
-                    continue
-
-                grp_active = sum(1 for lg in grp_leagues if st.session_state.league_enabled_state.get(lg["key"], True))
-                
-                with st.expander(f"{grp['title']} — {grp_active}/{len(grp_leagues)} активних", expanded=True):
-                    c_act1, c_act2, c_act_space = st.columns([1.5, 1.5, 5])
-                    with c_act1:
-                        if st.button(f"✅ Обрати всі", key=f"btn_all_{cat_key}"):
-                            for lg in grp_leagues:
-                                st.session_state.league_enabled_state[lg["key"]] = True
-                            st.rerun()
-                    with c_act2:
-                        if st.button(f"❌ Зняти всі", key=f"btn_none_{cat_key}"):
-                            for lg in grp_leagues:
-                                st.session_state.league_enabled_state[lg["key"]] = False
-                            st.rerun()
-
-                    # Виведення сітки прапорців у 2 колонки
-                    col_l, col_r = st.columns(2)
-                    for i, lg in enumerate(grp_leagues):
-                        target_col = col_l if (i % 2 == 0) else col_r
-                        with target_col:
-                            k = lg["key"]
-                            cur_checked = st.session_state.league_enabled_state.get(k, bool(lg.get("enabled", True)))
-                            drop_info = f"Поріг: {float(lg.get('min_drop_pct', 5.0)):.1f}% | Кеф: {float(lg.get('min_odds', 1.40)):.2f}–{float(lg.get('max_odds', 4.00)):.2f}"
-                            
-                            val = st.checkbox(
-                                f"**{lg.get('title', k)}** (`{k}`)\n\n<small style='color: #64748B;'>{drop_info}</small>",
-                                value=cur_checked,
-                                key=f"chk_lg_{k}",
-                                help=f"Увімкнути/вимкнути автосканування для {lg.get('title', k)}"
-                            )
-                            st.session_state.league_enabled_state[k] = val
-
-            # Нижня панель збереження
-            col_save_all, col_reset_all, col_save_space = st.columns([2.5, 3, 4.5])
-            with col_save_all:
-                if st.button("💾 Зберегти налаштування ліг", key="btn_save_all_grouped_leagues", use_container_width=True):
-                    # 1. Оновлюємо список у пам'яті
-                    updated_list = []
-                    for lg in all_leagues_list:
-                        item = dict(lg)
-                        item["enabled"] = bool(st.session_state.league_enabled_state.get(item["key"], item.get("enabled", True)))
-                        updated_list.append(item)
-
-                    # 2. Зберігаємо у файл leagues.json
-                    save_all_leagues_to_file(updated_list)
-
-                    # 3. Зберігаємо у базу даних PostgreSQL (якщо є підключення)
-                    conn_sv, err_sv = get_db_connection(db_url)
-                    if conn_sv:
-                        cur_sv = conn_sv.cursor()
-                        try:
-                            for item in updated_list:
-                                save_league_threshold(
-                                    cur_sv, conn_sv,
-                                    sport_key=item["key"],
-                                    title=item.get("title"),
-                                    category=item.get("category"),
-                                    enabled=item["enabled"],
-                                    min_drop_pct=item.get("min_drop_pct"),
-                                    min_odds=item.get("min_odds"),
-                                    max_odds=item.get("max_odds"),
-                                    markets=item.get("markets"),
-                                )
-                        except Exception as se:
-                            print(f"DB league save warning: {se}")
-                        finally:
-                            cur_sv.close()
-                            conn_sv.close()
-
-                    st.toast("✅ Налаштування ліг та Smart Rate-Limiter збережено!", icon="🎯")
-                    st.rerun()
-
-            with col_reset_all:
-                if st.button("🔄 Скинути всі до дефолтних", key="btn_reset_all_leagues_def", use_container_width=True):
-                    conn_rst, _ = get_db_connection(db_url)
-                    cur_rst = conn_rst.cursor() if conn_rst else None
-                    try:
-                        reset_league_thresholds_to_default(cur_rst, conn_rst)
-                    finally:
-                        if cur_rst:
-                            cur_rst.close()
-                        if conn_rst:
-                            conn_rst.close()
+                    grp_active = sum(1 for lg in grp_leagues if st.session_state.league_enabled_state.get(lg["key"], True))
                     
-                    cfg_def = load_leagues_config()
-                    st.session_state.league_enabled_state = {
-                        lg["key"]: bool(lg.get("enabled", True)) for lg in cfg_def.get("leagues", [])
-                    }
-                    st.toast("🔄 Пороги та статус ліг скинуто до дефолту!", icon="✅")
-                    st.rerun()
+                    with st.expander(f"{grp['title']} — {grp_active}/{len(grp_leagues)} активних", expanded=True):
+                        c_act1, c_act2, c_act_space = st.columns([1.5, 1.5, 5])
+                        with c_act1:
+                            if st.button(f"✅ Обрати всі", key=f"btn_all_{cat_key}"):
+                                for lg in grp_leagues:
+                                    st.session_state.league_enabled_state[lg["key"]] = True
+                                st.rerun()
+                        with c_act2:
+                            if st.button(f"❌ Зняти всі", key=f"btn_none_{cat_key}"):
+                                for lg in grp_leagues:
+                                    st.session_state.league_enabled_state[lg["key"]] = False
+                                st.rerun()
 
-            # Додатковий блок тонкого тюнінгу порогів коефіцієнтів
-            with st.expander("⚙️ Тонке налаштування порогів чутливості та ринків для окремої ліги"):
-                league_options = {f"{lg.get('title', lg['key'])} ({lg['key']})": lg for lg in all_leagues_list}
-                if league_options:
-                    sel_lg_lbl = st.selectbox("Оберіть лігу для точкового тюнінгу:", list(league_options.keys()), key="sel_single_tune_v3")
-                    if sel_lg_lbl and sel_lg_lbl in league_options:
-                        cur_obj = league_options[sel_lg_lbl]
-                        cur_key = cur_obj["key"]
-                        
-                        c_f1, c_f2 = st.columns(2)
-                        with c_f1:
-                            cur_ch = st.session_state.league_enabled_state.get(cur_key, bool(cur_obj.get("enabled", True)))
-                            tune_en = st.toggle("🟢 Ліга активна для авто-сканування", value=cur_ch, key="tune_en_toggle_v3")
-                            tune_drop = st.slider("Мін. просідання коефіцієнта (%):", min_value=1.0, max_value=20.0, value=float(cur_obj.get("min_drop_pct", 5.0)), step=0.1, format="%.1f%%", key="tune_drop_v3")
-                        with c_f2:
-                            tune_min_k = st.number_input("Мін. коефіцієнт:", min_value=1.01, max_value=10.0, value=float(cur_obj.get("min_odds", 1.40)), step=0.01, format="%.2f", key="tune_min_k_v3")
-                            tune_max_k = st.number_input("Макс. коефіцієнт:", min_value=1.20, max_value=50.0, value=float(cur_obj.get("max_odds", 4.00)), step=0.05, format="%.2f", key="tune_max_k_v3")
+                        # Виведення сітки прапорців у 2 колонки
+                        col_l, col_r = st.columns(2)
+                        for i, lg in enumerate(grp_leagues):
+                            target_col = col_l if (i % 2 == 0) else col_r
+                            with target_col:
+                                k = lg["key"]
+                                cur_checked = st.session_state.league_enabled_state.get(k, bool(lg.get("enabled", True)))
+                                drop_info = f"Поріг: {float(lg.get('min_drop_pct', 5.0)):.1f}% | Кеф: {float(lg.get('min_odds', 1.40)):.2f}–{float(lg.get('max_odds', 4.00)):.2f}"
+                                
+                                val = st.checkbox(
+                                    f"**{lg.get('title', k)}** (`{k}`) — _{drop_info}_",
+                                    value=cur_checked,
+                                    key=f"chk_lg_{k}",
+                                    help=f"Увімкнути/вимкнути автосканування для {lg.get('title', k)}"
+                                )
+                                st.session_state.league_enabled_state[k] = val
 
-                        cur_mkts = cur_obj.get("markets", ["h2h", "totals", "spreads"])
-                        if not isinstance(cur_mkts, list):
-                            cur_mkts = ["h2h", "totals", "spreads"]
-                        all_mkts = ["h2h", "totals", "spreads", "btts"]
-                        tune_sel_mkts = st.multiselect("Дозволені маркети:", all_mkts, default=[m for m in cur_mkts if m in all_mkts], key="tune_mkts_v3")
+                # Нижня панель збереження
+                col_save_all, col_reset_all, col_save_space = st.columns([2.5, 3, 4.5])
+                with col_save_all:
+                    if st.button("💾 Зберегти налаштування ліг", key="btn_save_all_grouped_leagues", use_container_width=True):
+                        # 1. Оновлюємо список у пам'яті
+                        updated_list = []
+                        for lg in all_leagues_list:
+                            item = dict(lg)
+                            item["enabled"] = bool(st.session_state.league_enabled_state.get(item["key"], item.get("enabled", True)))
+                            updated_list.append(item)
 
-                        if st.button(f"💾 Застосувати для {cur_obj.get('title', cur_key)}", key="btn_apply_tune_v3"):
-                            st.session_state.league_enabled_state[cur_key] = tune_en
-                            for item in all_leagues_list:
-                                if item["key"] == cur_key:
-                                    item["enabled"] = tune_en
-                                    item["min_drop_pct"] = tune_drop
-                                    item["min_odds"] = tune_min_k
-                                    item["max_odds"] = tune_max_k
-                                    item["markets"] = tune_sel_mkts or ["h2h", "totals", "spreads"]
-                            save_all_leagues_to_file(all_leagues_list)
+                        # 2. Зберігаємо у файл leagues.json
+                        save_all_leagues_to_file(updated_list)
 
-                            conn_t, err_t = get_db_connection(db_url)
-                            if conn_t:
-                                cur_t = conn_t.cursor()
-                                try:
+                        # 3. Зберігаємо у базу даних PostgreSQL (якщо є підключення)
+                        conn_sv, err_sv = get_db_connection(db_url)
+                        if conn_sv:
+                            cur_sv = conn_sv.cursor()
+                            try:
+                                for item in updated_list:
                                     save_league_threshold(
-                                        cur_t, conn_t,
-                                        sport_key=cur_key,
-                                        enabled=tune_en,
-                                        min_drop_pct=tune_drop,
-                                        min_odds=tune_min_k,
-                                        max_odds=tune_max_k,
-                                        markets=tune_sel_mkts or ["h2h", "totals", "spreads"],
+                                        cur_sv, conn_sv,
+                                        sport_key=item["key"],
+                                        title=item.get("title"),
+                                        category=item.get("category"),
+                                        enabled=item["enabled"],
+                                        min_drop_pct=item.get("min_drop_pct"),
+                                        min_odds=item.get("min_odds"),
+                                        max_odds=item.get("max_odds"),
+                                        markets=item.get("markets"),
                                     )
-                                finally:
-                                    cur_t.close()
-                                    conn_t.close()
+                            except Exception as se:
+                                print(f"DB league save warning: {se}")
+                            finally:
+                                cur_sv.close()
+                                conn_sv.close()
 
-                            st.toast(f"✅ Параметри {cur_obj.get('title', cur_key)} оновлено!", icon="💾")
-                            st.rerun()
+                        st.toast("✅ Налаштування ліг та Smart Rate-Limiter збережено!", icon="🎯")
+                        st.rerun()
+
+                with col_reset_all:
+                    if st.button("🔄 Скинути всі до дефолтних", key="btn_reset_all_leagues_def", use_container_width=True):
+                        conn_rst, _ = get_db_connection(db_url)
+                        cur_rst = conn_rst.cursor() if conn_rst else None
+                        try:
+                            reset_league_thresholds_to_default(cur_rst, conn_rst)
+                        finally:
+                            if cur_rst:
+                                cur_rst.close()
+                            if conn_rst:
+                                conn_rst.close()
+                        if "league_enabled_state" in st.session_state:
+                            del st.session_state["league_enabled_state"]
+                        st.toast("✅ Налаштування скинуто до початкових!", icon="🔄")
+                        st.rerun()
+
+                # Додатковий блок тонкого тюнінгу порогів коефіцієнтів
+                with st.expander("⚙️ Тонке налаштування порогів чутливості та ринків для окремої ліги"):
+                    league_options = {f"{lg.get('title', lg['key'])} ({lg['key']})": lg for lg in all_leagues_list}
+                    if league_options:
+                        sel_lg_lbl = st.selectbox("Оберіть лігу для точкового тюнінгу:", list(league_options.keys()), key="sel_single_tune_v3")
+                        if sel_lg_lbl and sel_lg_lbl in league_options:
+                            cur_obj = league_options[sel_lg_lbl]
+                            cur_key = cur_obj["key"]
+                            
+                            c_f1, c_f2 = st.columns(2)
+                            with c_f1:
+                                cur_ch = st.session_state.league_enabled_state.get(cur_key, bool(cur_obj.get("enabled", True)))
+                                tune_en = st.toggle("🟢 Ліга активна для авто-сканування", value=cur_ch, key="tune_en_toggle_v3")
+                                tune_drop = st.slider("Мін. просідання коефіцієнта (%):", min_value=1.0, max_value=20.0, value=float(cur_obj.get("min_drop_pct", 5.0)), step=0.1, format="%.1f%%", key="tune_drop_v3")
+                            with c_f2:
+                                tune_min_k = st.number_input("Мін. коефіцієнт:", min_value=1.01, max_value=10.0, value=float(cur_obj.get("min_odds", 1.40)), step=0.01, format="%.2f", key="tune_min_k_v3")
+                                tune_max_k = st.number_input("Макс. коефіцієнт:", min_value=1.20, max_value=50.0, value=float(cur_obj.get("max_odds", 4.00)), step=0.05, format="%.2f", key="tune_max_k_v3")
+
+                            cur_mkts = cur_obj.get("markets", ["h2h", "totals", "spreads"])
+                            if not isinstance(cur_mkts, list):
+                                cur_mkts = ["h2h", "totals", "spreads"]
+                            all_mkts = ["h2h", "totals", "spreads", "btts"]
+                            tune_sel_mkts = st.multiselect("Дозволені маркети:", all_mkts, default=[m for m in cur_mkts if m in all_mkts], key="tune_mkts_v3")
+
+                            if st.button(f"💾 Застосувати для {cur_obj.get('title', cur_key)}", key="btn_apply_tune_v3"):
+                                st.session_state.league_enabled_state[cur_key] = tune_en
+                                for item in all_leagues_list:
+                                    if item["key"] == cur_key:
+                                        item["enabled"] = tune_en
+                                        item["min_drop_pct"] = tune_drop
+                                        item["min_odds"] = tune_min_k
+                                        item["max_odds"] = tune_max_k
+                                        item["markets"] = tune_sel_mkts or ["h2h", "totals", "spreads"]
+                                save_all_leagues_to_file(all_leagues_list)
+
+                                conn_t, err_t = get_db_connection(db_url)
+                                if conn_t:
+                                    cur_t = conn_t.cursor()
+                                    try:
+                                        save_league_threshold(
+                                            cur_t, conn_t,
+                                            sport_key=cur_key,
+                                            enabled=tune_en,
+                                            min_drop_pct=tune_drop,
+                                            min_odds=tune_min_k,
+                                            max_odds=tune_max_k,
+                                            markets=tune_sel_mkts or ["h2h", "totals", "spreads"],
+                                        )
+                                    finally:
+                                        cur_t.close()
+                                        conn_t.close()
+
+                                st.toast(f"✅ Параметри {cur_obj.get('title', cur_key)} оновлено!", icon="💾")
+                                st.rerun()
+
+            except Exception as e:
+                st.error(f"Помилка завантаження панелі керування лігами: {e}")
 
 if __name__ == "__main__":
     try:
