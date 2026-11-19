@@ -1,7 +1,7 @@
 # Візуальна архітектура системи StatMonitor
 
-> **Проєкт**: StatMonitor — інтелектуальна система спортивного моніторингу прогрузів, віртуального трейдингу (Paper Trading), спостережливості (Web Dashboard), предиктивної AI-аналітики та реального банкролу (Real Money Mode).  
-> **Версія**: 3.5 (Еволюція: Real Money Mode & Bankroll Ledger + Gemini Multimodal Bet Slip OCR + Inline Admin Toggling + 149 Unit Tests)  
+> **Проєкт**: StatMonitor — інтелектуальна система спортивного моніторингу прогрузів, віртуального трейдингу (Paper Trading), спостережливості (Web Dashboard), предиктивної AI-аналітики, реального банкролу (Real Money Mode) та контрфактичного AI-аудиту (Shadow-Bets).  
+> **Версія**: 3.6 (Еволюція: No-Vig Fair Odds + Shadow-Bets Counterfactual AI Audit + Calibration & Brier Score + Dedicated Real Money Tab + 169 Unit Tests)  
 > **Оновлено**: 19.11.2026
 
 ---
@@ -68,12 +68,12 @@ flowchart TD
 
     subgraph Storage["💾 6. Сховище даних (Supabase PostgreSQL)"]
         DB[("PostgreSQL 15+<br>public schema")]:::data
-        T_Migrations["schema_migrations (001-014)"]:::data
+        T_Migrations["schema_migrations (001-015)"]:::data
         T_Events["events (індекс на commence_time)"]:::data
         T_Odds["odds_history (індекси за часом та маркетом)"]:::data
         V_Alerts["v_odds_alerts (Optimized 96h Window View)"]:::data
         T_AI["ai_match_analysis (вердикти & Confidence Score)"]:::data
-        T_Bets["paper_bets (is_real_bet, real_stake, real_odds, slip_meta)"]:::data
+        T_Bets["paper_bets (is_shadow, shadow_status, is_real_bet, slip_meta)"]:::data
         T_RealLedger["real_bankroll_ledger (DEPOSIT, WITHDRAWAL, BET_RESULT)"]:::data
         T_Thresholds["league_thresholds (динамічні пороги ліг)"]:::data
         T_Sched["scheduler_plan (дедуплікація точок)"]:::data
@@ -81,7 +81,9 @@ flowchart TD
         T_Beat["system_heartbeat"]:::data
     end
 
-    subgraph TestSuite["🧪 7. Шар якості та тестування (149 unit-тестів)"]
+    subgraph TestSuite["🧪 7. Шар якості та тестування (169 unit-тестів)"]
+        TestShadow["test_shadow_bets.py (7 тестів)<br>Shadow bets, FILTERED статус, Counterfactual audit, Brier Score"]:::test
+        TestNoVig["test_novig_edge.py (7 тестів)<br>Pinnacle de-vig, p_fair, independent real staking"]:::test
         TestRealBank["test_real_bankroll.py (12 тестів)<br>Депозити, леджер, ROI, маркування ставок"]:::test
         TestSlipOCR["test_slip_ocr.py (7 тестів)<br>Gemini Vision OCR, зіставлення та прив'язка купонів"]:::test
         TestEval["test_eval_picks.py (33 тести)<br>format_pick, eval_outcome, median_odds, edit_odds"]:::test
@@ -97,7 +99,7 @@ flowchart TD
         TestDashboard["test_dashboard.py (8 тестів)<br>Метрики банку, іконки спорту, Odds quota live/heartbeat"]:::test
         TestSched["test_scheduler.py<br>Кластеризація, точки, маркування EXECUTED"]:::test
         TestWatch["test_watchdog.py<br>Пульс, затримки, дедуплікація"]:::test
-        TestMigrate["test_migrate.py<br>Ідемпотентність SQL-міграцій (001-014)"]:::test
+        TestMigrate["test_migrate.py<br>Ідемпотентність SQL-міграцій (001-015)"]:::test
     end
 
     subgraph Delivery["📲 8. Рівень сповіщень та користувацького UI"]
@@ -308,8 +310,14 @@ erDiagram
     - Алгоритм розумного зіставлення `match_slip_with_pending_bets` з активними ставками системи та автоматична прив'язка купона до бази.
   - **Відстеження Closing Line Value (CLV) та Beat the Line % (Крок 20)**: автоматична фіксація лінії закриття за Pinnacle/Betfair (`capture_closing_lines`), розрахунок $CLV\% = ((k_{\text{bet}} / k_{\text{closing}}) - 1) \times 100\%$ та статусу `beat_closing_line`. Відображення в Web Dashboard (стовпець `CLV (+EV)` і блок Breakdown), Telegram-боті (`/bank`) та щоденному звіті.
   - **Підтримка ринку «Обидві заб'ють» (BTTS) та фільтрація чистих тоталів (Крок 23)**: обробка ринку BTTS у футбольних лігах, розрахунок результатів `WON`/`LOST` у `eval_outcome`, інтеграція в медіанні коефіцієнти бенчмарків та математичне відсікання азіатських четвертних тоталів (`.25`/`.75`).
+  - **Shadow-Bets & Контрфактичний AI-Аудит (SPEC-35, Крок 35)**:
+    - Збереження відсіяних ставок (`status = 'FILTERED'`, `is_shadow = TRUE`) при низькому Confidence Score (< 7) або вердикті пропуску.
+    - Нульовий вплив на баланс (`profit_uah = 0.00`) з незалежним відстеженням гіпотетичного PnL (`shadow_profit_uah`).
+    - Автоматичний розрахунок результатів через `settle_and_report` та ручний через `manual_settle_bet`.
+    - Counterfactual AI Audit: аналітичний A/B бектест `calculate_counterfactual_audit` (Live vs Shadow vs Combined), розрахунок Alpha ШІ ($\Delta \text{ROI}$), $\Delta \text{WinRate}$ та збереженого капіталу.
+    - Калібрування оцінок впевненості та Brier Score `calculate_confidence_calibration` по 4 бакетах сили сигналу.
   - Відображення % банку за Келлі в активних ставках Web Dashboard (колонка `"% банку (Келлі)"`) та у Telegram-боті (`/bets`).
-  - Фіксація `kelly_pct` та метрик CLV у базі даних (міграції `006_paper_bets_kelly_pct.sql`, `008_paper_bets_clv.sql`, `014_real_money_mode_ocr.sql`).
+  - Фіксація `kelly_pct`, метрик CLV та shadow-ставок у базі даних (міграції `006_paper_bets_kelly_pct.sql`, `008_paper_bets_clv.sql`, `014_real_money_mode_ocr.sql`, `015_shadow_counterfactual_bets.sql`).
   - Ручне та автоматичне редагування коефіцієнтів (`update_pending_bet_odds`) для нерозрахованих ставок (Крок 19).
   - Гнучкий ручний розрахунок (`manual_settle_bet`) через адмін-інтерфейс та автоматичний за фінальними рахунками (`WON`, `LOST`, `VOID`).
   - Щоденний звіт з розрахунком ROI та Beat the Closing Line % о 08:00 за Києвом.
@@ -326,11 +334,11 @@ erDiagram
   - Чітке розділення обов'язків: `config`, `database`, `notifier`, `fetcher`, `chart`, `ai`, `paper_trading`, `real_bankroll`, `slip_ocr`, `pipeline`.
   - Зворотна сумісність: `main.py` залишається центральною точкою входу.
 * **Версіоновані міграції БД (`migrate.py`)**:
-  - Каталог `migrations/` (`001_base_schema.sql` ... `014_real_money_mode_ocr.sql`).
+  - Каталог `migrations/` (`001_base_schema.sql` ... `015_shadow_counterfactual_bets.sql`).
   - Ідемпотентний раннер з журналом у `schema_migrations`.
   - Цільові B-Tree індекси на `odds_history`, `events`, `paper_bets`, `real_bankroll_ledger`.
 * **Автоматизований тестовий комплекс (`tests/` та кореневі тести)**:
-  - **149 модульних тестів** (100% проходження за $\approx 1$ с) без зовнішніх мережевих викликів.
+  - **169 модульних тестів** (100% проходження за $\approx 1$ с) без зовнішніх мережевих викликів.
 * **Динамічний планувальник (`scheduler.py`)**:
   - Кластеризація подій ($\Delta \le 25$ хв).
   - Формування контрольних точок за 15 хв до гри (`PRE_MATCH` для фіксації Closing Line) та через 115 хв (`SETTLE` для розрахунку ставок).

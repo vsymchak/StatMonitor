@@ -51,13 +51,27 @@ class TestAIConfidenceAndValueFiltering(unittest.TestCase):
         conn = MagicMock()
         now = datetime.now(timezone.utc)
 
-        # Ставка з оцінкою 6/10 має бути автоматично відхилена фільтром валую
-        res = place_paper_bet(
+        # 1. При save_shadow=False ставка відхиляється без запису в БД
+        res_no_shadow = place_paper_bet(
             cur, conn, "ev_low", "soccer_epl", "Team A - Team B", now,
+            "П1", 2.10, drop_pct=15.0, confidence=6, risk_level="MEDIUM", save_shadow=False
+        )
+        self.assertFalse(res_no_shadow)
+        cur.execute.assert_not_called()
+
+        # 2. SPEC-35: За замовчуванням ставка зберігається як Shadow-ставка (status='FILTERED')
+        cur.reset_mock()
+        cur.fetchone.return_value = None
+        res_shadow = place_paper_bet(
+            cur, conn, "ev_low2", "soccer_epl", "Team A - Team B", now,
             "П1", 2.10, drop_pct=15.0, confidence=6, risk_level="MEDIUM"
         )
-        self.assertFalse(res)
-        cur.execute.assert_not_called()
+        self.assertFalse(res_shadow)
+        self.assertTrue(cur.execute.called)
+        insert_calls = [c for c in cur.execute.call_args_list if "INSERT INTO paper_bets" in str(c[0][0])]
+        self.assertTrue(len(insert_calls) > 0)
+        self.assertIn("'FILTERED'", insert_calls[0][0][0])
+        conn.commit.assert_called()
 
     def test_place_paper_bet_accept_high_confidence(self):
         cur = MagicMock()

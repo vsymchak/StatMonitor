@@ -1,8 +1,8 @@
 # Дорожня карта розвитку StatMonitor (SDD Roadmap)
 
-> **Статус**: 34 з 42 кроків реалізовано (34 Shipped, 4 Planned, 4 Idea) · Еволюція Waves 11 & 12 🚀  
+> **Статус**: 35 з 42 кроків реалізовано (35 Shipped, 3 Planned, 4 Idea) · Еволюція Waves 11 & 12 🚀  
 > **Оновлено**: 19.11.2026  
-> **Фокус**: Step 34 No-Vig Edge, Real Bank Staking & Independent Transfer Shipped!
+> **Фокус**: Step 35 Shadow-Bets & Counterfactual AI Audit Shipped!
 
 ---
 
@@ -270,8 +270,14 @@
 
 ### 35. Shadow-Bets & Counterfactual AI Audit (`status = 'FILTERED'`)
 * **Розмір**: S
-* **Статус**: 🟨 Planned
-* **Опис**: Замість повного видалення відсіяних системою матчів (Confidence Score < 7 або невідповідність порогу ліги), вони зберігаються в `paper_bets` зі статусом `FILTERED`. Їхні результати автоматично відстежуються та розраховуються без зміни балансу. Це дає наочний A/B бектест на дашборді: «Результат з фільтром AI» проти «Результат без фільтра AI» для доказу доданої вартості Gemini на великій дистанції.
+* **Статус**: 🟩 Shipped
+* **Опис**: 
+  - **Збереження відсіяних ставок**: матчі, відхилені Gemini AI (`confidence < 7` або рекомендація "пропустити" / "утриматися"), не видаляються, а зберігаються в `paper_bets` зі статусом `FILTERED`, `is_shadow = TRUE`, `shadow_status = 'PENDING'` та `profit_uah = 0.00`.
+  - **Нульовий вплив на баланс**: shadow-ставки не блокують банк і не впливають на розрахунок реального або віртуального балансу (`profit_uah = 0.00`).
+  - **Автоматичний та ручний розрахунок**: при завершенні матчу `settle_and_report` та `manual_settle_bet` розраховують гіпотетичний результат у `shadow_status` (`WON`/`LOST`/`VOID`) та `shadow_profit_uah`.
+  - **Counterfactual AI Audit (A/B бектест)**: кількісна функція `calculate_counterfactual_audit` у `statmonitor/analytics.py` порівнює Live ($\ge 7$) проти Shadow ($< 7$) та розраховує додану вартість ШІ: Alpha ($\Delta \text{ROI}$), $\Delta \text{WinRate}$, збережений капітал та вердикт валідності фільтра.
+  - **Калібрування AI Confidence Score & Brier Score**: розбивка на 4 бакети (`1-4`, `5-6`, `7-8`, `9-10`) з підрахунком Win Rate, середнього CLV, ROI та емпіричного Brier Score (оцінка роздільної здатності ймовірностей).
+  - **Відображення на дашборді**: інтерактивна картка аудиту, калібрувальна таблиця та розкривний реєстр Shadow-ставок на вкладці `🧠 AI-аналітика Gemini`, а також фільтр `🟡 Відсіяні (Shadow)` на вкладці Paper Bank.
 * **Залежності**: потрібен крок 6, потрібен крок 21
 
 ### 36. Real Money Risk Guardrails (Circuit Breakers: Stop-Loss & Max Exposure)

@@ -1,6 +1,6 @@
 # Візуальна діаграма дорожньої карти (Roadmap diagram)
 
-**34 з 42 кроків реалізовано (34 Shipped, 4 Planned, 4 Idea) · 162 Unit Tests** · Детальний опис: [roadmap.md](roadmap.md)
+**35 з 42 кроків реалізовано (35 Shipped, 3 Planned, 4 Idea) · 169 Unit Tests** · Детальний опис: [roadmap.md](roadmap.md)
 
 > 🟩 **Реалізовано (Shipped)** · 🟧 **У розробці (In Progress)** · 🟪 **Заплановано (Idea)** · ⬜ **Концепт (Fog)**  
 > Колонки — це послідовні хвилі виконання (**Execution Waves**). Стрілка показує залежність («потрібен для»).
@@ -77,7 +77,7 @@ flowchart LR
 
     subgraph Wave11["Хвиля 11: Захист капіталу & No-Vig Edge"]
         34["34 · No-Vig Edge & Real Bank Staking<br><small>De-vig fair odds, перенос ставок</small><br><b>M</b>"]:::shipped
-        35["35 · Shadow-ставки (FILTERED)<br><small>A/B бектест корисності AI</small><br><b>S</b>"]:::in_progress
+        35["35 · Shadow-ставки (FILTERED)<br><small>A/B бектест корисності AI</small><br><b>S</b>"]:::shipped
         36["36 · Risk Guardrails Real Bank<br><small>Stop-Loss & Max Exposure</small><br><b>S</b>"]:::in_progress
         37["37 · Walkaway Odds у Telegram<br><small>Мінімальний кеф для входу</small><br><b>S</b>"]:::in_progress
         38["38 · Zero-Cost Orchestration & ACID<br><small>Cloudflare Cron & безпека леджера</small><br><b>S</b>"]:::in_progress
@@ -224,7 +224,7 @@ flowchart LR
 | **32** | **Smart 5-хв Gate (Self-Scheduled)** | `S` | 🟩 Shipped | Відмова від сторонніх сервісів: GitHub Actions кожні 5 хв + програмний шлюз у коді (вікно ±15 хв, розрахунок через 85 хв, periodic 80 хв). При відсутності дій — вихід за 1 сек без витрат квот. |
 | **33** | **Реорганізація UI: Активні та Історія** | `S` | 🟩 Shipped | Сегментація одразу під графіками, заміна журналу на повнорозмірні активні ставки з редагуванням кефів, та окрема таблиця «Історія ставок». |
 | **34** | **No-Vig Edge, Real Staking & Dedicated Tab** | `M` | 🟩 Shipped | Розрахунок fair-ймовірностей без маржі з Pinnacle, відсікання -EV, незалежний розрахунок ставок від реального депозиту, кнопка переносу та окрема вкладка Real Money з графіками і статистикою. |
-| **35** | **Shadow-ставки (FILTERED)** | `S` | 🟨 Planned | Збереження відсіяних AI та порогами ліг матчів як тіньових ставок для A/B перевірки корисності моделей на дашборді. |
+| **35** | **Shadow-ставки & AI Audit** | `S` | 🟩 Shipped | Збереження відсіяних AI ставок (`FILTERED`), авторозрахунок без зміни балансу, Counterfactual A/B аудит, калібрування впевненості та Brier Score на дашборді. |
 | **36** | **Risk Guardrails Real Bank** | `S` | 🟨 Planned | Автоматичний денний Stop-Loss ($\ge 7\%$), ліміт максимальної одночасної експозиції (15–20% від депозиту) та захист від кореляцій. |
 | **37** | **Walkaway Odds у Telegram** | `S` | 🟨 Planned | Індикація у сповіщеннях Telegram мінімально допустимого коефіцієнта для входу (`🎯 Ставити, поки коеф ≥ X.XX`) для захисту від просідання. |
 | **38** | **Zero-Cost Orchestration & ACID** | `S` | 🟨 Planned | Усунення зайвих запусків Actions через Cloudflare Edge-перевірку, атомарні SQL-транзакції леджера та захищена форма входу на дашборді. |

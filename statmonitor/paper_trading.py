@@ -479,27 +479,74 @@ def calculate_kelly_fraction(odds, drop_pct=None, confidence=None, fraction=0.25
     clamped = max(min_pct, min(max_pct, frac_kelly))
     return round(clamped, 4)
 
-def place_paper_bet(cur, conn, ev_id, sport, match, c_time, pick_lbl, odds, drop_pct=None, confidence=None, risk_level=None):
+def place_paper_bet(cur, conn, ev_id, sport, match, c_time, pick_lbl, odds, drop_pct=None, confidence=None, risk_level=None, save_shadow=True):
     try:
-        if any(w in pick_lbl.lower() for w in ("пропустити", "утриматися")):
-            return False
-
-        # SPEC-21: Автоматичний фільтр валую за оцінкою сили сигналу (Confidence Score >= 7/10)
-        if confidence is not None:
+        filter_reason = None
+        if any(w in str(pick_lbl).lower() for w in ("пропустити", "утриматися")):
+            filter_reason = "AI_SKIP"
+        elif confidence is not None:
             try:
                 conf_val = int(confidence)
                 if conf_val < 7:
-                    print(f"ℹ️ Ставку на {match} ({pick_lbl}) відхилено через низький AI Confidence Score ({conf_val}/10 < 7/10).")
-                    return False
+                    filter_reason = f"LOW_CONFIDENCE ({conf_val}/10 < 7)"
             except (ValueError, TypeError):
                 pass
+
+        if filter_reason:
+            if not save_shadow:
+                print(f"ℹ️ Ставку на {match} ({pick_lbl}) відхилено ({filter_reason}).")
+                return False
+
+            # SPEC-35: Зберігаємо як Shadow-ставку (status='FILTERED', is_shadow=TRUE)
+            cur.execute("SELECT 1 FROM paper_bets WHERE event_id=%s;", (ev_id,))
+            if cur.fetchone():
+                return False
+
+            k = float(odds) if odds else 1.85
+            frac = calculate_kelly_fraction(k, drop_pct=drop_pct, confidence=confidence, fraction=0.25)
+            kelly_pct = round(frac * 100.0, 1)
+            hypo_stake = round(INITIAL_BANKROLL * frac, 2)
+
+            try:
+                cur.execute(
+                    """
+                    INSERT INTO paper_bets (
+                        event_id, sport, match_name, commence_time, pick_label, odds, stake_uah, kelly_pct,
+                        confidence_score, risk_level, status, profit_uah, is_shadow, shadow_status, shadow_profit_uah, filter_reason
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'FILTERED', 0.00, TRUE, 'PENDING', 0.00, %s)
+                    ON CONFLICT DO NOTHING;
+                    """,
+                    (ev_id, sport, match, c_time, pick_lbl, k, hypo_stake, kelly_pct, confidence, risk_level, filter_reason),
+                )
+                conn.commit()
+            except Exception:
+                if conn:
+                    conn.rollback()
+                try:
+                    cur.execute(
+                        """
+                        INSERT INTO paper_bets (
+                            event_id, sport, match_name, commence_time, pick_label, odds, stake_uah, kelly_pct,
+                            confidence_score, risk_level, status, profit_uah
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'FILTERED', 0.00)
+                        ON CONFLICT DO NOTHING;
+                        """,
+                        (ev_id, sport, match, c_time, pick_lbl, k, hypo_stake, kelly_pct, confidence, risk_level),
+                    )
+                    conn.commit()
+                except Exception:
+                    if conn:
+                        conn.rollback()
+
+            print(f"ℹ️ [Shadow-Bet] Ставку на {match} ({pick_lbl}) збережено як FILTERED ({filter_reason}).")
+            return False
 
         # Строга заборона зміни активних або існуючих ставок:
         # Ставка фіксується один раз і є незмінною для всіх автоматичних процесів!
         cur.execute("SELECT 1 FROM paper_bets WHERE event_id=%s;", (ev_id,))
         if cur.fetchone():
             return False
-        cur.execute("SELECT COALESCE(SUM(profit_uah),0), COALESCE(SUM(CASE WHEN status='PENDING' THEN stake_uah ELSE 0 END),0) FROM paper_bets;")
+        cur.execute("SELECT COALESCE(SUM(profit_uah),0), COALESCE(SUM(CASE WHEN status='PENDING' THEN stake_uah ELSE 0 END),0) FROM paper_bets WHERE status IN ('WON', 'LOST', 'VOID', 'PENDING');")
         prof, locked = cur.fetchone()
         avail = round(max(0.0, INITIAL_BANKROLL + float(prof) - float(locked)), 2)
         if avail < 50:
@@ -642,11 +689,13 @@ def manual_settle_bet(cur, conn, bet_id, score_str, forced_status=None):
     """
     Дозволяє вручну розрахувати ставку (наприклад, для тенісних матчів з форою по геймах,
     скасованих матчів або подій, яких немає в автоматичному API).
+    Підтримує як активні ставки, так і Shadow-ставки (SPEC-35).
     """
     try:
         cur.execute("""
             SELECT id, match_name, pick_label, odds, stake_uah, 
-                   COALESCE(is_real_bet, FALSE), real_stake_uah, real_odds 
+                   COALESCE(is_real_bet, FALSE), real_stake_uah, real_odds,
+                   status, COALESCE(is_shadow, FALSE)
             FROM paper_bets WHERE id=%s;
         """, (bet_id,))
         row = cur.fetchone()
@@ -656,6 +705,8 @@ def manual_settle_bet(cur, conn, bet_id, score_str, forced_status=None):
         is_real = bool(row[5]) if len(row) > 5 and row[5] is not None else False
         r_stake = row[6] if len(row) > 6 else None
         r_odds = row[7] if len(row) > 7 else None
+        b_status = row[8] if len(row) > 8 else None
+        is_shadow = bool(row[9]) if len(row) > 9 and row[9] is not None else (b_status == "FILTERED")
 
         res = (forced_status or "").upper() if forced_status else None
         if not res or res not in ("WON", "LOST", "VOID"):
@@ -666,6 +717,22 @@ def manual_settle_bet(cur, conn, bet_id, score_str, forced_status=None):
                 res = eval_outcome(pk, m_name, hs, as_)
 
         if res in ("WON", "LOST", "VOID"):
+            if is_shadow or b_status == "FILTERED":
+                eff_st = float(st)
+                eff_k = float(odds)
+                hypo_prof = round(eff_st * (eff_k - 1.0), 2) if res == "WON" else (round(-eff_st, 2) if res == "LOST" else 0.0)
+                try:
+                    cur.execute(
+                        "UPDATE paper_bets SET shadow_status=%s, shadow_profit_uah=%s, match_score=%s, settled_at=NOW() WHERE id=%s;",
+                        (res, hypo_prof, score_str, bid)
+                    )
+                except Exception:
+                    if conn:
+                        conn.rollback()
+                    cur.execute("UPDATE paper_bets SET match_score=%s, settled_at=NOW() WHERE id=%s;", (score_str, bid))
+                conn.commit()
+                return True, f"Shadow-ставку #{bid} ({m_name}) успішно розраховано як {res} ({score_str}) з гіпотетичним профітом {hypo_prof:+.2f} грн."
+
             eff_st = float(r_stake or st) if (is_real and r_stake) else float(st)
             eff_k = float(r_odds or odds) if (is_real and r_odds) else float(odds)
             prof = round(eff_st * (eff_k - 1.0), 2) if res == "WON" else (round(-eff_st, 2) if res == "LOST" else 0.0)
@@ -696,11 +763,17 @@ def settle_and_report(cur, conn):
 
     try:
         # Прискорений розрахунок: опитуємо результати вже через 85 хвилин після старту (захист через completed=True)
+        # SPEC-35: Включаємо у вибірку також Shadow-ставки (status='FILTERED')
         cur.execute("""
             SELECT id, event_id, sport, match_name, pick_label, odds, stake_uah,
-                   COALESCE(is_real_bet, FALSE), real_stake_uah, real_odds
+                   COALESCE(is_real_bet, FALSE), real_stake_uah, real_odds,
+                   status, COALESCE(is_shadow, FALSE)
             FROM paper_bets 
-            WHERE status='PENDING' AND commence_time < NOW() - INTERVAL '85 minutes';
+            WHERE (
+                status = 'PENDING'
+                OR (status = 'FILTERED' AND (shadow_status = 'PENDING' OR shadow_status IS NULL))
+            )
+            AND commence_time < NOW() - INTERVAL '85 minutes';
         """)
         pending = cur.fetchall()
         if pending:
@@ -731,6 +804,8 @@ def settle_and_report(cur, conn):
                 is_real = bool(r_p[7]) if len(r_p) > 7 and r_p[7] is not None else False
                 real_st = r_p[8] if len(r_p) > 8 else None
                 real_k = r_p[9] if len(r_p) > 9 else None
+                b_status = r_p[10] if len(r_p) > 10 else "PENDING"
+                is_shadow_bet = (b_status == "FILTERED") or (bool(r_p[11]) if len(r_p) > 11 and r_p[11] is not None else False)
 
                 ev = scores.get(eid)
                 if not ev:
@@ -741,16 +816,34 @@ def settle_and_report(cur, conn):
                     continue
                 res = eval_outcome(pk, f"{ev.get('home_team')} - {ev.get('away_team')}", hs, as_)
                 if res in ("WON", "LOST", "VOID"):
-                    eff_st = float(real_st or st) if (is_real and real_st) else float(st)
-                    eff_k = float(real_k or odds) if (is_real and real_k) else float(odds)
-                    prof = round(eff_st * (eff_k - 1), 2) if res == "WON" else (round(-eff_st, 2) if res == "LOST" else 0.0)
-                    cur.execute("UPDATE paper_bets SET status=%s, match_score=%s, profit_uah=%s, settled_at=NOW() WHERE id=%s;", (res, f"{hs}:{as_}", prof, bid))
-                    if is_real:
+                    if is_shadow_bet:
+                        hypo_st = float(st)
+                        hypo_k = float(odds)
+                        hypo_prof = round(hypo_st * (hypo_k - 1.0), 2) if res == "WON" else (round(-hypo_st, 2) if res == "LOST" else 0.0)
                         try:
-                            from statmonitor.real_bankroll import settle_real_bet_in_ledger
-                            settle_real_bet_in_ledger(cur, conn, bid, res, prof, eff_st)
-                        except Exception as real_err:
-                            print(f"settle_real_bet_in_ledger err: {real_err}")
+                            cur.execute(
+                                """
+                                UPDATE paper_bets 
+                                SET shadow_status = %s, shadow_profit_uah = %s, match_score = %s, settled_at = NOW() 
+                                WHERE id = %s;
+                                """,
+                                (res, hypo_prof, f"{hs}:{as_}", bid)
+                            )
+                        except Exception:
+                            if conn:
+                                conn.rollback()
+                            cur.execute("UPDATE paper_bets SET match_score=%s, settled_at=NOW() WHERE id=%s;", (f"{hs}:{as_}", bid))
+                    else:
+                        eff_st = float(real_st or st) if (is_real and real_st) else float(st)
+                        eff_k = float(real_k or odds) if (is_real and real_k) else float(odds)
+                        prof = round(eff_st * (eff_k - 1), 2) if res == "WON" else (round(-eff_st, 2) if res == "LOST" else 0.0)
+                        cur.execute("UPDATE paper_bets SET status=%s, match_score=%s, profit_uah=%s, settled_at=NOW() WHERE id=%s;", (res, f"{hs}:{as_}", prof, bid))
+                        if is_real:
+                            try:
+                                from statmonitor.real_bankroll import settle_real_bet_in_ledger
+                                settle_real_bet_in_ledger(cur, conn, bid, res, prof, eff_st)
+                            except Exception as real_err:
+                                print(f"settle_real_bet_in_ledger err: {real_err}")
             conn.commit()
     except Exception as e:
         if conn:

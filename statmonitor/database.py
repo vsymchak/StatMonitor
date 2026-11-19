@@ -65,6 +65,10 @@ def ensure_tables(cur, conn):
             ALTER TABLE paper_bets ADD COLUMN IF NOT EXISTS closing_recorded_at TIMESTAMPTZ;
             ALTER TABLE paper_bets ADD COLUMN IF NOT EXISTS confidence_score INTEGER;
             ALTER TABLE paper_bets ADD COLUMN IF NOT EXISTS risk_level TEXT;
+            ALTER TABLE paper_bets ADD COLUMN IF NOT EXISTS is_shadow BOOLEAN DEFAULT FALSE;
+            ALTER TABLE paper_bets ADD COLUMN IF NOT EXISTS shadow_status TEXT;
+            ALTER TABLE paper_bets ADD COLUMN IF NOT EXISTS shadow_profit_uah NUMERIC(10, 2) DEFAULT 0.00;
+            ALTER TABLE paper_bets ADD COLUMN IF NOT EXISTS filter_reason TEXT;
             ALTER TABLE ai_match_analysis ADD COLUMN IF NOT EXISTS confidence_score INTEGER;
             ALTER TABLE ai_match_analysis ADD COLUMN IF NOT EXISTS risk_level TEXT;
             CREATE TABLE IF NOT EXISTS paper_daily_reports (

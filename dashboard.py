@@ -854,7 +854,7 @@ def run_streamlit_app():
             sel_market = st.selectbox("🎯 Маркет:", market_options, index=0, key="filter_market_v2")
 
         with col_f3:
-            status_options = ["Всі ставки", "Розраховані", "В грі (Pending)"]
+            status_options = ["Всі ставки", "Розраховані", "В грі (Pending)", "🟡 Відсіяні (Shadow)"]
             sel_status = st.selectbox("📌 Статус:", status_options, index=0, key="filter_status_v2")
 
         with col_f4:
@@ -890,6 +890,12 @@ def run_streamlit_app():
                 filtered_df = filtered_df[filtered_df["status"].isin(["WON", "LOST", "VOID"])]
             elif sel_status == "В грі (Pending)":
                 filtered_df = filtered_df[filtered_df["status"] == "PENDING"]
+            elif sel_status == "🟡 Відсіяні (Shadow)":
+                filtered_df = filtered_df[(filtered_df["is_shadow"] == True) | (filtered_df["status"] == "FILTERED")]
+            else:
+                # "Всі ставки": за замовчуванням показуємо активні ставки (без тіньових)
+                if "is_shadow" in filtered_df.columns:
+                    filtered_df = filtered_df[(filtered_df["is_shadow"] != True) & (filtered_df["status"] != "FILTERED")]
 
             # Період
             if sel_period != "Все" and "commence_time" in filtered_df.columns:
@@ -2150,6 +2156,124 @@ def run_streamlit_app():
                     </div>
                 </div>
             """, unsafe_allow_html=True)
+
+        # SPEC-35: Контрфактичний аудит доданої вартості Gemini (Active vs Shadow)
+        try:
+            from statmonitor.analytics import calculate_counterfactual_audit, calculate_confidence_calibration
+            cf_audit = calculate_counterfactual_audit(bets_df)
+            cal_data = calculate_confidence_calibration(bets_df)
+
+            st.markdown("""
+                <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 12px; padding: 14px; margin-top: 6px; margin-bottom: 16px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="font-size: 18px;">🔬</span>
+                            <span style="font-size: 14.5px; font-weight: 700; color: #0F172A;">Counterfactual AI Audit & A/B Бектест (SPEC-35)</span>
+                        </div>
+                        <span style="font-size: 11px; font-weight: 600; background: #FEF3C7; color: #92400E; padding: 2px 8px; border-radius: 9999px;">AI Value-Add & Calibration</span>
+                    </div>
+                    <div style="font-size: 12px; color: #475569; margin-bottom: 12px;">
+                        Оцінка доданої вартості ШІ: порівняння результатів допущених ставок (Confidence ≥ 7) проти відсіяних Shadow-ставок (Confidence < 7 або Skip).
+                    </div>
+            """, unsafe_allow_html=True)
+
+            col_cf1, col_cf2, col_cf3, col_cf4 = st.columns(4)
+            live_m = cf_audit["live"]
+            shadow_m = cf_audit["shadow"]
+            v_add = cf_audit["value_add"]
+
+            col_cf1.metric(
+                label="🟢 Допущені ШІ (≥7/10)",
+                value=f"{live_m['roi_pct']:+.1f}% ROI",
+                delta=f"{live_m['won']}W / {live_m['lost']}L • Win: {live_m['win_rate']:.1f}%",
+                delta_color="normal" if live_m["roi_pct"] >= 0 else "inverse"
+            )
+            col_cf2.metric(
+                label="🟡 Відсіяні Shadow (<7/10)",
+                value=f"{shadow_m['roi_pct']:+.1f}% ROI",
+                delta=f"{shadow_m['won']}W / {shadow_m['lost']}L • Win: {shadow_m['win_rate']:.1f}%",
+                delta_color="normal" if shadow_m["roi_pct"] >= 0 else "inverse"
+            )
+
+            saved_uah = v_add["capital_saved_uah"]
+            col_cf3.metric(
+                label="🛡️ Збережений капітал",
+                value=f"{saved_uah:+,.0f} ₴",
+                delta="Захист від мінусів" if saved_uah >= 0 else "Недобір прибутку",
+                delta_color="normal" if saved_uah >= 0 else "inverse"
+            )
+
+            delta_roi = v_add["delta_roi_pct"]
+            col_cf4.metric(
+                label="🚀 Alpha ШІ (Δ ROI)",
+                value=f"{delta_roi:+.2f}%",
+                delta="Перевага фільтра" if delta_roi >= 0 else "Фільтр відсікає +EV",
+                delta_color="normal" if delta_roi >= 0 else "inverse"
+            )
+
+            st.markdown("</div>", unsafe_allow_html=True)
+
+            # Калібраційна таблиця
+            with st.expander("🎯 Калібровка AI Confidence Score (Buckets & Brier Score)", expanded=False):
+                b_list = cal_data.get("buckets", [])
+                if b_list:
+                    cal_df = pd.DataFrame(b_list)
+                    cal_df["Бакет сили"] = cal_df["label"]
+                    cal_df["Ставок"] = cal_df["total_bets"]
+                    cal_df["Рекорд"] = cal_df.apply(lambda r: f"{r['won']}W / {r['lost']}L" if r['total_bets'] > 0 else "—", axis=1)
+                    cal_df["Win Rate"] = cal_df["win_rate"].apply(lambda x: f"{x:.1f}%")
+                    cal_df["Avg CLV"] = cal_df["avg_clv_pct"].apply(lambda x: f"{x:+.2f}%")
+                    cal_df["ROI"] = cal_df["roi_pct"].apply(lambda x: f"{x:+.2f}%")
+                    cal_df["Brier Score"] = cal_df["brier_score"].apply(lambda x: f"{x:.4f}" if x is not None else "—")
+                    
+                    cols_cal_show = ["Бакет сили", "Ставок", "Рекорд", "Win Rate", "Avg CLV", "ROI", "Brier Score"]
+                    st.dataframe(cal_df[cols_cal_show], use_container_width=True, hide_index=True)
+                    
+                    ov_brier = cal_data.get("overall_brier_score")
+                    if ov_brier is not None:
+                        st.caption(f"📐 **Overall Brier Score:** `{ov_brier:.4f}` (чим ближче до 0, тим точніше оцінка моделі відповідає реальній ймовірності).")
+                else:
+                    st.info("ℹ️ Немає розрахованих оцінок для побудови калібровки.")
+
+            # Реєстр відсіяних Shadow-ставок
+            shadow_bets_all = (
+                bets_df[(bets_df["is_shadow"] == True) | (bets_df["status"] == "FILTERED")].copy()
+                if (bets_df is not None and not bets_df.empty and "status" in bets_df.columns)
+                else pd.DataFrame()
+            )
+            with st.expander(f"🕵️ Реєстр Shadow-ставок (Counterfactual Log: {len(shadow_bets_all)})", expanded=False):
+                if not shadow_bets_all.empty:
+                    sh_disp = shadow_bets_all.copy()
+                    sh_disp["ID"] = sh_disp["id"].apply(lambda x: f"#{x}")
+                    if "commence_time" in sh_disp.columns:
+                        sh_disp["Час"] = sh_disp["commence_time"].apply(format_kyiv_time)
+                    sh_disp["Турнір"] = sh_disp["sport"].apply(lambda sp: _get_league_name(sp, with_icon=True))
+                    sh_disp["Подія"] = sh_disp.get("match_name", "")
+                    sh_disp["Маркет"] = sh_disp.get("pick_label", "").apply(_clean_pick_label)
+                    sh_disp["Коеф."] = sh_disp["odds"].apply(lambda x: f"{float(x):.2f}" if x else "—")
+                    sh_disp["AI Score"] = sh_disp.apply(_get_ai_score_badge, axis=1)
+                    sh_disp["Причина відсікання"] = sh_disp["filter_reason"].fillna("LOW_CONFIDENCE") if "filter_reason" in sh_disp.columns else "LOW_CONFIDENCE"
+                    sh_disp["Рахунок"] = sh_disp["match_score"].fillna("—") if "match_score" in sh_disp.columns else "—"
+                    
+                    def _fmt_shadow_res(r):
+                        st_val = str(r.get("shadow_status") or r.get("status") or "").upper()
+                        if st_val == "WON":
+                            p = float(r.get("shadow_profit_uah") or 0.0)
+                            return f"🟢 Виграло б ({p:+,.0f} ₴)"
+                        elif st_val == "LOST":
+                            p = float(r.get("shadow_profit_uah") or 0.0)
+                            return f"🔴 Програло б ({p:+,.0f} ₴)"
+                        elif st_val == "VOID":
+                            return "⚪ Повернення"
+                        return "⏳ В грі (Pending)"
+
+                    sh_disp["Гіпотетичний результат"] = sh_disp.apply(_fmt_shadow_res, axis=1)
+                    cols_sh_show = [c for c in ["ID", "Час", "Турнір", "Подія", "Маркет", "Коеф.", "AI Score", "Причина відсікання", "Рахунок", "Гіпотетичний результат"] if c in sh_disp.columns]
+                    st.dataframe(sh_disp[cols_sh_show], use_container_width=True, hide_index=True)
+                else:
+                    st.info("ℹ️ Реєстр Shadow-ставок порожній. Відсіяні системою матчі автоматично з'являтимуться тут для аналізу.")
+        except Exception as cf_err:
+            print("Counterfactual audit render err:", cf_err)
 
         # Список детальних вердиктів матчів
         st.markdown("#### 📑 Збережені вердикти матчів (ai_match_analysis)")

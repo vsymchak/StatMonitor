@@ -287,6 +287,7 @@ def calculate_league_breakdown(settled_bets, sports_map=None):
     res.sort(key=lambda x: x["profit_uah"], reverse=True)
     return res
 
+
 def calculate_market_breakdown(settled_bets):
     """
     Групує історію розрахованих ставок за типами маркетів (1X2, Тотали, Фори тощо):
@@ -340,3 +341,209 @@ def calculate_market_breakdown(settled_bets):
 
     res.sort(key=lambda x: x["profit_uah"], reverse=True)
     return res
+
+
+def calculate_counterfactual_audit(bets):
+    """
+    SPEC-35: Розрахунок метрик контрфактичного аудиту для порівняння
+    активних ставок (AI Confidence >= 7) проти відсіяних Shadow-ставок (Confidence < 7 або Skip).
+    
+    Повертає словник:
+    - live: {total, won, lost, void, pending, turnover, profit, roi_pct, win_rate}
+    - shadow: {total, won, lost, void, pending, turnover, profit, roi_pct, win_rate}
+    - combined: {total, won, lost, void, turnover, profit, roi_pct, win_rate} (гіпотеза без фільтрації)
+    - value_add: {delta_roi_pct, delta_win_rate, capital_saved_uah, verdict}
+    """
+    records = _to_records(bets)
+    if not records:
+        return {
+            "live": {"total": 0, "won": 0, "lost": 0, "void": 0, "pending": 0, "turnover": 0.0, "profit": 0.0, "roi_pct": 0.0, "win_rate": 0.0},
+            "shadow": {"total": 0, "won": 0, "lost": 0, "void": 0, "pending": 0, "turnover": 0.0, "profit": 0.0, "roi_pct": 0.0, "win_rate": 0.0},
+            "combined": {"total": 0, "won": 0, "lost": 0, "void": 0, "turnover": 0.0, "profit": 0.0, "roi_pct": 0.0, "win_rate": 0.0},
+            "value_add": {"delta_roi_pct": 0.0, "delta_win_rate": 0.0, "capital_saved_uah": 0.0, "verdict": "INSUFFICIENT_DATA"}
+        }
+
+    # 1. Розділення на Live та Shadow
+    live_settled = []
+    live_pending = 0
+    shadow_settled = []
+    shadow_pending = 0
+
+    for b in records:
+        is_sh = bool(b.get("is_shadow")) or b.get("status") == "FILTERED"
+        st = str(b.get("status") or "").upper()
+        sh_st = str(b.get("shadow_status") or "").upper()
+
+        if is_sh:
+            if sh_st in ("WON", "LOST", "VOID"):
+                shadow_settled.append(b)
+            elif sh_st == "PENDING" or st == "FILTERED":
+                shadow_pending += 1
+        else:
+            if st in ("WON", "LOST", "VOID"):
+                live_settled.append(b)
+            elif st == "PENDING":
+                live_pending += 1
+
+    # 2. Метрики Live
+    l_won = sum(1 for b in live_settled if str(b.get("status")).upper() == "WON")
+    l_lost = sum(1 for b in live_settled if str(b.get("status")).upper() == "LOST")
+    l_void = sum(1 for b in live_settled if str(b.get("status")).upper() == "VOID")
+    l_tot = l_won + l_lost + l_void
+    l_turnover = sum(float(b.get("stake_uah") or 0.0) for b in live_settled)
+    l_profit = sum(float(b.get("profit_uah") or 0.0) for b in live_settled)
+    l_roi = round((l_profit / l_turnover * 100.0), 2) if l_turnover > 0 else 0.0
+    l_win_rate = round((l_won / (l_won + l_lost) * 100.0), 1) if (l_won + l_lost) > 0 else 0.0
+
+    # 3. Метрики Shadow
+    s_won = sum(1 for b in shadow_settled if str(b.get("shadow_status") or b.get("status")).upper() in ("WON", "FILTERED_WON"))
+    s_lost = sum(1 for b in shadow_settled if str(b.get("shadow_status") or b.get("status")).upper() in ("LOST", "FILTERED_LOST"))
+    s_void = sum(1 for b in shadow_settled if str(b.get("shadow_status") or b.get("status")).upper() in ("VOID", "FILTERED_VOID"))
+    s_tot = s_won + s_lost + s_void
+    s_turnover = sum(float(b.get("stake_uah") or 0.0) for b in shadow_settled)
+    s_profit = sum(float(b.get("shadow_profit_uah") or b.get("profit_uah") or 0.0) for b in shadow_settled)
+    s_roi = round((s_profit / s_turnover * 100.0), 2) if s_turnover > 0 else 0.0
+    s_win_rate = round((s_won / (s_won + s_lost) * 100.0), 1) if (s_won + s_lost) > 0 else 0.0
+
+    # 4. Комбінована модель (без фільтрації)
+    c_tot = l_tot + s_tot
+    c_won = l_won + s_won
+    c_lost = l_lost + s_lost
+    c_void = l_void + s_void
+    c_turnover = l_turnover + s_turnover
+    c_profit = l_profit + s_profit
+    c_roi = round((c_profit / c_turnover * 100.0), 2) if c_turnover > 0 else 0.0
+    c_win_rate = round((c_won / (c_won + c_lost) * 100.0), 1) if (c_won + c_lost) > 0 else 0.0
+
+    # 5. Оцінка доданої вартості ШІ (Alpha)
+    delta_roi = round(l_roi - s_roi, 2)
+    delta_win_rate = round(l_win_rate - s_win_rate, 1)
+    capital_saved = round(-s_profit, 2)
+
+    if s_tot < 3:
+        verdict = "INSUFFICIENT_DATA"
+    elif delta_roi > 2.0 or capital_saved > 0:
+        verdict = "POSITIVE"
+    elif delta_roi < -2.0 and s_profit > 0:
+        verdict = "NEGATIVE"
+    else:
+        verdict = "NEUTRAL"
+
+    return {
+        "live": {
+            "total": l_tot, "won": l_won, "lost": l_lost, "void": l_void, "pending": live_pending,
+            "turnover": l_turnover, "profit": l_profit, "roi_pct": l_roi, "win_rate": l_win_rate,
+        },
+        "shadow": {
+            "total": s_tot, "won": s_won, "lost": s_lost, "void": s_void, "pending": shadow_pending,
+            "turnover": s_turnover, "profit": s_profit, "roi_pct": s_roi, "win_rate": s_win_rate,
+        },
+        "combined": {
+            "total": c_tot, "won": c_won, "lost": c_lost, "void": c_void,
+            "turnover": c_turnover, "profit": c_profit, "roi_pct": c_roi, "win_rate": c_win_rate,
+        },
+        "value_add": {
+            "delta_roi_pct": delta_roi,
+            "delta_win_rate": delta_win_rate,
+            "capital_saved_uah": capital_saved,
+            "verdict": verdict,
+        }
+    }
+
+
+def calculate_confidence_calibration(bets):
+    """
+    SPEC-35: Калібровка AI Confidence Score за бакетами:
+    - 1-4: Слабкі сигнали / Пропуск
+    - 5-6: Сумнівні / Відсіяні
+    - 7-8: Стандартний валуй (прохідний поріг)
+    - 9-10: Висока впевненість
+    
+    Для кожного бакета рахується Win Rate, ROI %, середній CLV % та Brier Score.
+    """
+    records = _to_records(bets)
+    buckets = {
+        "1-4": {"name": "1-4 (Слабкі / Пропуск)", "range": (1, 4), "bets": []},
+        "5-6": {"name": "5-6 (Сумнівні / Відсіяні)", "range": (5, 6), "bets": []},
+        "7-8": {"name": "7-8 (Стандартний валуй)", "range": (7, 8), "bets": []},
+        "9-10": {"name": "9-10 (Висока впевненість)", "range": (9, 10), "bets": []},
+    }
+
+    for b in records:
+        conf = b.get("confidence_score")
+        if conf is None:
+            continue
+        try:
+            c_val = int(conf)
+        except (ValueError, TypeError):
+            continue
+
+        for b_key, b_data in buckets.items():
+            low, high = b_data["range"]
+            if low <= c_val <= high:
+                b_data["bets"].append(b)
+                break
+
+    results = []
+    total_squared_errors = []
+
+    for b_key in ["1-4", "5-6", "7-8", "9-10"]:
+        b_data = buckets[b_key]
+        b_bets = b_data["bets"]
+
+        settled = []
+        for b in b_bets:
+            is_sh = bool(b.get("is_shadow")) or b.get("status") == "FILTERED"
+            res = (b.get("shadow_status") if is_sh else b.get("status")) or ""
+            if str(res).upper() in ("WON", "LOST", "VOID"):
+                settled.append((b, str(res).upper(), is_sh))
+
+        won = sum(1 for _, res, _ in settled if res == "WON")
+        lost = sum(1 for _, res, _ in settled if res == "LOST")
+        void = sum(1 for _, res, _ in settled if res == "VOID")
+        tot = won + lost + void
+
+        turnover = sum(float(b.get("stake_uah") or 0.0) for b, _, _ in settled)
+        profit = sum(
+            float(b.get("shadow_profit_uah") if is_sh else b.get("profit_uah") or 0.0)
+            for b, _, is_sh in settled
+        )
+        roi = round((profit / turnover * 100.0), 2) if turnover > 0 else 0.0
+        win_rate = round((won / (won + lost) * 100.0), 1) if (won + lost) > 0 else 0.0
+
+        clvs = [float(b.get("clv_pct")) for b, _, _ in settled if b.get("clv_pct") is not None]
+        avg_clv = round(sum(clvs) / len(clvs), 2) if clvs else 0.0
+
+        brier_bucket = []
+        for b, res, _ in settled:
+            if res in ("WON", "LOST"):
+                p_est = min(1.0, max(0.0, float(b.get("confidence_score") or 5) / 10.0))
+                actual = 1.0 if res == "WON" else 0.0
+                sq_err = (p_est - actual) ** 2
+                brier_bucket.append(sq_err)
+                total_squared_errors.append(sq_err)
+
+        bucket_brier = round(sum(brier_bucket) / len(brier_bucket), 4) if brier_bucket else None
+
+        results.append({
+            "bucket": b_key,
+            "label": b_data["name"],
+            "total_bets": tot,
+            "won": won,
+            "lost": lost,
+            "void": void,
+            "win_rate": win_rate,
+            "roi_pct": roi,
+            "turnover": turnover,
+            "profit": profit,
+            "avg_clv_pct": avg_clv,
+            "brier_score": bucket_brier,
+        })
+
+    overall_brier = round(sum(total_squared_errors) / len(total_squared_errors), 4) if total_squared_errors else None
+
+    return {
+        "buckets": results,
+        "overall_brier_score": overall_brier,
+    }
+
