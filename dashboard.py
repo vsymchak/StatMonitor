@@ -587,6 +587,18 @@ def run_streamlit_app():
 
     if query_key and (query_key == secret_key or query_key == "ALTECsrs1989_" or query_key.lower() == secret_key.lower()):
         st.session_state.is_admin = True
+        # SPEC-38: URL Sanitization - негайно прибираємо секретний ключ з URL, щоб він не витікав у браузері
+        try:
+            if hasattr(st, "query_params"):
+                if "key" in st.query_params:
+                    del st.query_params["key"]
+                if "admin" in st.query_params:
+                    del st.query_params["admin"]
+            elif hasattr(st, "experimental_set_query_params"):
+                st.experimental_set_query_params()
+        except Exception:
+            pass
+        st.rerun()
 
     is_admin = st.session_state.is_admin
 
@@ -624,7 +636,7 @@ def run_streamlit_app():
 
     with col_nav_right:
         if is_admin:
-            c_wd, c_ref, c_run = st.columns([2.4, 1.3, 1.3])
+            c_wd, c_ref, c_run, c_logout = st.columns([2.1, 1.1, 1.2, 1.1])
             with c_wd:
                 st.markdown(f"""
                     <div style="display: flex; align-items: center; gap: 6px; background: #ECFDF5; border: 1px solid #A7F3D0; color: #047857; font-size: 11px; font-weight: 600; padding: 5px 10px; border-radius: 9999px; margin-top: 4px;">
@@ -649,6 +661,10 @@ def run_streamlit_app():
                                 st.error(f"Помилка [{resp.status_code}]: {resp.text[:100]}")
                     except Exception as e:
                         st.error(f"Помилка виклику: {e}")
+            with c_logout:
+                if st.button("🚪 Вийти", use_container_width=True, help="Вийти з режиму адміністратора (SPEC-38)"):
+                    st.session_state.is_admin = False
+                    st.rerun()
         else:
             c_wd, c_login = st.columns([2.8, 1.4])
             with c_wd:

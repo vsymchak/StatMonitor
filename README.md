@@ -8,7 +8,7 @@
 
 * 🏛 **[Візуальна архітектура системи (docs/architecture.md)](docs/architecture.md)** — детальна C4-схема компонентів, модульний пакет `statmonitor/`, потік даних від тригеру до Telegram та Web UI, діаграма бази даних (ERD).
 * 📊 **[Діаграма дорожньої карти SDD (docs/roadmap-diagram.md)](docs/roadmap-diagram.md)** — візуальний прогрес виконання завдань по хвилях (Wave 1–12).
-* 📋 **[Реєстр дорожньої карти (docs/roadmap.md)](docs/roadmap.md)** — повний список 42 кроків еволюції системи за методологією Spec-Driven Development (35 реалізовано, 3 заплановано у Wave 11, 4 у Wave 12).
+* 📋 **[Реєстр дорожньої карти (docs/roadmap.md)](docs/roadmap.md)** — повний список 42 кроків еволюції системи за методологією Spec-Driven Development (36 реалізовано, 2 заплановано у Wave 11, 4 у Wave 12).
 * 🧾 **[Специфікація SPEC-31: Real Money Mode & Bet Slip OCR (specs/31-real-money-betting-ocr/specification.md)](specs/31-real-money-betting-ocr/specification.md)** — архітектура подвійного банкролу, фінансового леджера та Gemini Vision OCR.
 * ⚡ **[Налаштування Cloudflare Cron (docs/cloudflare_cron_setup.md)](docs/cloudflare_cron_setup.md)** — конфігурація безсерверного запуску на edge-інфраструктурі Cloudflare.
 
@@ -45,7 +45,11 @@
 8. **Інтерактивний Telegram-бот (`bot_service.py`)**: двосторонній персональний асистент із клавіатурою швидких дій, командами `/status`, `/bank`, `/bets` (з показом % банку за Келлі), `/today`, `/schedule`, `/digest` та позачерговим запуском моніторингу `/run_now` з перевіркою авторизації `TG_CHAT_ID`.
 9. **Smart Rate-Limiter & Credit Budgeter (`statmonitor/limiter.py`)**: динамічна класифікація ліг на HOT (< 6 год), WARM (6..24 год) та COLD (> 24 год) з автоматичними режимами економії (NORMAL/ECO/CRITICAL), що зберігає до 80% квоти The Odds API.
 10. **Модульна архітектура пакету (`statmonitor/`)**: розподіл обов'язків на чисті модулі (`pipeline`, `fetcher`, `limiter`, `league_config`, `bot`, `database`, `ai`, `paper_trading`, `real_bankroll`, `slip_ocr`, `chart`, `notifier`, `config`) та лаконічний оркестратор `main.py` зі збереженням 100% зворотної сумісності.
-11. **Високоточний гібридний тригер**: виклик воркфлоу секунда в секунду через **Cloudflare Worker** (`statmonitor.symchak.workers.dev`) + **Cron-job.org**, плюс резервний cron у GitHub Actions (`15,45 * * * *`) та програмний шлюз `should_execute_pipeline`.
+11. **Високоточний гібридний тригер & Zero-Cost Orchestration Sync (SPEC-11 & SPEC-38)**:
+    - Виклик воркфлоу секунда в секунду через **Cloudflare Worker** (`statmonitor.symchak.workers.dev`) + **Cron-job.org**.
+    - **Edge Zero-Cost Gate (SPEC-38)**: легкий edge-запит до Supabase REST API перед викликом Actions, що усуває випалювання лімітів білінгу GitHub Actions (0 хв на холостих тіках).
+    - Автоматична санітизація URL при автентифікації на Dashboard та кнопка безпечного виходу `🚪 Вийти`.
+    - Атомарний фінансовий леджер із суворим математичним балансом $\sum \text{amount\_uah} \equiv \text{balance\_after\_uah}$.
 12. **Динамічний планувальник (`scheduler.py`)**: автоматичний розрахунок контрольних точок за 15 хв до початку матчів (Closing Line Value), через 115 хв для розрахунку ставок, автофіксація статусу `EXECUTED`, захист від дублікатів та фільтрація вікна перегляду (-6 год).
 13. **Watchdog пульсу (`sys_watchdog.py`)**: автоматичний контроль запізнень черг та алерти в Telegram при затримках $> 25$ хв із розумною фільтрацією повторів та нічним режимом тиші (00:00 - 08:00).
 14. **Версіоновані міграції БД (`migrate.py`)**: DDL-схема, журнал `schema_migrations`, B-Tree індекси на `odds_history`, `events`, `paper_bets`, `sports_poll_log`, `real_bankroll_ledger` та оптимізована в'юшка `v_odds_alerts` (міграції `001`–`015`).
@@ -53,7 +57,7 @@
 16. **Відстеження Closing Line Value (CLV) та Beat the Line % (Wave 8, Крок 20)**: автоматична фіксація лінії закриття за Pinnacle/Betfair перед початком матчу, розрахунок $CLV\%$ та Beat the Line % для доказу довгострокового $+EV$. Відображення в Web Dashboard (стовпець `CLV (+EV)` і блок у Breakdown) та Telegram-боті (`/bank` та щоденний звіт).
 17. **Ринок «Обидві заб'ють» (BTTS) та фільтрація чистих тоталів (Wave 8, Крок 23)**: підтримка ринку BTTS (`Yes` / `No`) у футболі через The Odds API, конфігурацію ліг, автоматичний розрахунок результатів `eval_outcome`, медіанні коефіцієнти та сегментацію в аналітиці. Математичне відсікання азіатських четвертних тоталів (`.25` та `.75`) для виключення шуму в алертах.
 18. **Дедуплікація та оптимізація сповіщень Telegram (Wave 8, Кроки 27, 29, 30)**: виключення повторної відправки алертів кожні 2 години для матчів із зафіксованими ставками або проведеним аналізом. Повне відключення спаму технічними повідомленнями та довгими AI-вердиктами у Telegram (збереження в БД). У Telegram надсилаються тільки помилки розкладу, відкриті ставки, зведення та звіти.
-19. **Вичерпний набір тестів (169 unit-тестів)**: повне покриття модулів Shadow-ставок та Counterfactual аудиту (`test_shadow_bets.py`), No-Vig Edge (`test_novig_edge.py`), реального банку (`test_real_bankroll.py`), OCR купонів (`test_slip_ocr.py`), аналітики ризику та ліг (`test_analytics.py`), матриці ліг (`test_league_config.py`), порогів чутливості (`test_league_thresholds.py`), AI Confidence (`test_confidence.py`), бота (`test_bot.py`), лімітера (`test_rate_limiter.py`), стейкінгу Келлі (`test_kelly.py`), CLV та Beat the Line (`test_clv.py`), ринків BTTS, маркетів та медіани (`test_eval_picks.py`), цілісності модулів (`test_modules.py`), планувальника, watchdog, міграцій та дашборду (`test_dashboard.py`).
+19. **Вичерпний набір тестів (174 unit-тести)**: повне покриття модулів Zero-Cost Sync та ACID леджера (`test_orchestration_sync.py`), Shadow-ставок та Counterfactual аудиту (`test_shadow_bets.py`), No-Vig Edge (`test_novig_edge.py`), реального банку (`test_real_bankroll.py`), OCR купонів (`test_slip_ocr.py`), аналітики ризику та ліг (`test_analytics.py`), матриці ліг (`test_league_config.py`), порогів чутливості (`test_league_thresholds.py`), AI Confidence (`test_confidence.py`), бота (`test_bot.py`), лімітера (`test_rate_limiter.py`), стейкінгу Келлі (`test_kelly.py`), CLV та Beat the Line (`test_clv.py`), ринків BTTS, маркетів та медіани (`test_eval_picks.py`), цілісності модулів (`test_modules.py`), планувальника, watchdog, міграцій та дашборду (`test_dashboard.py`).
 
 ---
 
@@ -66,5 +70,5 @@
 * **Веб-інтерфейс**: Streamlit Cloud (`dashboard.py` + Plotly + `st.data_editor`)
 * **Візуалізація трендів**: Matplotlib (рендеринг у пам'яті без дисків)
 * **Канал сповіщень**: Telegram Bot API (HTML-розмітка, чанкінг $\le 3800$ симв., анти-спам фільтрація)
-* **Оркестрація**: GitHub Actions + Cloudflare Workers
-* **Тестування**: `unittest` (169 тест-кейсів, 100% pass, час виконання $\approx 1$ с)
+* **Оркестрація**: GitHub Actions + Cloudflare Workers (з Edge Zero-Cost Gate)
+* **Тестування**: `unittest` (174 тест-кейси, 100% pass, час виконання $\approx 1$ с)

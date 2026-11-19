@@ -1,6 +1,6 @@
 # Візуальна діаграма дорожньої карти (Roadmap diagram)
 
-**35 з 42 кроків реалізовано (35 Shipped, 3 Planned, 4 Idea) · 169 Unit Tests** · Детальний опис: [roadmap.md](roadmap.md)
+**36 з 42 кроків реалізовано (36 Shipped, 2 Planned, 4 Idea) · 174 Unit Tests** · Детальний опис: [roadmap.md](roadmap.md)
 
 > 🟩 **Реалізовано (Shipped)** · 🟧 **У розробці (In Progress)** · 🟪 **Заплановано (Idea)** · ⬜ **Концепт (Fog)**  
 > Колонки — це послідовні хвилі виконання (**Execution Waves**). Стрілка показує залежність («потрібен для»).
@@ -80,7 +80,7 @@ flowchart LR
         35["35 · Shadow-ставки (FILTERED)<br><small>A/B бектест корисності AI</small><br><b>S</b>"]:::shipped
         36["36 · Risk Guardrails Real Bank<br><small>Stop-Loss & Max Exposure</small><br><b>S</b>"]:::in_progress
         37["37 · Walkaway Odds у Telegram<br><small>Мінімальний кеф для входу</small><br><b>S</b>"]:::in_progress
-        38["38 · Zero-Cost Orchestration & ACID<br><small>Cloudflare Cron & безпека леджера</small><br><b>S</b>"]:::in_progress
+        38["38 · Zero-Cost Sync & ACID Ledger<br><small>Supabase Edge Gate & санітизація URL</small><br><b>S</b>"]:::shipped
     end
 
     subgraph Wave12["Хвиля 12: Холодний архів, Бектест & TG"]
@@ -227,7 +227,7 @@ flowchart LR
 | **35** | **Shadow-ставки & AI Audit** | `S` | 🟩 Shipped | Збереження відсіяних AI ставок (`FILTERED`), авторозрахунок без зміни балансу, Counterfactual A/B аудит, калібрування впевненості та Brier Score на дашборді. |
 | **36** | **Risk Guardrails Real Bank** | `S` | 🟨 Planned | Автоматичний денний Stop-Loss ($\ge 7\%$), ліміт максимальної одночасної експозиції (15–20% від депозиту) та захист від кореляцій. |
 | **37** | **Walkaway Odds у Telegram** | `S` | 🟨 Planned | Індикація у сповіщеннях Telegram мінімально допустимого коефіцієнта для входу (`🎯 Ставити, поки коеф ≥ X.XX`) для захисту від просідання. |
-| **38** | **Zero-Cost Orchestration & ACID** | `S` | 🟨 Planned | Усунення зайвих запусків Actions через Cloudflare Edge-перевірку, атомарні SQL-транзакції леджера та захищена форма входу на дашборді. |
+| **38** | **Zero-Cost Sync & ACID Ledger** | `S` | 🟩 Shipped | Cloudflare Edge-перевірка Supabase REST API (0 хв білінгу Actions), строга узгодженість сум леджера та санітизація URL у Dashboard. |
 | **39** | **Холодний архів Parquet (R2)** | `M` | 🟪 Idea | Довгостроковий експорт котирувань у стислі Parquet-файли на Cloudflare R2 перед 4-денною ротацією для накопичення бази бектесту. |
 | **40** | **Bet Slip OCR прямо в Telegram** | `S` | 🟪 Idea | Можливість скинути фото купона в чат бота, автоматичний розбір через Gemini Vision та інтерактивні кнопки прив'язки до ставки. |
 | **41** | **Калібрування AI & Brier Score** | `S` | 🟪 Idea | Емпіричний аудит точності та Brier Score для бакетів впевненості Gemini (7–10) проти реального CLV та результатів. |

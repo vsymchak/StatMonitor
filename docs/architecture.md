@@ -1,7 +1,7 @@
 # Візуальна архітектура системи StatMonitor
 
-> **Проєкт**: StatMonitor — інтелектуальна система спортивного моніторингу прогрузів, віртуального трейдингу (Paper Trading), спостережливості (Web Dashboard), предиктивної AI-аналітики, реального банкролу (Real Money Mode) та контрфактичного AI-аудиту (Shadow-Bets).  
-> **Версія**: 3.6 (Еволюція: No-Vig Fair Odds + Shadow-Bets Counterfactual AI Audit + Calibration & Brier Score + Dedicated Real Money Tab + 169 Unit Tests)  
+> **Проєкт**: StatMonitor — інтелектуальна система спортивного моніторингу прогрузів, віртуального трейдингу (Paper Trading), спостережливості (Web Dashboard), предиктивної AI-аналітики, реального банкролу (Real Money Mode), контрфактичного AI-аудиту (Shadow-Bets) та нульових витрат інфраструктури (Zero-Cost Sync).  
+> **Версія**: 3.7 (Еволюція: Zero-Cost Orchestration Sync + ACID Real Ledger + URL Sanitization Auth + 174 Unit Tests)  
 > **Оновлено**: 19.11.2026
 
 ---
@@ -25,7 +25,7 @@ flowchart TD
         GHFallbackCron["GitHub Actions Fallback Cron<br>schedule: 15,45 * * * *"]:::ext
         ManualAdmin["Admin / CLI<br>python trigger_dispatch.py"]:::ext
         DashboardTrigger["Web Dashboard Button<br>⚡ Запустити моніторинг"]:::ui
-        CFWorker["Cloudflare Worker<br>(deploy/cloudflare_webhook.js)<br>Захист ?secret=***"]:::gw
+        CFWorker["Cloudflare Worker<br>(deploy/cloudflare_webhook.js)<br>Edge Zero-Cost Gate (Supabase REST)"]:::gw
     end
 
     subgraph GitHubInfra["⚙️ 2. Інфраструктура виконання"]
@@ -81,7 +81,8 @@ flowchart TD
         T_Beat["system_heartbeat"]:::data
     end
 
-    subgraph TestSuite["🧪 7. Шар якості та тестування (169 unit-тестів)"]
+    subgraph TestSuite["🧪 7. Шар якості та тестування (174 unit-тести)"]
+        TestSync["test_orchestration_sync.py (5 тестів)<br>Zero-cost gate, ACID ledger delta, reconciliation"]:::test
         TestShadow["test_shadow_bets.py (7 тестів)<br>Shadow bets, FILTERED статус, Counterfactual audit, Brier Score"]:::test
         TestNoVig["test_novig_edge.py (7 тестів)<br>Pinnacle de-vig, p_fair, independent real staking"]:::test
         TestRealBank["test_real_bankroll.py (12 тестів)<br>Депозити, леджер, ROI, маркування ставок"]:::test
@@ -338,7 +339,11 @@ erDiagram
   - Ідемпотентний раннер з журналом у `schema_migrations`.
   - Цільові B-Tree індекси на `odds_history`, `events`, `paper_bets`, `real_bankroll_ledger`.
 * **Автоматизований тестовий комплекс (`tests/` та кореневі тести)**:
-  - **169 модульних тестів** (100% проходження за $\approx 1$ с) без зовнішніх мережевих викликів.
+  - **174 модульних тести** (100% проходження за $\approx 1$ с) без зовнішніх мережевих викликів.
+* **Zero-Cost Orchestration Sync & ACID Financial Transactions (SPEC-38)**:
+  - **Cloudflare Edge Pre-check**: воркер перед викликом `POST /dispatches` перевіряє через Supabase REST API наявність точок розкладу або завершених матчів, запобігаючи спалюванню хвилин білінгу Actions (0 хв на холостих тіках).
+  - **ACID-гарантія фінансового леджера**: строга рівність $\sum \text{amount\_uah} \equiv \text{balance\_after\_uah}$, автоматичний розрахунок дельти `ADJUSTMENT` та захист від подвійного зарахування ставок у `settle_real_bet_in_ledger`.
+  - **Безпечна автентифікація Dashboard**: санітизація URL при вході (негайне стирання `?key=...` з адресної стрічки) та кнопка `🚪 Вийти`.
 * **Динамічний планувальник (`scheduler.py`)**:
   - Кластеризація подій ($\Delta \le 25$ хв).
   - Формування контрольних точок за 15 хв до гри (`PRE_MATCH` для фіксації Closing Line) та через 115 хв (`SETTLE` для розрахунку ставок).

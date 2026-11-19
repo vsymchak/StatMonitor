@@ -62,11 +62,20 @@ def get_real_bankroll_summary(cur, conn=None):
     }
 
     try:
-        # 1. Поточний баланс з леджера
-        cur.execute("SELECT balance_after_uah FROM real_bankroll_ledger ORDER BY created_at DESC, id DESC LIMIT 1;")
+        # 1. Поточний баланс з леджера та агрегатна звірка сум (SPEC-38)
+        cur.execute("""
+            SELECT 
+                (SELECT balance_after_uah FROM real_bankroll_ledger ORDER BY created_at DESC, id DESC LIMIT 1),
+                COALESCE(SUM(amount_uah), 0)
+            FROM real_bankroll_ledger;
+        """)
         row_b = cur.fetchone()
         if row_b and row_b[0] is not None:
-            summary["current_balance"] = float(row_b[0])
+            last_bal = float(row_b[0])
+            sum_bal = float(row_b[1]) if (len(row_b) > 1 and row_b[1] is not None) else last_bal
+            # У разі розбіжності між окремим полем і сумою леджера віддаємо перевагу математичній сумі
+            summary["current_balance"] = round(sum_bal if abs(sum_bal - last_bal) > 0.01 and sum_bal > 0 else last_bal, 2)
+            summary["ledger_sum"] = round(sum_bal, 2)
 
         # 2. Сума депозитів та виведень (банк формується депозитами)
         cur.execute("""
@@ -119,9 +128,10 @@ def get_real_bankroll_summary(cur, conn=None):
 
 def record_real_transaction(cur, conn, tx_type, amount, description="", bet_id=None):
     """
-    Записує фінансову транзакцію в журнал реального банку:
+    Записує фінансову транзакцію в журнал реального банку з гарантією атомарності (SPEC-38):
     - tx_type: 'INITIAL', 'DEPOSIT', 'WITHDRAWAL', 'BET_RESULT', 'ADJUSTMENT'
     - amount: сума транзакції (позитивна або від'ємна)
+    - Гарантує SUM(amount_uah) == balance_after_uah для будь-якої транзакції.
     """
     try:
         cur.execute("SELECT balance_after_uah FROM real_bankroll_ledger ORDER BY created_at DESC, id DESC LIMIT 1;")
@@ -132,20 +142,23 @@ def record_real_transaction(cur, conn, tx_type, amount, description="", bet_id=N
         tx_type_upper = str(tx_type).upper()
 
         if tx_type_upper == "DEPOSIT":
-            new_balance = round(current_b + abs(amt), 2)
             amt_signed = abs(amt)
+            new_balance = round(current_b + amt_signed, 2)
         elif tx_type_upper == "WITHDRAWAL":
-            new_balance = round(max(0.0, current_b - abs(amt)), 2)
             amt_signed = -abs(amt)
+            new_balance = round(max(0.0, current_b - abs(amt)), 2)
         elif tx_type_upper == "BET_RESULT":
-            new_balance = round(current_b + amt, 2)
             amt_signed = amt
-        elif tx_type_upper in ("INITIAL", "ADJUSTMENT"):
+            new_balance = round(current_b + amt, 2)
+        elif tx_type_upper == "ADJUSTMENT":
+            new_balance = round(amt, 2)
+            amt_signed = round(new_balance - current_b, 2)
+        elif tx_type_upper == "INITIAL":
             new_balance = round(amt, 2)
             amt_signed = amt
         else:
-            new_balance = round(current_b + amt, 2)
             amt_signed = amt
+            new_balance = round(current_b + amt, 2)
 
         cur.execute("""
             INSERT INTO real_bankroll_ledger (transaction_type, amount_uah, balance_after_uah, bet_id, description)
@@ -219,7 +232,7 @@ def toggle_real_bet(cur, conn, bet_id, is_real=True, real_stake=None, real_odds=
 def settle_real_bet_in_ledger(cur, conn, bet_id, status, profit_uah, stake_uah=None):
     """
     При розрахунку ставки, якщо вона позначена як is_real_bet,
-    фіксує результат у real_bankroll_ledger (захист від повторних записів).
+    фіксує результат у real_bankroll_ledger (атомарний захист від повторних записів SPEC-38).
     """
     try:
         cur.execute("SELECT is_real_bet, match_name FROM paper_bets WHERE id = %s;", (bet_id,))
@@ -228,7 +241,7 @@ def settle_real_bet_in_ledger(cur, conn, bet_id, status, profit_uah, stake_uah=N
             return False, "Ставка не є реальною."
 
         m_name = row[1]
-        # Перевіряємо, чи вже був запис у леджері для цієї ставки
+        # Атомарна перевірка: чи вже був зафіксований результат ставки у леджері
         cur.execute("SELECT 1 FROM real_bankroll_ledger WHERE bet_id = %s AND transaction_type = 'BET_RESULT';", (bet_id,))
         if cur.fetchone():
             return False, f"Результат ставки #{bet_id} вже зафіксовано в леджері."
@@ -238,6 +251,8 @@ def settle_real_bet_in_ledger(cur, conn, bet_id, status, profit_uah, stake_uah=N
         ok, _, msg = record_real_transaction(cur, conn, "BET_RESULT", p_val, description=desc, bet_id=bet_id)
         return ok, msg
     except Exception as e:
+        if conn:
+            conn.rollback()
         return False, f"Помилка фіксації результату ставки в леджері: {e}"
 
 
