@@ -1,9 +1,19 @@
 import unittest
 from datetime import datetime, timezone
 from unittest.mock import patch, MagicMock
-from dashboard import compute_metrics, INITIAL_BANKROLL, format_verdict_markdown, format_kyiv_time, get_dashboard_odds_quota
+from dashboard import compute_metrics, INITIAL_BANKROLL, format_verdict_markdown, format_kyiv_time, get_dashboard_odds_quota, get_sport_icon
 
 class TestDashboard(unittest.TestCase):
+    def test_get_sport_icon(self):
+        self.assertEqual(get_sport_icon("soccer_epl"), "⚽")
+        self.assertEqual(get_sport_icon("soccer_spain_la_liga"), "⚽")
+        self.assertEqual(get_sport_icon("basketball_nba"), "🏀")
+        self.assertEqual(get_sport_icon("tennis_atp_finals"), "🎾")
+        self.assertEqual(get_sport_icon("icehockey_nhl"), "🏒")
+        self.assertEqual(get_sport_icon("mma_mixed_martial_arts"), "🥊")
+        self.assertEqual(get_sport_icon("americanfootball_nfl"), "🏈")
+        self.assertEqual(get_sport_icon("baseball_mlb"), "⚾")
+        self.assertEqual(get_sport_icon("unknown_sport"), "🏆")
     def test_format_verdict_markdown(self):
         raw_html = "📌 <b>Коротка ставка:</b> Ф2 (+1.5)<br>🎯 <b>Рекомендована ставка:</b> Ставити &amp; вигравати!"
         formatted = format_verdict_markdown(raw_html)

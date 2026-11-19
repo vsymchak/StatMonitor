@@ -175,10 +175,22 @@ def check_alerts_and_notify(sports_map, t_start=None):
             ai_verdict = analyze_gemini(f["match"], title, c_str, "\n".join(plain_drops))
             if ai_verdict:
                 try:
-                    cur.execute(f"INSERT INTO ai_match_analysis (event_id, {ai_txt}) VALUES (%s, %s) ON CONFLICT (event_id) DO UPDATE SET {ai_txt}=EXCLUDED.{ai_txt};", (ev_id, ai_verdict))
+                    cur.execute(
+                        f"INSERT INTO ai_match_analysis (event_id, {ai_txt}, match_name, sport) "
+                        f"VALUES (%s, %s, %s, %s) "
+                        f"ON CONFLICT (event_id) DO UPDATE SET "
+                        f"{ai_txt} = EXCLUDED.{ai_txt}, "
+                        f"match_name = COALESCE(EXCLUDED.match_name, ai_match_analysis.match_name), "
+                        f"sport = COALESCE(EXCLUDED.sport, ai_match_analysis.sport);",
+                        (ev_id, ai_verdict, f["match"], f["sport"])
+                    )
                     conn.commit()
                 except Exception:
-                    conn.rollback()
+                    try:
+                        cur.execute(f"INSERT INTO ai_match_analysis (event_id, {ai_txt}) VALUES (%s, %s) ON CONFLICT (event_id) DO UPDATE SET {ai_txt}=EXCLUDED.{ai_txt};", (ev_id, ai_verdict))
+                        conn.commit()
+                    except Exception:
+                        conn.rollback()
                 time.sleep(2)
 
         # SPEC-30: Текстовий AI-вердикт більше не спамиться окремим довгим повідомленням у Telegram.

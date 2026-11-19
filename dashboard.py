@@ -74,6 +74,31 @@ def format_kyiv_time(val):
             pass
         return str(val)[:16]
 
+def get_sport_icon(sp):
+    """
+    Повертає відповідну емодзі-іконку виду спорту за його sport key.
+    """
+    s = str(sp or "").lower().strip()
+    if s.startswith("soccer_") or ("football" in s and "american" not in s):
+        return "⚽"
+    elif s.startswith("basketball_") or "nba" in s:
+        return "🏀"
+    elif s.startswith("tennis_") or "atp" in s or "wta" in s:
+        return "🎾"
+    elif s.startswith("icehockey_") or "nhl" in s:
+        return "🏒"
+    elif any(k in s for k in ("mma_", "ufc", "boxing")):
+        return "🥊"
+    elif s.startswith("americanfootball_") or "nfl" in s:
+        return "🏈"
+    elif s.startswith("baseball_") or "mlb" in s:
+        return "⚾"
+    elif "cricket" in s:
+        return "🏏"
+    elif "rugby" in s:
+        return "🏉"
+    return "🏆"
+
 def get_db_connection(db_url):
     if not db_url:
         return None, "URL бази даних порожній"
@@ -251,8 +276,26 @@ def fetch_data(db_url):
             except Exception as e2:
                 print("AI query err:", e2)
 
-        # Збагачуємо ai_data назвами матчів зі ставок
+        # Збагачуємо ai_data назвами матчів з events та paper_bets
         if isinstance(ai_data, pd.DataFrame) and not ai_data.empty and "event_id" in ai_data.columns:
+            # 1. Спершу з таблиці events (де збережено всі розпарсені матчі, включно з пропущеними ШІ)
+            try:
+                ev_raw = query_to_dataframe(
+                    cur,
+                    "SELECT id as event_id, COALESCE(NULLIF(match_name, ''), home_team || ' - ' || away_team) as match_name, sport, commence_time FROM events;"
+                )
+                if isinstance(ev_raw, pd.DataFrame) and not ev_raw.empty and "event_id" in ev_raw.columns:
+                    ev_map_events = ev_raw.drop_duplicates(subset=["event_id"]).set_index("event_id")
+                    for col in ["match_name", "sport", "commence_time"]:
+                        if col in ev_map_events.columns:
+                            if col not in ai_data.columns:
+                                ai_data[col] = ai_data["event_id"].map(ev_map_events[col])
+                            else:
+                                ai_data[col] = ai_data[col].fillna(ai_data["event_id"].map(ev_map_events[col]))
+            except Exception as ev_e:
+                print("Events enrich in fetch_data err:", ev_e)
+
+            # 2. Також з таблиці paper_bets
             if isinstance(bets_data, pd.DataFrame) and not bets_data.empty and "event_id" in bets_data.columns:
                 ev_map = bets_data[["event_id", "match_name", "sport", "commence_time"]].drop_duplicates(subset=["event_id"]).set_index("event_id")
                 for col in ["match_name", "sport", "commence_time"]:
@@ -1409,10 +1452,60 @@ def run_streamlit_app():
 
             time_col = "created_at" if "created_at" in df_ai.columns else ("commence_time" if "commence_time" in df_ai.columns else None)
 
+            def _extract_match_from_text(txt):
+                if not txt or not isinstance(txt, str):
+                    return None
+                # 1. Пошук рядка "Матч: Team A - Team B"
+                m = re.search(r"(?:матч|гра|зустріч):\s*([^\n\r(]+)", txt, re.I)
+                if m and len(m.group(1).strip()) > 3:
+                    cand = m.group(1).strip()
+                    if " - " in cand:
+                        return cand
+                # 2. Пошук назв команд у лапках «Команда 1» ... «Команда 2»
+                quotes = re.findall(r"«([^»]{2,35})»", txt)
+                if len(quotes) >= 2:
+                    return f"{quotes[0]} - {quotes[1]}"
+                return None
+
+            try:
+                from statmonitor.league_config import load_leagues_config
+                cfg_all_leagues = {lg["key"]: lg.get("title", lg["key"]) for lg in load_leagues_config().get("leagues", [])}
+            except Exception:
+                cfg_all_leagues = {}
+
             for idx, row in df_ai.iterrows():
-                m_name = row.get("match_name") or row.get("event_id") or f"Подія #{idx + 1}"
-                sp = row.get("sport", "")
-                sp_tag = f" • {sp}" if sp and str(sp) != "nan" else ""
+                body = row.get(text_col, "") if text_col else ""
+                m_raw = row.get("match_name")
+
+                # Захист від nan / None / порожніх значень
+                if not m_raw or (pd is not None and pd.isna(m_raw)) or str(m_raw).strip().lower() in ("nan", "none", "null", ""):
+                    m_from_txt = _extract_match_from_text(body)
+                    m_name = m_from_txt if m_from_txt else (f"Подія #{str(row.get('event_id', idx + 1))[:8]}" if "event_id" in row and row["event_id"] else f"Подія #{idx + 1}")
+                else:
+                    m_name = str(m_raw).strip()
+
+                sp_raw = row.get("sport")
+                sp = "" if (not sp_raw or (pd is not None and pd.isna(sp_raw)) or str(sp_raw).strip().lower() in ("nan", "none", "null", "")) else str(sp_raw).strip()
+
+                # Якщо sport не вказано в базі, визначаємо контекст із тексту аналізу
+                if not sp:
+                    b_low = str(body).lower()
+                    if any(w in b_low for w in ("нба", "nba", "баскетбол", "лейкерс", "юта")):
+                        sp = "basketball_nba"
+                    elif any(w in b_low for w in ("теніс", "гейм", "сет", "atp", "wta", "звєрєв", "філс")):
+                        sp = "tennis_atp_finals"
+                    elif any(w in b_low for w in ("футбол", "гол", "ла ліга", "алавес", "депортіво")):
+                        sp = "soccer_spain_la_liga"
+
+                # Відповідна емодзі-іконка виду спорту
+                icon = get_sport_icon(sp)
+
+                # Повна українська назва ліги (замість raw API-ключа)
+                league_ua = cfg_all_leagues.get(sp, "")
+                if not league_ua:
+                    league_ua = _get_league_name(sp) if hasattr(_get_league_name, '__call__') else sp
+
+                sp_tag = f" • {league_ua}" if (league_ua and league_ua.lower() not in ("nan", "none", "null", "")) else ""
                 raw_t = row.get(time_col) if time_col else None
                 t_str = f" ({format_kyiv_time(raw_t)})" if raw_t else ""
 
@@ -1420,10 +1513,11 @@ def run_streamlit_app():
                 r_lvl = row.get("risk_level")
                 score_badge = ""
                 if c_score is not None and not (pd is not None and pd.isna(c_score)):
-                    r_str = f" • {r_lvl} Risk" if r_lvl and str(r_lvl) != "nan" else ""
+                    r_str = f" • {r_lvl} Risk" if r_lvl and str(r_lvl).lower() not in ("nan", "none", "") else ""
                     score_badge = f" [⭐ {int(c_score)}/10{r_str}]"
 
-                with st.expander(f"⚽ {m_name}{sp_tag}{score_badge}{t_str}", expanded=(idx < 2)):
+                header_title = f"{icon} {m_name}{sp_tag}{score_badge}{t_str}"
+                with st.expander(header_title, expanded=(idx < 2)):
                     body = row.get(text_col, "") if text_col else ""
                     clean_body = format_verdict_markdown(body)
                     if clean_body:
