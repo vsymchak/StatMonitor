@@ -1127,7 +1127,9 @@ def run_streamlit_app():
                 pending_df["% банку (Келлі)"] = pending_df.apply(get_kelly_badge, axis=1)
                 pending_df["Час (Київ)"] = pending_df["commence_time"].apply(format_kyiv_time)
                 pending_df["ШІ Сигнал"] = pending_df.apply(_get_ai_score_badge, axis=1)
-                disp_p_cols = [c for c in ["id", "sport", "match_name", "pick_label", "odds", "stake_uah", "% банку (Келлі)", "ШІ Сигнал", "Час (Київ)"] if c in pending_df.columns]
+                if "sport" in pending_df.columns:
+                    pending_df["Турнір"] = pending_df["sport"].map(lambda x: s_map.get(x, x))
+                disp_p_cols = [c for c in ["id", "Турнір", "match_name", "pick_label", "odds", "stake_uah", "% банку (Келлі)", "ШІ Сигнал", "Час (Київ)"] if c in pending_df.columns]
                 st.dataframe(pending_df[disp_p_cols], use_container_width=True, hide_index=True)
 
                 if is_admin:
@@ -1387,7 +1389,32 @@ def run_streamlit_app():
             st.markdown("##### 🚦 Smart Rate-Limiter (Облік ліг)")
             df_poll = pd.DataFrame(poll_df) if (pd is not None and not isinstance(poll_df, pd.DataFrame)) else poll_df
             if df_poll is not None and not df_poll.empty:
-                st.dataframe(df_poll, use_container_width=True, hide_index=True)
+                disp_poll = df_poll.copy()
+                try:
+                    from statmonitor.league_config import load_leagues_config
+                    all_title_map = {lg["key"]: lg.get("title", lg["key"]) for lg in load_leagues_config().get("leagues", [])}
+                except Exception:
+                    all_title_map = {}
+
+                if "sport" in disp_poll.columns:
+                    disp_poll["Турнір"] = disp_poll["sport"].map(lambda x: all_title_map.get(x, s_map.get(x, x)))
+                if "tier" in disp_poll.columns:
+                    tier_map = {
+                        "HOT": "🔥 Гаряча (матч < 6 год)",
+                        "WARM": "🌤️ Тепла (матч 6–24 год)",
+                        "COLD": "❄️ Холодна (> 24 год)",
+                        "tier1": "🟢 Пріоритет 1 (Високий)",
+                        "tier2": "🟡 Пріоритет 2 (Сер.)",
+                        "tier3": "⚪ Пріоритет 3 (Низьк.)",
+                    }
+                    disp_poll["Активність (Tier)"] = disp_poll["tier"].map(lambda t: tier_map.get(str(t).upper(), tier_map.get(str(t), str(t))))
+                if "last_polled_at" in disp_poll.columns:
+                    disp_poll["Останнє опитування (Київ)"] = disp_poll["last_polled_at"].apply(format_kyiv_time)
+                if "poll_count" in disp_poll.columns:
+                    disp_poll["Кількість запитів"] = disp_poll["poll_count"]
+
+                cols_poll_show = [c for c in ["Турнір", "Активність (Tier)", "Останнє опитування (Київ)", "Кількість запитів", "sport"] if c in disp_poll.columns]
+                st.dataframe(disp_poll[cols_poll_show], use_container_width=True, hide_index=True)
             else:
                 st.info("ℹ️ Лог опитування ліг оновлюється автоматично.")
 
@@ -1447,16 +1474,36 @@ def run_streamlit_app():
                 # Групування за категоріями спорту
                 sports_groups = {
                     "soccer": {
-                        "title": "⚽ Футбол (Soccer)",
+                        "title": "⚽ Футбол (Європейські та міжнародні турніри)",
                         "leagues": [lg for lg in all_leagues_list if lg.get("category", "soccer") == "soccer"],
                     },
                     "basketball": {
-                        "title": "🏀 Баскетбол (Basketball)",
+                        "title": "🏀 Баскетбол (NBA, Євроліга, NCAA)",
                         "leagues": [lg for lg in all_leagues_list if lg.get("category") == "basketball"],
                     },
                     "tennis": {
-                        "title": "🎾 Теніс (Tennis)",
+                        "title": "🎾 Теніс (ATP, WTA, Grand Slams, Davis Cup)",
                         "leagues": [lg for lg in all_leagues_list if lg.get("category") == "tennis"],
+                    },
+                    "icehockey": {
+                        "title": "🏒 Хокей (NHL, SHL, Liiga та Європа)",
+                        "leagues": [lg for lg in all_leagues_list if lg.get("category") == "icehockey"],
+                    },
+                    "mma": {
+                        "title": "🥊 MMA / Єдиноборства (UFC, Bellator)",
+                        "leagues": [lg for lg in all_leagues_list if lg.get("category") == "mma"],
+                    },
+                    "americanfootball": {
+                        "title": "🏈 Американський футбол (NFL, NCAA)",
+                        "leagues": [lg for lg in all_leagues_list if lg.get("category") == "americanfootball"],
+                    },
+                    "baseball": {
+                        "title": "⚾ Бейсбол (MLB, NPB, KBO)",
+                        "leagues": [lg for lg in all_leagues_list if lg.get("category") == "baseball"],
+                    },
+                    "other": {
+                        "title": "🏏 Інші види спорту (Крикет, Регбі, AFL)",
+                        "leagues": [lg for lg in all_leagues_list if lg.get("category") in ("other", "other_sports")],
                     },
                 }
 
@@ -1465,9 +1512,9 @@ def run_streamlit_app():
                     if not grp_leagues:
                         continue
 
-                    grp_active = sum(1 for lg in grp_leagues if st.session_state.league_enabled_state.get(lg["key"], True))
+                    grp_active = sum(1 for lg in grp_leagues if st.session_state.league_enabled_state.get(lg["key"], bool(lg.get("enabled", True))))
                     
-                    with st.expander(f"{grp['title']} — {grp_active}/{len(grp_leagues)} активних", expanded=True):
+                    with st.expander(f"{grp['title']} — {grp_active}/{len(grp_leagues)} активних", expanded=(grp_active > 0)):
                         c_act1, c_act2, c_act_space = st.columns([1.5, 1.5, 5])
                         with c_act1:
                             if st.button(f"✅ Обрати всі", key=f"btn_all_{cat_key}"):

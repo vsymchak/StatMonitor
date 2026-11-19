@@ -1,86 +1,21 @@
 {
-  "version": "1.0",
-  "updated_at": "2026-11-16",
+  "version": "2.0",
+  "updated_at": "2026-11-19",
   "leagues": [
-    {
-      "key": "soccer_epl",
-      "title": "Англія (АПЛ)",
-      "category": "soccer",
-      "enabled": true,
-      "min_drop_pct": 5.0,
-      "min_odds": 1.40,
-      "max_odds": 4.00,
-      "markets": ["h2h", "totals", "spreads", "btts"]
-    },
-    {
-      "key": "soccer_spain_la_liga",
-      "title": "Іспанія (Ла Ліга)",
-      "category": "soccer",
-      "enabled": true,
-      "min_drop_pct": 5.0,
-      "min_odds": 1.40,
-      "max_odds": 4.00,
-      "markets": ["h2h", "totals", "spreads", "btts"]
-    },
-    {
-      "key": "soccer_italy_serie_a",
-      "title": "Італія (Серія А)",
-      "category": "soccer",
-      "enabled": true,
-      "min_drop_pct": 5.0,
-      "min_odds": 1.40,
-      "max_odds": 4.00,
-      "markets": ["h2h", "totals", "spreads", "btts"]
-    },
-    {
-      "key": "soccer_germany_bundesliga",
-      "title": "Німеччина (Бундесліга)",
-      "category": "soccer",
-      "enabled": true,
-      "min_drop_pct": 5.0,
-      "min_odds": 1.40,
-      "max_odds": 4.00,
-      "markets": ["h2h", "totals", "spreads", "btts"]
-    },
-    {
-      "key": "soccer_france_ligue_one",
-      "title": "Франція (Ліга 1)",
-      "category": "soccer",
-      "enabled": true,
-      "min_drop_pct": 5.0,
-      "min_odds": 1.40,
-      "max_odds": 4.00,
-      "markets": ["h2h", "totals", "spreads", "btts"]
-    },
-    {
-      "key": "soccer_ukraine_premier_league",
-      "title": "Україна (УПЛ)",
-      "category": "soccer",
-      "enabled": true,
-      "min_drop_pct": 5.0,
-      "min_odds": 1.40,
-      "max_odds": 4.00,
-      "markets": ["h2h", "totals", "spreads", "btts"]
-    },
-    {
-      "key": "soccer_poland_ekstraklasa",
-      "title": "Польща (Екстракласа)",
-      "category": "soccer",
-      "enabled": true,
-      "min_drop_pct": 5.0,
-      "min_odds": 1.40,
-      "max_odds": 4.00,
-      "markets": ["h2h", "totals", "spreads", "btts"]
-    },
     {
       "key": "soccer_uefa_champs_league",
       "title": "Ліга Чемпіонів УЄФА",
       "category": "soccer",
       "enabled": true,
       "min_drop_pct": 5.0,
-      "min_odds": 1.40,
-      "max_odds": 4.00,
-      "markets": ["h2h", "totals", "spreads", "btts"]
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
     },
     {
       "key": "soccer_uefa_europa_league",
@@ -88,9 +23,14 @@
       "category": "soccer",
       "enabled": true,
       "min_drop_pct": 5.0,
-      "min_odds": 1.40,
-      "max_odds": 4.00,
-      "markets": ["h2h", "totals", "spreads", "btts"]
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
     },
     {
       "key": "soccer_uefa_conference_league",
@@ -98,9 +38,14 @@
       "category": "soccer",
       "enabled": true,
       "min_drop_pct": 5.0,
-      "min_odds": 1.40,
-      "max_odds": 4.00,
-      "markets": ["h2h", "totals", "spreads", "btts"]
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
     },
     {
       "key": "soccer_uefa_europa_conference_league",
@@ -108,9 +53,14 @@
       "category": "soccer",
       "enabled": true,
       "min_drop_pct": 5.0,
-      "min_odds": 1.40,
-      "max_odds": 4.00,
-      "markets": ["h2h", "totals", "spreads", "btts"]
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
     },
     {
       "key": "soccer_uefa_nations_league",
@@ -118,9 +68,659 @@
       "category": "soccer",
       "enabled": true,
       "min_drop_pct": 5.0,
-      "min_odds": 1.40,
-      "max_odds": 4.00,
-      "markets": ["h2h", "totals", "spreads", "btts"]
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_uefa_super_cup",
+      "title": "Суперкубок УЄФА",
+      "category": "soccer",
+      "enabled": false,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_uefa_european_championship",
+      "title": "Чемпіонат Європи (Євро)",
+      "category": "soccer",
+      "enabled": false,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_uefa_european_championship_qualifiers",
+      "title": "Відбір на Євро",
+      "category": "soccer",
+      "enabled": false,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_fifa_world_cup",
+      "title": "Чемпіонат світу FIFA",
+      "category": "soccer",
+      "enabled": false,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_fifa_world_cup_qualifiers_europe",
+      "title": "Відбір на ЧС (Європа)",
+      "category": "soccer",
+      "enabled": false,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_fifa_world_cup_womens",
+      "title": "Чемпіонат світу (Жінки)",
+      "category": "soccer",
+      "enabled": false,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_conmebol_copa_libertadores",
+      "title": "Кубок Лібертадорес (КОНМЕБОЛ)",
+      "category": "soccer",
+      "enabled": false,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_conmebol_copa_sudamericana",
+      "title": "Південноамериканський кубок",
+      "category": "soccer",
+      "enabled": false,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_fifa_club_world_cup",
+      "title": "Клубний чемпіонат світу FIFA",
+      "category": "soccer",
+      "enabled": false,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_epl",
+      "title": "Англія (АПЛ)",
+      "category": "soccer",
+      "enabled": true,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_efl_champ",
+      "title": "Англія (Чемпіоншип)",
+      "category": "soccer",
+      "enabled": false,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_england_league1",
+      "title": "Англія (Перша ліга)",
+      "category": "soccer",
+      "enabled": false,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_england_league2",
+      "title": "Англія (Друга ліга)",
+      "category": "soccer",
+      "enabled": false,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_fa_cup",
+      "title": "Англія (Кубок Англії / FA Cup)",
+      "category": "soccer",
+      "enabled": false,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_england_efl_cup",
+      "title": "Англія (Кубок ліги / Carabao Cup)",
+      "category": "soccer",
+      "enabled": false,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_spain_la_liga",
+      "title": "Іспанія (Ла Ліга)",
+      "category": "soccer",
+      "enabled": true,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_spain_segunda_division",
+      "title": "Іспанія (Сегунда)",
+      "category": "soccer",
+      "enabled": false,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_spain_copa_del_rey",
+      "title": "Іспанія (Кубок Короля / Copa del Rey)",
+      "category": "soccer",
+      "enabled": false,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_italy_serie_a",
+      "title": "Італія (Серія А)",
+      "category": "soccer",
+      "enabled": true,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_italy_serie_b",
+      "title": "Італія (Серія B)",
+      "category": "soccer",
+      "enabled": false,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_italy_coppa_italia",
+      "title": "Італія (Кубок Італії)",
+      "category": "soccer",
+      "enabled": false,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_germany_bundesliga",
+      "title": "Німеччина (Бундесліга)",
+      "category": "soccer",
+      "enabled": true,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_germany_bundesliga2",
+      "title": "Німеччина (Бундесліга 2)",
+      "category": "soccer",
+      "enabled": false,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_germany_dfb_pokal",
+      "title": "Німеччина (Кубок / DFB-Pokal)",
+      "category": "soccer",
+      "enabled": false,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_france_ligue_one",
+      "title": "Франція (Ліга 1)",
+      "category": "soccer",
+      "enabled": true,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_france_ligue_two",
+      "title": "Франція (Ліга 2)",
+      "category": "soccer",
+      "enabled": false,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_france_coupe_de_france",
+      "title": "Франція (Кубок Франції)",
+      "category": "soccer",
+      "enabled": false,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_ukraine_premier_league",
+      "title": "Україна (УПЛ)",
+      "category": "soccer",
+      "enabled": true,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_poland_ekstraklasa",
+      "title": "Польща (Екстракласа)",
+      "category": "soccer",
+      "enabled": true,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_portugal_primeira_liga",
+      "title": "Португалія (Прімейра-ліга)",
+      "category": "soccer",
+      "enabled": false,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_netherlands_eredivisie",
+      "title": "Нідерланди (Ередивізі)",
+      "category": "soccer",
+      "enabled": false,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_belgium_first_div",
+      "title": "Бельгія (Ліга Жупіле / Pro League)",
+      "category": "soccer",
+      "enabled": false,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_turkey_super_league",
+      "title": "Туреччина (Суперліга)",
+      "category": "soccer",
+      "enabled": false,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_scotland_premiership",
+      "title": "Шотландія (Прем'єршип)",
+      "category": "soccer",
+      "enabled": false,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_denmark_superliga",
+      "title": "Данія (Суперліга)",
+      "category": "soccer",
+      "enabled": false,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_austria_bundesliga",
+      "title": "Австрія (Бундесліга)",
+      "category": "soccer",
+      "enabled": false,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_switzerland_superleague",
+      "title": "Швейцарія (Суперліга)",
+      "category": "soccer",
+      "enabled": false,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_greece_super_league",
+      "title": "Греція (Суперліга)",
+      "category": "soccer",
+      "enabled": false,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_sweden_allsvenskan",
+      "title": "Швеція (Аллсвенскан)",
+      "category": "soccer",
+      "enabled": false,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_sweden_superettan",
+      "title": "Швеція (Супереттан)",
+      "category": "soccer",
+      "enabled": false,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_norway_eliteserien",
+      "title": "Норвегія (Елітесеріен)",
+      "category": "soccer",
+      "enabled": false,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_finland_veikkausliiga",
+      "title": "Фінляндія (Вейккауслііга)",
+      "category": "soccer",
+      "enabled": false,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
+    },
+    {
+      "key": "soccer_czech_first_league",
+      "title": "Чехія (Перша ліга)",
+      "category": "soccer",
+      "enabled": false,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.4,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads",
+        "btts"
+      ]
     },
     {
       "key": "basketball_nba",
@@ -129,8 +729,208 @@
       "enabled": true,
       "min_drop_pct": 4.0,
       "min_odds": 1.35,
-      "max_odds": 4.20,
-      "markets": ["h2h", "totals", "spreads"]
+      "max_odds": 4.2,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
+    },
+    {
+      "key": "basketball_nba_preseason",
+      "title": "США (NBA Preseason)",
+      "category": "basketball",
+      "enabled": false,
+      "min_drop_pct": 4.0,
+      "min_odds": 1.35,
+      "max_odds": 4.2,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
+    },
+    {
+      "key": "basketball_nba_summer_league",
+      "title": "США (NBA Літня ліга)",
+      "category": "basketball",
+      "enabled": false,
+      "min_drop_pct": 4.0,
+      "min_odds": 1.35,
+      "max_odds": 4.2,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
+    },
+    {
+      "key": "basketball_wnba",
+      "title": "США (Жіноча WNBA)",
+      "category": "basketball",
+      "enabled": false,
+      "min_drop_pct": 4.0,
+      "min_odds": 1.35,
+      "max_odds": 4.2,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
+    },
+    {
+      "key": "basketball_ncaab",
+      "title": "США (NCAA Баскетбол)",
+      "category": "basketball",
+      "enabled": false,
+      "min_drop_pct": 4.0,
+      "min_odds": 1.35,
+      "max_odds": 4.2,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
+    },
+    {
+      "key": "basketball_wncaab",
+      "title": "США (NCAA Жіночий баскетбол)",
+      "category": "basketball",
+      "enabled": false,
+      "min_drop_pct": 4.0,
+      "min_odds": 1.35,
+      "max_odds": 4.2,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
+    },
+    {
+      "key": "basketball_euroleague",
+      "title": "Європа (Євроліга / EuroLeague)",
+      "category": "basketball",
+      "enabled": false,
+      "min_drop_pct": 4.0,
+      "min_odds": 1.35,
+      "max_odds": 4.2,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
+    },
+    {
+      "key": "basketball_eurocup",
+      "title": "Європа (Єврокубок / EuroCup)",
+      "category": "basketball",
+      "enabled": false,
+      "min_drop_pct": 4.0,
+      "min_odds": 1.35,
+      "max_odds": 4.2,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
+    },
+    {
+      "key": "basketball_spain_acb",
+      "title": "Іспанія (Ліга ACB)",
+      "category": "basketball",
+      "enabled": false,
+      "min_drop_pct": 4.0,
+      "min_odds": 1.35,
+      "max_odds": 4.2,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
+    },
+    {
+      "key": "basketball_germany_bbl",
+      "title": "Німеччина (Бундесліга BBL)",
+      "category": "basketball",
+      "enabled": false,
+      "min_drop_pct": 4.0,
+      "min_odds": 1.35,
+      "max_odds": 4.2,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
+    },
+    {
+      "key": "basketball_italy_lega_a",
+      "title": "Італія (Серія А / Lega Basket)",
+      "category": "basketball",
+      "enabled": false,
+      "min_drop_pct": 4.0,
+      "min_odds": 1.35,
+      "max_odds": 4.2,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
+    },
+    {
+      "key": "basketball_france_lnb",
+      "title": "Франція (Ліга LNB Pro A)",
+      "category": "basketball",
+      "enabled": false,
+      "min_drop_pct": 4.0,
+      "min_odds": 1.35,
+      "max_odds": 4.2,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
+    },
+    {
+      "key": "basketball_nbl",
+      "title": "Австралія (NBL)",
+      "category": "basketball",
+      "enabled": false,
+      "min_drop_pct": 4.0,
+      "min_odds": 1.35,
+      "max_odds": 4.2,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
+    },
+    {
+      "key": "basketball_fiba_world_cup",
+      "title": "Міжнародний (FIBA ЧС)",
+      "category": "basketball",
+      "enabled": false,
+      "min_drop_pct": 4.0,
+      "min_odds": 1.35,
+      "max_odds": 4.2,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
+    },
+    {
+      "key": "basketball_fiba_eurobasket",
+      "title": "Міжнародний (FIBA Євробаскет)",
+      "category": "basketball",
+      "enabled": false,
+      "min_drop_pct": 4.0,
+      "min_odds": 1.35,
+      "max_odds": 4.2,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
     },
     {
       "key": "tennis_atp",
@@ -139,8 +939,12 @@
       "enabled": true,
       "min_drop_pct": 5.0,
       "min_odds": 1.35,
-      "max_odds": 4.00,
-      "markets": ["h2h", "totals", "spreads"]
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
     },
     {
       "key": "tennis_wta",
@@ -149,18 +953,68 @@
       "enabled": true,
       "min_drop_pct": 5.0,
       "min_odds": 1.35,
-      "max_odds": 4.00,
-      "markets": ["h2h", "totals", "spreads"]
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
+    },
+    {
+      "key": "tennis_challenger",
+      "title": "Теніс (ATP Challenger Tour)",
+      "category": "tennis",
+      "enabled": false,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.35,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
     },
     {
       "key": "tennis_davis_cup",
-      "title": "Теніс (Davis Cup)",
+      "title": "Теніс (Кубок Девіса)",
       "category": "tennis",
       "enabled": true,
       "min_drop_pct": 5.0,
       "min_odds": 1.35,
-      "max_odds": 4.00,
-      "markets": ["h2h", "totals", "spreads"]
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
+    },
+    {
+      "key": "tennis_billie_jean_king_cup",
+      "title": "Теніс (Кубок Біллі Джин Кінг)",
+      "category": "tennis",
+      "enabled": false,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.35,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
+    },
+    {
+      "key": "tennis_united_cup",
+      "title": "Теніс (United Cup)",
+      "category": "tennis",
+      "enabled": false,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.35,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
     },
     {
       "key": "tennis_atp_aus_open_singles",
@@ -169,8 +1023,12 @@
       "enabled": true,
       "min_drop_pct": 5.0,
       "min_odds": 1.35,
-      "max_odds": 4.00,
-      "markets": ["h2h", "totals", "spreads"]
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
     },
     {
       "key": "tennis_wta_aus_open_singles",
@@ -179,8 +1037,12 @@
       "enabled": true,
       "min_drop_pct": 5.0,
       "min_odds": 1.35,
-      "max_odds": 4.00,
-      "markets": ["h2h", "totals", "spreads"]
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
     },
     {
       "key": "tennis_atp_french_open",
@@ -189,8 +1051,12 @@
       "enabled": true,
       "min_drop_pct": 5.0,
       "min_odds": 1.35,
-      "max_odds": 4.00,
-      "markets": ["h2h", "totals", "spreads"]
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
     },
     {
       "key": "tennis_wta_french_open",
@@ -199,8 +1065,12 @@
       "enabled": true,
       "min_drop_pct": 5.0,
       "min_odds": 1.35,
-      "max_odds": 4.00,
-      "markets": ["h2h", "totals", "spreads"]
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
     },
     {
       "key": "tennis_atp_wimbledon",
@@ -209,8 +1079,12 @@
       "enabled": true,
       "min_drop_pct": 5.0,
       "min_odds": 1.35,
-      "max_odds": 4.00,
-      "markets": ["h2h", "totals", "spreads"]
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
     },
     {
       "key": "tennis_wta_wimbledon",
@@ -219,8 +1093,12 @@
       "enabled": true,
       "min_drop_pct": 5.0,
       "min_odds": 1.35,
-      "max_odds": 4.00,
-      "markets": ["h2h", "totals", "spreads"]
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
     },
     {
       "key": "tennis_atp_us_open",
@@ -229,8 +1107,12 @@
       "enabled": true,
       "min_drop_pct": 5.0,
       "min_odds": 1.35,
-      "max_odds": 4.00,
-      "markets": ["h2h", "totals", "spreads"]
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
     },
     {
       "key": "tennis_wta_us_open",
@@ -239,28 +1121,26 @@
       "enabled": true,
       "min_drop_pct": 5.0,
       "min_odds": 1.35,
-      "max_odds": 4.00,
-      "markets": ["h2h", "totals", "spreads"]
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
     },
     {
-      "key": "tennis_atp_tour_finals",
+      "key": "tennis_atp_finals",
       "title": "Теніс (ATP Finals)",
       "category": "tennis",
       "enabled": true,
       "min_drop_pct": 5.0,
       "min_odds": 1.35,
-      "max_odds": 4.00,
-      "markets": ["h2h", "totals", "spreads"]
-    },
-    {
-      "key": "tennis_atp_finals",
-      "title": "Теніс (ATP Finals alt)",
-      "category": "tennis",
-      "enabled": true,
-      "min_drop_pct": 5.0,
-      "min_odds": 1.35,
-      "max_odds": 4.00,
-      "markets": ["h2h", "totals", "spreads"]
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
     },
     {
       "key": "tennis_wta_finals",
@@ -269,8 +1149,360 @@
       "enabled": true,
       "min_drop_pct": 5.0,
       "min_odds": 1.35,
-      "max_odds": 4.00,
-      "markets": ["h2h", "totals", "spreads"]
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
+    },
+    {
+      "key": "tennis_atp_tour_finals",
+      "title": "Теніс (ATP Finals alt)",
+      "category": "tennis",
+      "enabled": true,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.35,
+      "max_odds": 4.0,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
+    },
+    {
+      "key": "icehockey_nhl",
+      "title": "США/Канада (НХЛ / NHL)",
+      "category": "icehockey",
+      "enabled": false,
+      "min_drop_pct": 4.5,
+      "min_odds": 1.35,
+      "max_odds": 4.2,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
+    },
+    {
+      "key": "icehockey_nhl_preseason",
+      "title": "США/Канада (NHL Preseason)",
+      "category": "icehockey",
+      "enabled": false,
+      "min_drop_pct": 4.5,
+      "min_odds": 1.35,
+      "max_odds": 4.2,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
+    },
+    {
+      "key": "icehockey_ahl",
+      "title": "США/Канада (АХЛ / AHL)",
+      "category": "icehockey",
+      "enabled": false,
+      "min_drop_pct": 4.5,
+      "min_odds": 1.35,
+      "max_odds": 4.2,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
+    },
+    {
+      "key": "icehockey_sweden_shl",
+      "title": "Швеція (SHL)",
+      "category": "icehockey",
+      "enabled": false,
+      "min_drop_pct": 4.5,
+      "min_odds": 1.35,
+      "max_odds": 4.2,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
+    },
+    {
+      "key": "icehockey_sweden_allsvenskan",
+      "title": "Швеція (Allsvenskan)",
+      "category": "icehockey",
+      "enabled": false,
+      "min_drop_pct": 4.5,
+      "min_odds": 1.35,
+      "max_odds": 4.2,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
+    },
+    {
+      "key": "icehockey_finland_liiga",
+      "title": "Фінляндія (Liiga)",
+      "category": "icehockey",
+      "enabled": false,
+      "min_drop_pct": 4.5,
+      "min_odds": 1.35,
+      "max_odds": 4.2,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
+    },
+    {
+      "key": "icehockey_germany_del",
+      "title": "Німеччина (DEL)",
+      "category": "icehockey",
+      "enabled": false,
+      "min_drop_pct": 4.5,
+      "min_odds": 1.35,
+      "max_odds": 4.2,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
+    },
+    {
+      "key": "icehockey_czech_extraliga",
+      "title": "Чехія (Екстраліга)",
+      "category": "icehockey",
+      "enabled": false,
+      "min_drop_pct": 4.5,
+      "min_odds": 1.35,
+      "max_odds": 4.2,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
+    },
+    {
+      "key": "icehockey_switzerland_nla",
+      "title": "Швейцарія (National League)",
+      "category": "icehockey",
+      "enabled": false,
+      "min_drop_pct": 4.5,
+      "min_odds": 1.35,
+      "max_odds": 4.2,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
+    },
+    {
+      "key": "icehockey_iihf_world_championship",
+      "title": "IIHF Чемпіонат світу",
+      "category": "icehockey",
+      "enabled": false,
+      "min_drop_pct": 4.5,
+      "min_odds": 1.35,
+      "max_odds": 4.2,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
+    },
+    {
+      "key": "mma_mixed_martial_arts",
+      "title": "Змішані єдиноборства (UFC / MMA)",
+      "category": "mma",
+      "enabled": false,
+      "min_drop_pct": 5.0,
+      "min_odds": 1.3,
+      "max_odds": 4.5,
+      "markets": [
+        "h2h"
+      ]
+    },
+    {
+      "key": "americanfootball_nfl",
+      "title": "США (NFL)",
+      "category": "americanfootball",
+      "enabled": false,
+      "min_drop_pct": 4.0,
+      "min_odds": 1.35,
+      "max_odds": 4.2,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
+    },
+    {
+      "key": "americanfootball_nfl_preseason",
+      "title": "США (NFL Preseason)",
+      "category": "americanfootball",
+      "enabled": false,
+      "min_drop_pct": 4.0,
+      "min_odds": 1.35,
+      "max_odds": 4.2,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
+    },
+    {
+      "key": "americanfootball_ncaaf",
+      "title": "США (NCAA Футбол)",
+      "category": "americanfootball",
+      "enabled": false,
+      "min_drop_pct": 4.0,
+      "min_odds": 1.35,
+      "max_odds": 4.2,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
+    },
+    {
+      "key": "americanfootball_cfl",
+      "title": "Канада (CFL)",
+      "category": "americanfootball",
+      "enabled": false,
+      "min_drop_pct": 4.0,
+      "min_odds": 1.35,
+      "max_odds": 4.2,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
+    },
+    {
+      "key": "baseball_mlb",
+      "title": "США (MLB)",
+      "category": "baseball",
+      "enabled": false,
+      "min_drop_pct": 4.5,
+      "min_odds": 1.35,
+      "max_odds": 4.2,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
+    },
+    {
+      "key": "baseball_mlb_preseason",
+      "title": "США (MLB Preseason)",
+      "category": "baseball",
+      "enabled": false,
+      "min_drop_pct": 4.5,
+      "min_odds": 1.35,
+      "max_odds": 4.2,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
+    },
+    {
+      "key": "baseball_ncaa",
+      "title": "США (NCAA Бейсбол)",
+      "category": "baseball",
+      "enabled": false,
+      "min_drop_pct": 4.5,
+      "min_odds": 1.35,
+      "max_odds": 4.2,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
+    },
+    {
+      "key": "baseball_japan_npb",
+      "title": "Японія (NPB)",
+      "category": "baseball",
+      "enabled": false,
+      "min_drop_pct": 4.5,
+      "min_odds": 1.35,
+      "max_odds": 4.2,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
+    },
+    {
+      "key": "baseball_kbo",
+      "title": "Південна Корея (KBO)",
+      "category": "baseball",
+      "enabled": false,
+      "min_drop_pct": 4.5,
+      "min_odds": 1.35,
+      "max_odds": 4.2,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
+    },
+    {
+      "key": "aussierules_afl",
+      "title": "Австралійський футбол (AFL)",
+      "category": "other",
+      "enabled": false,
+      "min_drop_pct": 4.5,
+      "min_odds": 1.35,
+      "max_odds": 4.2,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
+    },
+    {
+      "key": "cricket_ipl",
+      "title": "Крикет (Індійська IPL)",
+      "category": "other",
+      "enabled": false,
+      "min_drop_pct": 4.5,
+      "min_odds": 1.35,
+      "max_odds": 4.2,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
+    },
+    {
+      "key": "rugbyleague_nrl",
+      "title": "Регбі (NRL Австралія)",
+      "category": "other",
+      "enabled": false,
+      "min_drop_pct": 4.5,
+      "min_odds": 1.35,
+      "max_odds": 4.2,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
+    },
+    {
+      "key": "rugbyunion_six_nations",
+      "title": "Регбі (Кубок шести націй)",
+      "category": "other",
+      "enabled": false,
+      "min_drop_pct": 4.5,
+      "min_odds": 1.35,
+      "max_odds": 4.2,
+      "markets": [
+        "h2h",
+        "totals",
+        "spreads"
+      ]
     }
   ]
 }
