@@ -410,8 +410,67 @@ def run_streamlit_app():
         initial_sidebar_state="collapsed",
     )
 
-    # Впровадження фірмового CSS стилю StatMonitor v2.0 (Tailwind / Inter aesthetic)
-    st.markdown("""
+    # 0. Ініціалізація теми дашборда (Світла / Темна)
+    if "theme" not in st.session_state:
+        q_theme = None
+        try:
+            if hasattr(st, "query_params") and "theme" in st.query_params:
+                q_theme = st.query_params.get("theme")
+        except Exception:
+            pass
+        st.session_state["theme"] = "dark" if q_theme == "dark" else "light"
+
+    cur_theme = st.session_state.get("theme", "light")
+    is_dark = (cur_theme == "dark")
+
+    if is_dark:
+        bg_app = "#0B0F17"
+        bg_card = "#161F30"
+        border_card = "#233044"
+        text_primary = "#F8FAFC"
+        text_secondary = "#94A3B8"
+        bg_tab_list = "#161F30"
+        bg_tab_active = "#233044"
+        text_tab_active = "#60A5FA"
+        dark_extra_css = """
+            h1, h2, h3, h4, h5, h6 { color: #F8FAFC !important; }
+            div[data-testid="stExpander"] { background-color: #161F30 !important; border: 1px solid #233044 !important; border-radius: 10px !important; }
+            div[data-testid="stExpander"] details summary { color: #F8FAFC !important; }
+            [data-testid="stDataFrame"], [data-testid="stDataEditor"] {
+                --gdg-bg-cell: #161F30 !important;
+                --gdg-text-dark: #F8FAFC !important;
+                --gdg-bg-header: #0F172A !important;
+                --gdg-text-medium: #94A3B8 !important;
+                --gdg-bg-header-hovered: #233044 !important;
+            }
+            div[data-baseweb="input"] input, div[data-baseweb="select"] {
+                background-color: #0F172A !important;
+                color: #F8FAFC !important;
+                border-color: #334155 !important;
+            }
+            div[data-testid="stNumberInput"] input {
+                background-color: #0F172A !important;
+                color: #F8FAFC !important;
+            }
+            div[data-testid="stPopoverBody"] {
+                background-color: #161F30 !important;
+                color: #F8FAFC !important;
+                border: 1px solid #233044 !important;
+            }
+        """
+    else:
+        bg_app = "#FFFFFF"
+        bg_card = "#FFFFFF"
+        border_card = "#E2E8F0"
+        text_primary = "#0F172A"
+        text_secondary = "#64748B"
+        bg_tab_list = "#F1F5F9"
+        bg_tab_active = "#FFFFFF"
+        text_tab_active = "#2563EB"
+        dark_extra_css = ""
+
+    # Впровадження фірмового CSS стилю StatMonitor v2.0 з динамічною темою (Tailwind / Inter aesthetic)
+    css_template = """
         <style>
             @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
             @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200');
@@ -419,6 +478,12 @@ def run_streamlit_app():
             
             html, body, [data-testid="stAppViewContainer"], .main .block-container {
                 font-family: 'Inter', system-ui, -apple-system, sans-serif;
+                background-color: __BG_APP__ !important;
+                color: __TEXT_PRIMARY__ !important;
+            }
+
+            [data-testid="stHeader"] {
+                background-color: __BG_APP__ !important;
             }
             
             /* ЗАХИСТ СИСТЕМНИХ ІКОНОК STREAMLIT (Material Symbols / Icons) ВІД ПЕРЕКРИТТЯ ШРИФТОМ */
@@ -454,17 +519,18 @@ def run_streamlit_app():
             
             /* Card Containers */
             div[data-testid="stVerticalBlockBorderWrapper"] > div {
-                background-color: #FFFFFF !important;
-                border: 1px solid #E2E8F0 !important;
+                background-color: __BG_CARD__ !important;
+                border: 1px solid __BORDER_CARD__ !important;
                 border-radius: 12px !important;
                 padding: 12px 14px !important;
                 box-shadow: 0 1px 2px rgba(0,0,0,0.02) !important;
+                color: __TEXT_PRIMARY__ !important;
             }
 
             /* KPI Картки */
             div[data-testid="stMetric"] {
-                background-color: #FFFFFF !important;
-                border: 1px solid #E2E8F0 !important;
+                background-color: __BG_CARD__ !important;
+                border: 1px solid __BORDER_CARD__ !important;
                 border-radius: 12px !important;
                 padding: 8px 12px !important;
                 box-shadow: 0 1px 2px rgba(0,0,0,0.02) !important;
@@ -472,20 +538,20 @@ def run_streamlit_app():
                 transition: all 0.15s ease-in-out;
             }
             div[data-testid="stMetric"]:hover {
-                border-color: #CBD5E1 !important;
+                border-color: __BORDER_CARD__ !important;
                 box-shadow: 0 2px 4px rgba(0,0,0,0.04) !important;
             }
             div[data-testid="stMetric"] label {
                 font-size: 11px !important;
                 font-weight: 500 !important;
-                color: #64748B !important;
+                color: __TEXT_SECONDARY__ !important;
                 margin-bottom: 2px !important;
                 letter-spacing: -0.01em;
             }
             div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
                 font-size: 18px !important;
                 font-weight: 700 !important;
-                color: #0F172A !important;
+                color: __TEXT_PRIMARY__ !important;
                 letter-spacing: -0.02em;
                 line-height: 1.2 !important;
             }
@@ -497,10 +563,10 @@ def run_streamlit_app():
             /* Стилізація вкладок (Tabs) */
             .stTabs [data-baseweb="tab-list"] {
                 gap: 8px;
-                background-color: #F1F5F9;
+                background-color: __BG_TAB_LIST__;
                 padding: 4px 6px;
                 border-radius: 10px;
-                border: 1px solid #E2E8F0;
+                border: 1px solid __BORDER_CARD__;
                 margin-bottom: 12px;
             }
             .stTabs [data-baseweb="tab"] {
@@ -509,14 +575,14 @@ def run_streamlit_app():
                 border-radius: 7px;
                 font-size: 12px !important;
                 font-weight: 600 !important;
-                color: #64748B;
+                color: __TEXT_SECONDARY__;
                 border: none !important;
                 background: transparent;
                 transition: all 0.15s ease;
             }
             .stTabs [aria-selected="true"] {
-                background-color: #FFFFFF !important;
-                color: #2563EB !important;
+                background-color: __BG_TAB_ACTIVE__ !important;
+                color: __TEXT_TAB_ACTIVE__ !important;
                 box-shadow: 0 1px 3px rgba(0,0,0,0.06) !important;
             }
             
@@ -533,7 +599,7 @@ def run_streamlit_app():
             div[data-testid="stExpander"] details summary {
                 font-size: 13px !important;
                 font-weight: 600 !important;
-                color: #1E293B !important;
+                color: __TEXT_PRIMARY__ !important;
                 display: flex !important;
                 align-items: center !important;
                 gap: 8px !important;
@@ -543,8 +609,23 @@ def run_streamlit_app():
                 margin-right: 6px !important;
                 flex-shrink: 0 !important;
             }
+
+            __DARK_EXTRA_CSS__
         </style>
-    """, unsafe_allow_html=True)
+    """
+    final_css = (
+        css_template
+        .replace("__BG_APP__", bg_app)
+        .replace("__BG_CARD__", bg_card)
+        .replace("__BORDER_CARD__", border_card)
+        .replace("__TEXT_PRIMARY__", text_primary)
+        .replace("__TEXT_SECONDARY__", text_secondary)
+        .replace("__BG_TAB_LIST__", bg_tab_list)
+        .replace("__BG_TAB_ACTIVE__", bg_tab_active)
+        .replace("__TEXT_TAB_ACTIVE__", text_tab_active)
+        .replace("__DARK_EXTRA_CSS__", dark_extra_css)
+    )
+    st.markdown(final_css, unsafe_allow_html=True)
 
     # Читання Secrets та підключення
     db_url = ""
@@ -639,29 +720,94 @@ def run_streamlit_app():
         hb_status_clean = "OK" if st_val in ("OK", "ONLINE") else st_val
 
     # 1. КОМПАКТНА ВЕРХНЯ ПАНЕЛЬ (NAVBAR v2.0)
-    col_nav_left, col_nav_right = st.columns([7, 5])
+    col_nav_left, col_nav_right = st.columns([5.5, 6.5])
     with col_nav_left:
         admin_badge = (
-            '<span style="background: #FEF3C7; color: #92400E; font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 6px; margin-left: 6px;">👑 Режим адміністратора</span>'
+            '<span style="background: #FEF3C7; color: #92400E; font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 6px; margin-left: 6px;">👑 Адмін</span>'
             if is_admin else
             '<span style="background: #F1F5F9; color: #64748B; font-size: 11px; font-weight: 500; padding: 2px 7px; border-radius: 6px; margin-left: 6px;">• Read-Only</span>'
         )
+        jar_badge = '<a href="https://send.monobank.ua/jar/2u4R1owSvj" target="_blank" style="text-decoration: none;"><span style="background: #F3E8FF; color: #7E22CE; font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 6px; margin-left: 6px; border: 1px solid #DDD6FE;">🎯 Банка 20к ₴</span></a>'
+        title_color = "#F8FAFC" if is_dark else "#0F172A"
+        sub_bg = "#1E293B" if is_dark else "#F1F5F9"
+        sub_color = "#94A3B8" if is_dark else "#475569"
+
         st.markdown(f"""
             <div style="display: flex; align-items: center; gap: 10px; margin-top: 4px;">
                 <div style="width: 30px; height: 30px; border-radius: 8px; background: linear-gradient(135deg, #2563EB 0%, #6366F1 100%); display: flex; align-items: center; justify-content: center; color: white; font-size: 15px; font-weight: bold; box-shadow: 0 1px 3px rgba(37,99,235,0.2);">
                     📊
                 </div>
-                <div style="display: flex; align-items: baseline; gap: 6px;">
-                    <span style="font-size: 17px; font-weight: 700; color: #0F172A; letter-spacing: -0.02em;">StatMonitor</span>
-                    <span style="font-size: 11px; font-weight: 600; background: #F1F5F9; color: #475569; padding: 2px 6px; border-radius: 4px;">v2.0</span>
+                <div style="display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap;">
+                    <span style="font-size: 17px; font-weight: 700; color: {title_color}; letter-spacing: -0.02em;">StatMonitor</span>
+                    <span style="font-size: 11px; font-weight: 600; background: {sub_bg}; color: {sub_color}; padding: 2px 6px; border-radius: 4px;">v2.0</span>
                     {admin_badge}
+                    {jar_badge}
                 </div>
             </div>
         """, unsafe_allow_html=True)
 
     with col_nav_right:
+        def _render_donate_popover(k_pfx="nav"):
+            pop_cnt = st.popover("💜 Донат", use_container_width=True, help="Підтримати проєкт StatMonitor (Monobank / Crypto)") if hasattr(st, "popover") else st.expander("💜 Донат")
+            with pop_cnt:
+                st.markdown("""
+                    <div style="text-align: center; margin-bottom: 8px;">
+                        <div style="font-size: 15px; font-weight: 700; color: #7C3AED;">💜 Підтримати проєкт StatMonitor</div>
+                        <div style="font-size: 11.5px; opacity: 0.85;">Сервери, The Odds API, проксі та ШІ аналіз</div>
+                    </div>
+                """, unsafe_allow_html=True)
+
+                st.markdown("""
+                    <div style="background: linear-gradient(135deg, #F5F3FF 0%, #EDE9FE 100%); border: 1.5px solid #DDD6FE; border-radius: 10px; padding: 10px 12px; margin-bottom: 10px;">
+                        <div style="font-weight: 700; color: #5B21B6; font-size: 13px; display: flex; justify-content: space-between; align-items: center;">
+                            <span>🐱 Monobank Банка</span>
+                            <span style="background: #7C3AED; color: white; padding: 1px 7px; border-radius: 6px; font-size: 11px;">Ціль: 20 000 ₴</span>
+                        </div>
+                        <div style="font-size: 11px; color: #4C1D95; margin-top: 3px;">
+                            Швидке та безпечне поповнення у гривні
+                        </div>
+                    </div>
+                """, unsafe_allow_html=True)
+
+                if hasattr(st, "link_button"):
+                    st.link_button("👉 Відкрити Банку в Monobank", "https://send.monobank.ua/jar/2u4R1owSvj", type="primary", use_container_width=True)
+                else:
+                    st.markdown("[👉 **Відкрити Банку в Monobank**](https://send.monobank.ua/jar/2u4R1owSvj)")
+
+                qr_file = os.path.join(os.path.dirname(__file__), "assets", "monobank_qr.jpg")
+                if os.path.exists(qr_file):
+                    st.image(qr_file, caption="QR-код Банки (наведіть камеру смартфона)", use_container_width=True)
+
+                st.markdown("""
+                    <div style="margin-top: 10px; padding-top: 8px; border-top: 1px dashed #CBD5E1;">
+                        <div style="font-weight: 700; font-size: 12px; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
+                            <span>💎 Криптовалюта: USDT (Мережа TON)</span>
+                        </div>
+                        <div style="font-size: 11px; opacity: 0.8; margin-bottom: 4px;">
+                            Адреса гаманця (натисніть поле для копіювання):
+                        </div>
+                    </div>
+                """, unsafe_allow_html=True)
+
+                st.code("UQAcH8xOmrNQ91WQ8hzEXV9TCiNhpIVqg5YjegesR__tsHfz", language="text")
+                st.caption("🙏 Щиро вдячні за кожен внесок у розвиток нашого проєкту!")
+
+        def _render_theme_btn(k_pfx="nav"):
+            c_th = st.session_state.get("theme", "light")
+            lbl = "🌙 Темна" if c_th == "light" else "☀️ Світла"
+            hlp = "Увімкнути темну тему" if c_th == "light" else "Увімкнути світлу тему"
+            if st.button(lbl, use_container_width=True, help=hlp, key=f"btn_theme_toggle_{k_pfx}"):
+                n_th = "dark" if c_th == "light" else "light"
+                st.session_state["theme"] = n_th
+                try:
+                    if hasattr(st, "query_params"):
+                        st.query_params["theme"] = n_th
+                except Exception:
+                    pass
+                st.rerun()
+
         if is_admin:
-            c_wd, c_ref, c_run, c_logout = st.columns([2.1, 1.1, 1.2, 1.1])
+            c_wd, c_donate, c_theme, c_ref, c_run, c_logout = st.columns([1.7, 1.2, 1.1, 1.1, 1.1, 1.0])
             with c_wd:
                 st.markdown(f"""
                     <div style="display: flex; align-items: center; gap: 6px; background: #ECFDF5; border: 1px solid #A7F3D0; color: #047857; font-size: 11px; font-weight: 600; padding: 5px 10px; border-radius: 9999px; margin-top: 4px;">
@@ -670,6 +816,10 @@ def run_streamlit_app():
                         <span style="opacity: 0.8; font-weight: 500;">({hb_time})</span>
                     </div>
                 """, unsafe_allow_html=True)
+            with c_donate:
+                _render_donate_popover("admin")
+            with c_theme:
+                _render_theme_btn("admin")
             with c_ref:
                 if st.button("🔄 Оновити", use_container_width=True):
                     st.rerun()
@@ -691,7 +841,7 @@ def run_streamlit_app():
                     st.session_state.is_admin = False
                     st.rerun()
         else:
-            c_wd, c_login = st.columns([2.8, 1.4])
+            c_wd, c_donate, c_theme, c_login = st.columns([1.8, 1.3, 1.2, 1.1])
             with c_wd:
                 st.markdown(f"""
                     <div style="display: flex; align-items: center; gap: 6px; background: #ECFDF5; border: 1px solid #A7F3D0; color: #047857; font-size: 11px; font-weight: 600; padding: 5px 10px; border-radius: 9999px; margin-top: 4px;">
@@ -700,6 +850,10 @@ def run_streamlit_app():
                         <span style="opacity: 0.8; font-weight: 500;">({hb_time})</span>
                     </div>
                 """, unsafe_allow_html=True)
+            with c_donate:
+                _render_donate_popover("ro")
+            with c_theme:
+                _render_theme_btn("ro")
             with c_login:
                 login_container = st.popover("🔒 Вхід", use_container_width=True) if hasattr(st, "popover") else st.expander("🔒 Вхід")
                 with login_container:
@@ -1383,8 +1537,21 @@ def run_streamlit_app():
                 cols_pending_show = [c for c in ["ID", "Час", "Турнір", "Подія", "Маркет", "Коеф.", "Поріг (Walkaway)", "ШІ Сигнал", "% банку (Келлі)", "Сума (Paper)", "Результат"] if c in p_disp.columns]
 
             if is_admin and hasattr(st, "data_editor"):
-                st.caption("ℹ️ *Адміністратор:* відмічайте прапорець у колонці **🟢 Real**, щоб включити ставку в облік реальних грошей. Всі ставки завжди йдуть у Paper-трейдинг.")
-                disabled_cols = [c for c in cols_pending_show if c != "🟢 Real"]
+                # Перевіряємо чи є вже активні ставки на реальні гроші (SPEC-34 & User Rule: заборона вибору Real при наявній ставці)
+                active_real_df = pending_df[pending_df["is_real_bet"] == True]
+                has_active_real = not active_real_df.empty
+
+                if has_active_real:
+                    act_r = active_real_df.iloc[0]
+                    act_id = act_r["id"]
+                    act_m = act_r.get("match_name", "")
+                    act_s = float(act_r.get("real_stake_uah") or act_r.get("stake_uah") or 0.0)
+                    st.warning(f"🔒 **Вибір прапорця Real заблоковано:** у грі вже є ставка на реальні гроші (**#{act_id} {act_m}** — **{act_s:,.0f} ₴**). Одночасно дозволена тільки одна активна реальна ставка. Наступну можна обрати після розрахунку поточної.")
+                    disabled_cols = list(cols_pending_show)
+                else:
+                    st.caption("ℹ️ *Адміністратор:* відмічайте прапорець у колонці **🟢 Real**, щоб включити ставку в облік реальних грошей. Всі ставки завжди йдуть у Paper-трейдинг.")
+                    disabled_cols = [c for c in cols_pending_show if c != "🟢 Real"]
+
                 edited_p = st.data_editor(
                     p_disp[cols_pending_show],
                     column_config={
@@ -1409,13 +1576,20 @@ def run_streamlit_app():
                             changed_list.append((raw_id, new_st))
 
                     if changed_list:
+                        if has_active_real and any(new_st for _, new_st in changed_list):
+                            st.error(f"❌ Заборонено: у грі вже є ставка на реальні гроші (#{act_id} {act_m})! Зачекайте на розрахунок результату.")
+                            st.rerun()
+
                         conn_chg, err_chg = get_db_connection(db_url)
                         if conn_chg:
                             cur_chg = conn_chg.cursor()
                             try:
                                 from statmonitor.real_bankroll import toggle_real_bet
                                 for b_id, b_val in changed_list:
-                                    toggle_real_bet(cur_chg, conn_chg, b_id, is_real=b_val)
+                                    ok_t, msg_t = toggle_real_bet(cur_chg, conn_chg, b_id, is_real=b_val, enforce_single_active=True)
+                                    if not ok_t and b_val:
+                                        st.error(f"❌ {msg_t}")
+                                        st.rerun()
                                     if b_val:
                                         st.session_state["show_real_stake_calc"] = True
                                 status_text = "🟢 Real" if b_val else "⚪ Paper"
@@ -1426,16 +1600,27 @@ def run_streamlit_app():
                                 conn_chg.close()
 
                 # SPEC-34: Кнопка переносу в Реальний банк та розрахунку ставок
-                all_checked_real_ids = [
+                already_real_ids = set(active_real_df["id"].tolist()) if has_active_real else set()
+                new_checked_real_ids = [
                     int(str(r.get("ID")).lstrip("#"))
                     for r in (edited_p.to_dict("records") if edited_p is not None else p_disp.to_dict("records"))
-                    if bool(r.get("🟢 Real"))
+                    if bool(r.get("🟢 Real")) and int(str(r.get("ID")).lstrip("#")) not in already_real_ids
                 ]
 
-                col_btn_calc, col_btn_cnt = st.columns([2.5, 1.5])
-                with col_btn_calc:
-                    btn_calc_lbl = f"⚡ Перенести в Реальні ставки & Розрахувати банк ({len(all_checked_real_ids)} обрано)"
-                    if st.button(btn_calc_lbl, key="btn_trigger_real_stake_calc_v1", type="primary" if all_checked_real_ids else "secondary", use_container_width=True):
+                # 1. Розтягуємо кнопку на всю ширину таблиці (use_container_width=True)
+                # 2. Якщо вже є реальна ставка - кнопка заблокована з поясненням
+                if has_active_real:
+                    btn_calc_lbl = f"🔒 У грі вже є реальна ставка (#{act_id} {act_m}) — вибір нових заблоковано"
+                    st.button(btn_calc_lbl, key="btn_trigger_real_stake_calc_v1", disabled=True, use_container_width=True)
+                else:
+                    btn_calc_lbl = f"⚡ Перенести в Реальні ставки & Розрахувати банк ({len(new_checked_real_ids)} обрано)"
+                    if st.button(
+                        btn_calc_lbl,
+                        key="btn_trigger_real_stake_calc_v1",
+                        type="primary" if new_checked_real_ids else "secondary",
+                        disabled=(len(new_checked_real_ids) == 0),
+                        use_container_width=True
+                    ):
                         st.session_state["show_real_stake_calc"] = True
 
                 # SPEC-34: Блок розрахунку та фіксації ставок від реального депозиту
@@ -1451,7 +1636,8 @@ def run_streamlit_app():
                         </div>
                     """, unsafe_allow_html=True)
 
-                    if not all_checked_real_ids:
+                    targets_calc = new_checked_real_ids if new_checked_real_ids else [int(str(r.get("ID")).lstrip("#")) for r in (edited_p.to_dict("records") if edited_p is not None else p_disp.to_dict("records")) if bool(r.get("🟢 Real"))]
+                    if not targets_calc:
                         st.info("ℹ️ Будь ласка, відмітьте прапорцем **🟢 Real** хоча б одну ставку в таблиці вище для розрахунку.")
                     else:
                         conn_calc, _ = get_db_connection(db_url)
@@ -1459,7 +1645,7 @@ def run_streamlit_app():
                             cur_calc = conn_calc.cursor()
                             try:
                                 from statmonitor.real_bankroll import prepare_real_stakes_batch, apply_real_stakes_batch
-                                real_bal, proposals = prepare_real_stakes_batch(cur_calc, all_checked_real_ids)
+                                real_bal, proposals = prepare_real_stakes_batch(cur_calc, targets_calc)
 
                                 if real_bal <= 0:
                                     st.error(f"❌ Реальний банк порожній ({real_bal:,.2f} ₴). Будь ласка, спочатку внесіть депозит у блоці «Каса реального банку» нижче.")

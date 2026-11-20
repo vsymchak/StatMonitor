@@ -223,5 +223,23 @@ class TestRealBankroll(unittest.TestCase):
         self.assertNotEqual(params[1], 185.0)
         self.assertEqual(params[1], 30.0)
 
+    def test_toggle_real_bet_enforce_single_active(self):
+        # Якщо вже є ставка на реальні гроші в грі, забороняємо вмикати другу
+        cur = MockCursor()
+        def mock_fetchone():
+            if len(cur.queries) == 1:
+                return (42, "Piast Gliwice - Korona Kielce", 3.85, 133.0)
+            elif len(cur.queries) == 2:
+                # Знайдено активну ставку #66
+                return (66, "Carlos Alcaraz - Flavio Cobolli", 90.0)
+            return None
+        cur.fetchone = mock_fetchone
+        conn = MockConn()
+
+        ok, msg = toggle_real_bet(cur, conn, 42, is_real=True, enforce_single_active=True)
+        self.assertFalse(ok)
+        self.assertIn("Заборонено", msg)
+        self.assertIn("#66", msg)
+
 if __name__ == "__main__":
     unittest.main()

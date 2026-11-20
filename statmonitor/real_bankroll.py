@@ -175,13 +175,14 @@ def record_real_transaction(cur, conn, tx_type, amount, description="", bet_id=N
         return False, 0.0, f"Помилка запису транзакції: {e}"
 
 
-def toggle_real_bet(cur, conn, bet_id, is_real=True, real_stake=None, real_odds=None, bookmaker=None, slip_meta=None):
+def toggle_real_bet(cur, conn, bet_id, is_real=True, real_stake=None, real_odds=None, bookmaker=None, slip_meta=None, enforce_single_active=False):
     """
     Позначає ставку як реальну або повертає її у віртуальний Paper режим.
     Може додатково оновити фактичні коефіцієнт та суму з купона БК.
     Якщо ставка переноситься в Реальний банк (is_real=True) і сума (real_stake) не задана вручну,
     вона автоматично розраховується від АКТУАЛЬНОГО БАЛАНСУ РЕАЛЬНОГО БАНКУ (SPEC-34),
     а не копіюється з Paper банку.
+    При enforce_single_active=True забороняє переносити ставку, якщо вже є інша активна реальна ставка.
     """
     try:
         cur.execute("SELECT id, match_name, odds, stake_uah FROM paper_bets WHERE id = %s;", (bet_id,))
@@ -190,6 +191,17 @@ def toggle_real_bet(cur, conn, bet_id, is_real=True, real_stake=None, real_odds=
             return False, f"Ставку #{bet_id} не знайдено."
 
         bid, m_name, orig_odds, orig_stake = row
+
+        if is_real and enforce_single_active:
+            cur.execute("""
+                SELECT id, match_name, real_stake_uah 
+                FROM paper_bets 
+                WHERE is_real_bet = TRUE AND status = 'PENDING' AND id != %s;
+            """, (bet_id,))
+            ex_row = cur.fetchone()
+            if ex_row:
+                ex_id, ex_name, ex_stk = ex_row
+                return False, f"Заборонено: у грі вже є активна ставка на реальні гроші (#{ex_id} {ex_name} — {float(ex_stk or 0):,.0f} ₴). Дочекайтесь розрахунку поточної ставки."
 
         updates = ["is_real_bet = %s"]
         params = [bool(is_real)]
