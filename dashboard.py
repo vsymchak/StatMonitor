@@ -432,30 +432,44 @@ def run_streamlit_app():
         bg_tab_list = "#161F30"
         bg_tab_active = "#233044"
         text_tab_active = "#60A5FA"
+
+        btn_bg = "#1E293B"
+        btn_hover_bg = "#2D3D54"
+        btn_border = "#334155"
+        btn_color = "#F8FAFC"
+        btn_hover_color = "#FFFFFF"
+
+        input_bg = "#161F30"
+        input_border = "#334155"
+        input_color = "#F8FAFC"
+
+        menu_bg = "#161F30"
+        menu_border = "#334155"
+        menu_hover = "#233044"
+
+        tag_bg = "#233044"
+        tag_border = "#334155"
+
         dark_extra_css = """
             h1, h2, h3, h4, h5, h6 { color: #F8FAFC !important; }
             div[data-testid="stExpander"] { background-color: #161F30 !important; border: 1px solid #233044 !important; border-radius: 10px !important; }
             div[data-testid="stExpander"] details summary { color: #F8FAFC !important; }
+            div[data-testid="stExpander"] details summary:hover { color: #60A5FA !important; }
             [data-testid="stDataFrame"], [data-testid="stDataEditor"] {
                 --gdg-bg-cell: #161F30 !important;
                 --gdg-text-dark: #F8FAFC !important;
                 --gdg-bg-header: #0F172A !important;
                 --gdg-text-medium: #94A3B8 !important;
                 --gdg-bg-header-hovered: #233044 !important;
+                --gdg-border-color: #233044 !important;
             }
-            div[data-baseweb="input"] input, div[data-baseweb="select"] {
-                background-color: #0F172A !important;
-                color: #F8FAFC !important;
-                border-color: #334155 !important;
-            }
-            div[data-testid="stNumberInput"] input {
-                background-color: #0F172A !important;
-                color: #F8FAFC !important;
-            }
-            div[data-testid="stPopoverBody"] {
+            div[data-testid="stAlert"] {
                 background-color: #161F30 !important;
                 color: #F8FAFC !important;
-                border: 1px solid #233044 !important;
+                border: 1px solid #334155 !important;
+            }
+            div[data-testid="stAlert"] * {
+                color: #F8FAFC !important;
             }
         """
     else:
@@ -467,7 +481,36 @@ def run_streamlit_app():
         bg_tab_list = "#F1F5F9"
         bg_tab_active = "#FFFFFF"
         text_tab_active = "#2563EB"
-        dark_extra_css = ""
+
+        btn_bg = "#FFFFFF"
+        btn_hover_bg = "#F8FAFC"
+        btn_border = "#CBD5E1"
+        btn_color = "#0F172A"
+        btn_hover_color = "#0F172A"
+
+        input_bg = "#FFFFFF"
+        input_border = "#CBD5E1"
+        input_color = "#0F172A"
+
+        menu_bg = "#FFFFFF"
+        menu_border = "#CBD5E1"
+        menu_hover = "#F1F5F9"
+
+        tag_bg = "#F1F5F9"
+        tag_border = "#CBD5E1"
+
+        dark_extra_css = """
+            div[data-testid="stExpander"] { background-color: #FFFFFF !important; border: 1px solid #E2E8F0 !important; border-radius: 10px !important; }
+            div[data-testid="stExpander"] details summary { color: #0F172A !important; }
+            [data-testid="stDataFrame"], [data-testid="stDataEditor"] {
+                --gdg-bg-cell: #FFFFFF !important;
+                --gdg-text-dark: #0F172A !important;
+                --gdg-bg-header: #F8FAFC !important;
+                --gdg-text-medium: #64748B !important;
+                --gdg-bg-header-hovered: #F1F5F9 !important;
+                --gdg-border-color: #E2E8F0 !important;
+            }
+        """
 
     # Впровадження фірмового CSS стилю StatMonitor v2.0 з динамічною темою (Tailwind / Inter aesthetic)
     css_template = """
@@ -586,13 +629,170 @@ def run_streamlit_app():
                 box-shadow: 0 1px 3px rgba(0,0,0,0.06) !important;
             }
             
-            /* Кнопки та Popover */
-            .stButton > button, div[data-testid="stPopover"] > button {
+            /* Кнопки та Popover кнопки */
+            .stButton > button,
+            div[data-testid="stPopover"] > button,
+            div[data-testid="stDownloadButton"] > button,
+            div[data-testid="stFormSubmitButton"] > button:not([kind="primary"]),
+            button[data-testid="stBaseButton-secondary"],
+            button[kind="secondary"] {
+                background-color: __BTN_BG__ !important;
+                color: __BTN_COLOR__ !important;
+                border: 1px solid __BTN_BORDER__ !important;
                 border-radius: 8px !important;
                 font-size: 12px !important;
-                font-weight: 500 !important;
-                padding: 4px 12px !important;
-                transition: all 0.15s ease;
+                font-weight: 600 !important;
+                padding: 5px 12px !important;
+                box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08) !important;
+                transition: all 0.15s ease-in-out !important;
+            }
+
+            .stButton > button *,
+            div[data-testid="stPopover"] > button *,
+            div[data-testid="stDownloadButton"] > button *,
+            div[data-testid="stFormSubmitButton"] > button:not([kind="primary"]) * {
+                color: __BTN_COLOR__ !important;
+            }
+
+            .stButton > button:hover,
+            div[data-testid="stPopover"] > button:hover,
+            div[data-testid="stDownloadButton"] > button:hover,
+            button[data-testid="stBaseButton-secondary"]:hover,
+            button[kind="secondary"]:hover {
+                background-color: __BTN_HOVER_BG__ !important;
+                color: __BTN_HOVER_COLOR__ !important;
+                border-color: __BTN_BORDER__ !important;
+            }
+
+            .stButton > button:hover *,
+            div[data-testid="stPopover"] > button:hover *,
+            div[data-testid="stDownloadButton"] > button:hover * {
+                color: __BTN_HOVER_COLOR__ !important;
+            }
+
+            /* Головні (Primary) кнопки */
+            button[kind="primary"],
+            button[data-testid="stBaseButton-primary"],
+            .stButton > button[data-testid="stBaseButton-primary"],
+            div[data-testid="stFormSubmitButton"] > button[kind="primary"],
+            div[data-testid="stLinkButton"] > a[data-testid="stBaseButton-primary"] {
+                background: #2563EB !important;
+                color: #FFFFFF !important;
+                border: 1px solid #1D4ED8 !important;
+                border-radius: 8px !important;
+                font-size: 12px !important;
+                font-weight: 600 !important;
+                padding: 5px 12px !important;
+                box-shadow: 0 2px 4px rgba(37, 99, 235, 0.25) !important;
+            }
+            button[kind="primary"] *,
+            button[data-testid="stBaseButton-primary"] *,
+            .stButton > button[data-testid="stBaseButton-primary"] * {
+                color: #FFFFFF !important;
+            }
+            button[kind="primary"]:hover,
+            button[data-testid="stBaseButton-primary"]:hover {
+                background: #1D4ED8 !important;
+                border-color: #3B82F6 !important;
+            }
+
+            /* Заблоковані (Disabled) кнопки */
+            .stButton > button:disabled,
+            button[data-testid="stBaseButton-secondary"]:disabled,
+            button[data-testid="stBaseButton-primary"]:disabled {
+                opacity: 0.55 !important;
+                cursor: not-allowed !important;
+                box-shadow: none !important;
+            }
+
+            /* Селекти та мультиселекти */
+            div[data-baseweb="select"] > div {
+                background-color: __INPUT_BG__ !important;
+                border: 1px solid __INPUT_BORDER__ !important;
+                color: __INPUT_COLOR__ !important;
+                border-radius: 8px !important;
+            }
+            div[data-baseweb="select"] input {
+                color: __INPUT_COLOR__ !important;
+            }
+            div[data-baseweb="select"] span {
+                color: __INPUT_COLOR__ !important;
+            }
+            div[data-baseweb="select"] svg {
+                fill: __TEXT_SECONDARY__ !important;
+                color: __TEXT_SECONDARY__ !important;
+            }
+
+            /* Теги всередині мультиселекту */
+            span[data-baseweb="tag"] {
+                background-color: __TAG_BG__ !important;
+                border: 1px solid __TAG_BORDER__ !important;
+                border-radius: 6px !important;
+            }
+            span[data-baseweb="tag"] span,
+            span[data-baseweb="tag"] * {
+                color: __TEXT_PRIMARY__ !important;
+            }
+
+            /* Меню селекту (BaseWeb Popover & Menu) */
+            div[data-baseweb="popover"],
+            div[data-baseweb="popover"] > div,
+            ul[data-baseweb="menu"],
+            div[data-baseweb="menu"] {
+                background-color: __MENU_BG__ !important;
+                border: 1px solid __MENU_BORDER__ !important;
+                border-radius: 8px !important;
+                box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3) !important;
+            }
+            li[data-baseweb="menu-item"] {
+                background-color: __MENU_BG__ !important;
+                color: __INPUT_COLOR__ !important;
+            }
+            li[data-baseweb="menu-item"]:hover,
+            li[data-baseweb="menu-item"][aria-selected="true"] {
+                background-color: __MENU_HOVER__ !important;
+                color: #60A5FA !important;
+            }
+            li[data-baseweb="menu-item"] * {
+                color: inherit !important;
+            }
+
+            /* Поля вводу (Text, Number, Date) */
+            div[data-baseweb="input"] > div,
+            div[data-baseweb="input"] input,
+            div[data-testid="stTextInput"] input,
+            div[data-testid="stNumberInput"] input {
+                background-color: __INPUT_BG__ !important;
+                color: __INPUT_COLOR__ !important;
+                border: 1px solid __INPUT_BORDER__ !important;
+                border-radius: 8px !important;
+            }
+
+            /* Тіло поповера (st.popover) */
+            div[data-testid="stPopoverBody"] {
+                background-color: __BG_CARD__ !important;
+                color: __TEXT_PRIMARY__ !important;
+                border: 1px solid __BORDER_CARD__ !important;
+                border-radius: 12px !important;
+                box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4) !important;
+            }
+            div[data-testid="stPopoverBody"] * {
+                color: __TEXT_PRIMARY__;
+            }
+
+            /* Лейбли селектів і полів вводу */
+            div[data-testid="stSelectbox"] label,
+            div[data-testid="stMultiSelect"] label,
+            div[data-testid="stTextInput"] label,
+            div[data-testid="stNumberInput"] label {
+                color: __TEXT_SECONDARY__ !important;
+                font-size: 11.5px !important;
+                font-weight: 600 !important;
+            }
+
+            /* Checkbox */
+            div[data-testid="stCheckbox"] label span {
+                color: __TEXT_PRIMARY__ !important;
             }
 
             /* Expander заголовок відступи */
@@ -623,6 +823,19 @@ def run_streamlit_app():
         .replace("__BG_TAB_LIST__", bg_tab_list)
         .replace("__BG_TAB_ACTIVE__", bg_tab_active)
         .replace("__TEXT_TAB_ACTIVE__", text_tab_active)
+        .replace("__BTN_BG__", btn_bg)
+        .replace("__BTN_HOVER_BG__", btn_hover_bg)
+        .replace("__BTN_BORDER__", btn_border)
+        .replace("__BTN_COLOR__", btn_color)
+        .replace("__BTN_HOVER_COLOR__", btn_hover_color)
+        .replace("__INPUT_BG__", input_bg)
+        .replace("__INPUT_BORDER__", input_border)
+        .replace("__INPUT_COLOR__", input_color)
+        .replace("__MENU_BG__", menu_bg)
+        .replace("__MENU_BORDER__", menu_border)
+        .replace("__MENU_HOVER__", menu_hover)
+        .replace("__TAG_BG__", tag_bg)
+        .replace("__TAG_BORDER__", tag_border)
         .replace("__DARK_EXTRA_CSS__", dark_extra_css)
     )
     st.markdown(final_css, unsafe_allow_html=True)
@@ -723,11 +936,11 @@ def run_streamlit_app():
     col_nav_left, col_nav_right = st.columns([5.5, 6.5])
     with col_nav_left:
         admin_badge = (
-            '<span style="background: #FEF3C7; color: #92400E; font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 6px; margin-left: 6px;">👑 Адмін</span>'
+            f'<span style="background: {"rgba(245, 158, 11, 0.2)" if is_dark else "#FEF3C7"}; color: {"#FCD34D" if is_dark else "#92400E"}; border: 1px solid {"rgba(245, 158, 11, 0.4)" if is_dark else "#FDE68A"}; font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 6px; margin-left: 6px;">👑 Адмін</span>'
             if is_admin else
-            '<span style="background: #F1F5F9; color: #64748B; font-size: 11px; font-weight: 500; padding: 2px 7px; border-radius: 6px; margin-left: 6px;">• Read-Only</span>'
+            f'<span style="background: {"#1E293B" if is_dark else "#F1F5F9"}; color: {"#94A3B8" if is_dark else "#64748B"}; border: 1px solid {"#334155" if is_dark else "#E2E8F0"}; font-size: 11px; font-weight: 500; padding: 2px 7px; border-radius: 6px; margin-left: 6px;">• Read-Only</span>'
         )
-        jar_badge = '<a href="https://send.monobank.ua/jar/2u4R1owSvj" target="_blank" style="text-decoration: none;"><span style="background: #F3E8FF; color: #7E22CE; font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 6px; margin-left: 6px; border: 1px solid #DDD6FE;">🎯 Банка 20к ₴</span></a>'
+        jar_badge = f'<a href="https://send.monobank.ua/jar/2u4R1owSvj" target="_blank" style="text-decoration: none;"><span style="background: {"rgba(124, 58, 237, 0.2)" if is_dark else "#F3E8FF"}; color: {"#DDD6FE" if is_dark else "#7E22CE"}; font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 6px; margin-left: 6px; border: 1px solid {"rgba(124, 58, 237, 0.45)" if is_dark else "#DDD6FE"};">🎯 Банка 20к ₴</span></a>'
         title_color = "#F8FAFC" if is_dark else "#0F172A"
         sub_bg = "#1E293B" if is_dark else "#F1F5F9"
         sub_color = "#94A3B8" if is_dark else "#475569"
@@ -750,20 +963,26 @@ def run_streamlit_app():
         def _render_donate_popover(k_pfx="nav"):
             pop_cnt = st.popover("💜 Донат", use_container_width=True, help="Підтримати проєкт StatMonitor (Monobank / Crypto)") if hasattr(st, "popover") else st.expander("💜 Донат")
             with pop_cnt:
-                st.markdown("""
+                mono_card_bg = "linear-gradient(135deg, rgba(124, 58, 237, 0.18) 0%, rgba(109, 40, 217, 0.28) 100%)" if is_dark else "linear-gradient(135deg, #F5F3FF 0%, #EDE9FE 100%)"
+                mono_card_border = "#6D28D9" if is_dark else "#DDD6FE"
+                mono_title_clr = "#DDD6FE" if is_dark else "#5B21B6"
+                mono_sub_clr = "#C4B5FD" if is_dark else "#4C1D95"
+                pop_divider = "#334155" if is_dark else "#CBD5E1"
+
+                st.markdown(f"""
                     <div style="text-align: center; margin-bottom: 8px;">
-                        <div style="font-size: 15px; font-weight: 700; color: #7C3AED;">💜 Підтримати проєкт StatMonitor</div>
+                        <div style="font-size: 15px; font-weight: 700; color: #A78BFA;">💜 Підтримати проєкт StatMonitor</div>
                         <div style="font-size: 11.5px; opacity: 0.85;">Сервери, The Odds API, проксі та ШІ аналіз</div>
                     </div>
                 """, unsafe_allow_html=True)
 
-                st.markdown("""
-                    <div style="background: linear-gradient(135deg, #F5F3FF 0%, #EDE9FE 100%); border: 1.5px solid #DDD6FE; border-radius: 10px; padding: 10px 12px; margin-bottom: 10px;">
-                        <div style="font-weight: 700; color: #5B21B6; font-size: 13px; display: flex; justify-content: space-between; align-items: center;">
+                st.markdown(f"""
+                    <div style="background: {mono_card_bg}; border: 1.5px solid {mono_card_border}; border-radius: 10px; padding: 10px 12px; margin-bottom: 10px;">
+                        <div style="font-weight: 700; color: {mono_title_clr}; font-size: 13px; display: flex; justify-content: space-between; align-items: center;">
                             <span>🐱 Monobank Банка</span>
                             <span style="background: #7C3AED; color: white; padding: 1px 7px; border-radius: 6px; font-size: 11px;">Ціль: 20 000 ₴</span>
                         </div>
-                        <div style="font-size: 11px; color: #4C1D95; margin-top: 3px;">
+                        <div style="font-size: 11px; color: {mono_sub_clr}; margin-top: 3px;">
                             Швидке та безпечне поповнення у гривні
                         </div>
                     </div>
@@ -778,8 +997,8 @@ def run_streamlit_app():
                 if os.path.exists(qr_file):
                     st.image(qr_file, caption="QR-код Банки (наведіть камеру смартфона)", use_container_width=True)
 
-                st.markdown("""
-                    <div style="margin-top: 10px; padding-top: 8px; border-top: 1px dashed #CBD5E1;">
+                st.markdown(f"""
+                    <div style="margin-top: 10px; padding-top: 8px; border-top: 1px dashed {pop_divider};">
                         <div style="font-weight: 700; font-size: 12px; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
                             <span>💎 Криптовалюта: USDT (Мережа TON)</span>
                         </div>
@@ -806,16 +1025,21 @@ def run_streamlit_app():
                     pass
                 st.rerun()
 
+        wd_bg = "rgba(16, 185, 129, 0.15)" if is_dark else "#ECFDF5"
+        wd_border = "rgba(16, 185, 129, 0.35)" if is_dark else "#A7F3D0"
+        wd_clr = "#34D399" if is_dark else "#047857"
+        wd_html = f"""
+            <div style="display: flex; align-items: center; gap: 6px; background: {wd_bg}; border: 1px solid {wd_border}; color: {wd_clr}; font-size: 11px; font-weight: 600; padding: 5px 10px; border-radius: 9999px; margin-top: 4px;">
+                <span style="width: 7px; height: 7px; background: #10B981; border-radius: 9999px; display: inline-block;"></span>
+                <span>Watchdog OK</span>
+                <span style="opacity: 0.85; font-weight: 500;">({hb_time})</span>
+            </div>
+        """
+
         if is_admin:
             c_wd, c_donate, c_theme, c_ref, c_run, c_logout = st.columns([1.7, 1.2, 1.1, 1.1, 1.1, 1.0])
             with c_wd:
-                st.markdown(f"""
-                    <div style="display: flex; align-items: center; gap: 6px; background: #ECFDF5; border: 1px solid #A7F3D0; color: #047857; font-size: 11px; font-weight: 600; padding: 5px 10px; border-radius: 9999px; margin-top: 4px;">
-                        <span style="width: 7px; height: 7px; background: #10B981; border-radius: 9999px; display: inline-block;"></span>
-                        <span>Watchdog OK</span>
-                        <span style="opacity: 0.8; font-weight: 500;">({hb_time})</span>
-                    </div>
-                """, unsafe_allow_html=True)
+                st.markdown(wd_html, unsafe_allow_html=True)
             with c_donate:
                 _render_donate_popover("admin")
             with c_theme:
@@ -843,13 +1067,7 @@ def run_streamlit_app():
         else:
             c_wd, c_donate, c_theme, c_login = st.columns([1.8, 1.3, 1.2, 1.1])
             with c_wd:
-                st.markdown(f"""
-                    <div style="display: flex; align-items: center; gap: 6px; background: #ECFDF5; border: 1px solid #A7F3D0; color: #047857; font-size: 11px; font-weight: 600; padding: 5px 10px; border-radius: 9999px; margin-top: 4px;">
-                        <span style="width: 7px; height: 7px; background: #10B981; border-radius: 9999px; display: inline-block;"></span>
-                        <span>Watchdog OK</span>
-                        <span style="opacity: 0.8; font-weight: 500;">({hb_time})</span>
-                    </div>
-                """, unsafe_allow_html=True)
+                st.markdown(wd_html, unsafe_allow_html=True)
             with c_donate:
                 _render_donate_popover("ro")
             with c_theme:
@@ -863,6 +1081,7 @@ def run_streamlit_app():
                             st.session_state.is_admin = True
                             st.rerun()
                         else:
+                            st.error("Невірний ключ")
                             st.error("Невірний ключ")
 
     # 2. ДАНІ ДЛЯ РИЗИК-МЕТРИК ТА ЛІГ (SPEC-24)
@@ -969,7 +1188,7 @@ def run_streamlit_app():
         r3_str = _slot_fmt(res3, "Резерв 4")
 
         st.markdown(f"""
-            <div style="font-size: 11.5px; color: #475569; background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 4px 12px; margin-top: 4px; margin-bottom: 8px;">
+            <div style="font-size: 11.5px; color: {'#94A3B8' if is_dark else '#475569'}; background: {'#161F30' if is_dark else '#F8FAFC'}; border: 1px solid {'#233044' if is_dark else '#E2E8F0'}; border-radius: 8px; padding: 4px 12px; margin-top: 4px; margin-bottom: 8px;">
                 <b>Деталізація The Odds API:</b> {p_str} &nbsp;|&nbsp; {r_str} &nbsp;|&nbsp; {r1_str} &nbsp;|&nbsp; {r2_str} &nbsp;|&nbsp; {r3_str}
             </div>
         """, unsafe_allow_html=True)
@@ -977,8 +1196,11 @@ def run_streamlit_app():
     # SPEC-31: Банер стану реального банку (доступний тільки адміністратору)
     if is_admin and (real_summary.get("total_deposits", 0) > 0 or real_summary.get("total_real_bets", 0) > 0 or real_summary.get("current_balance", 0) > 0):
         p_sign = "+" if real_summary.get('real_profit', 0) > 0 else ""
+        rb_bg = "rgba(16, 185, 129, 0.12)" if is_dark else "#F0FDF4"
+        rb_border = "rgba(16, 185, 129, 0.25)" if is_dark else "#BBF7D0"
+        rb_clr = "#34D399" if is_dark else "#166534"
         st.markdown(f"""
-            <div style="font-size: 11.5px; color: #166534; background: #F0FDF4; border: 1px solid #BBF7D0; border-radius: 8px; padding: 4px 12px; margin-top: 4px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+            <div style="font-size: 11.5px; color: {rb_clr}; background: {rb_bg}; border: 1px solid {rb_border}; border-radius: 8px; padding: 4px 12px; margin-top: 4px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
                 <div style="display: flex; align-items: center; gap: 6px;">
                     <span>🟢</span>
                     <b>Реальний банк (Real Bankroll):</b> <code>{real_summary.get('current_balance', 0.0):,.2f} ₴</code> &nbsp;|&nbsp; 
@@ -1194,33 +1416,37 @@ def run_streamlit_app():
                             y=full_chart_df["balance"],
                             mode="lines+markers",
                             line=dict(color="#2563EB", width=2.4, shape="spline", smoothing=0.35),
-                            marker=dict(size=6, color="#2563EB", line=dict(color="#FFFFFF", width=1.8)),
+                            marker=dict(size=6, color="#2563EB", line=dict(color="#161F30" if is_dark else "#FFFFFF", width=1.8)),
                             fill="tozeroy",
                             fillcolor="rgba(37, 99, 235, 0.10)",
                             hovertemplate="<b>%{x|%d.%m %H:%M}</b><br>Баланс: %{y:,.2f} ₴<extra></extra>"
                         ))
 
+                        chart_line = "#334155" if is_dark else "#E2E8F0"
+                        chart_grid = "#1E293B" if is_dark else "#EEF2F6"
+                        chart_tick = "#94A3B8" if is_dark else "#64748B"
+
                         fig_bal.update_layout(
-                            template="plotly_white",
+                            template="plotly_dark" if is_dark else "plotly_white",
                             height=255,
                             margin=dict(l=45, r=15, t=10, b=25),
                             showlegend=False,
-                            plot_bgcolor="#FFFFFF",
-                            paper_bgcolor="#FFFFFF",
+                            plot_bgcolor="rgba(0,0,0,0)",
+                            paper_bgcolor="rgba(0,0,0,0)",
                             xaxis=dict(
                                 showgrid=False,
-                                linecolor="#E2E8F0",
+                                linecolor=chart_line,
                                 tickformat="%d.%m",
-                                tickfont=dict(size=10.5, color="#64748B", family="Inter"),
+                                tickfont=dict(size=10.5, color=chart_tick, family="Inter"),
                             ),
                             yaxis=dict(
                                 range=[y_min, y_max],
                                 tickvals=tick_vals,
                                 ticktext=tick_text,
                                 showgrid=True,
-                                gridcolor="#EEF2F6",
+                                gridcolor=chart_grid,
                                 gridwidth=1,
-                                tickfont=dict(size=10.5, color="#64748B", family="Inter"),
+                                tickfont=dict(size=10.5, color=chart_tick, family="Inter"),
                                 zeroline=False
                             )
                         )
@@ -1233,10 +1459,10 @@ def run_streamlit_app():
         # Права колонка (40%): ROI за турнірами (Horizontal Bar Chart)
         with col_chart_right:
             with st.container(border=True):
-                st.markdown("""
+                st.markdown(f"""
                     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
-                        <span style="font-size: 13px; font-weight: 700; color: #1E293B;">🏆 ROI за турнірами (%)</span>
-                        <span style="font-size: 11px; color: #94A3B8;">Сортування: за дохідністю</span>
+                        <span style="font-size: 13px; font-weight: 700; color: {'#F8FAFC' if is_dark else '#1E293B'};">🏆 ROI за турнірами (%)</span>
+                        <span style="font-size: 11px; color: {'#94A3B8' if is_dark else '#64748B'};">Сортування: за дохідністю</span>
                     </div>
                 """, unsafe_allow_html=True)
 
@@ -1261,6 +1487,7 @@ def run_streamlit_app():
                     x_min = min(-12.0, min_roi - 8.0)
                     x_max = max(75.0, max_roi + 15.0)
 
+                    chart_text_clr = "#F8FAFC" if is_dark else "#334155"
                     fig_roi = go.Figure(go.Bar(
                         x=l_df["roi_pct"],
                         y=l_df["league_title"],
@@ -1270,31 +1497,31 @@ def run_streamlit_app():
                         text=[(f"{v:+.1f}%" if v != 0 else "0.0%") for v in l_df["roi_pct"]],
                         textposition="outside",
                         cliponaxis=False,
-                        textfont=dict(size=11, family="Inter", color="#334155"),
+                        textfont=dict(size=11, family="Inter", color=chart_text_clr),
                         hovertemplate="<b>%{y}</b><br>ROI: %{x:+.1f}%<extra></extra>"
                     ))
 
                     fig_roi.update_layout(
-                        template="plotly_white",
+                        template="plotly_dark" if is_dark else "plotly_white",
                         height=255,
                         margin=dict(l=155, r=45, t=10, b=25),
                         showlegend=False,
-                        plot_bgcolor="#FFFFFF",
-                        paper_bgcolor="#FFFFFF",
+                        plot_bgcolor="rgba(0,0,0,0)",
+                        paper_bgcolor="rgba(0,0,0,0)",
                         xaxis=dict(
                             range=[x_min, x_max],
                             showgrid=True,
-                            gridcolor="#EEF2F6",
+                            gridcolor="#1E293B" if is_dark else "#EEF2F6",
                             zeroline=True,
-                            zerolinecolor="#CBD5E1",
+                            zerolinecolor="#334155" if is_dark else "#CBD5E1",
                             zerolinewidth=1.5,
-                            tickfont=dict(size=10.5, color="#64748B", family="Inter"),
+                            tickfont=dict(size=10.5, color="#94A3B8" if is_dark else "#64748B", family="Inter"),
                             ticksuffix="%"
                         ),
                         yaxis=dict(
                             autorange="reversed",
                             showgrid=False,
-                            tickfont=dict(size=11, color="#334155", family="Inter")
+                            tickfont=dict(size=11, color=chart_text_clr, family="Inter")
                         )
                     )
                     st.plotly_chart(fig_roi, use_container_width=True, config={"displayModeBar": False})
@@ -1307,27 +1534,33 @@ def run_streamlit_app():
             if clv_metrics.get("total_with_clv", 0) > 0:
                 beat_clr = "#16A34A" if clv_metrics["beat_line_pct"] >= 50.0 else "#EAB308"
                 avg_clr = "#16A34A" if clv_metrics["avg_clv_pct"] >= 0 else "#DC2626"
+                clv_card_bg = "#161F30" if is_dark else "#F8FAFC"
+                clv_card_border = "#233044" if is_dark else "#E2E8F0"
+                clv_t_clr = "#F8FAFC" if is_dark else "#0F172A"
+                clv_s_clr = "#94A3B8" if is_dark else "#64748B"
+                clv_v_clr = "#F8FAFC" if is_dark else "#1E293B"
+
                 st.markdown(f"""
-                    <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 10px; padding: 10px 14px; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+                    <div style="background: {clv_card_bg}; border: 1px solid {clv_card_border}; border-radius: 10px; padding: 10px 14px; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
                         <div style="display: flex; align-items: center; gap: 8px;">
                             <span style="font-size: 16px;">🎯</span>
                             <div>
-                                <div style="font-size: 12.5px; font-weight: 700; color: #0F172A;">Closing Line Value (CLV) & Beat the Line % (SPEC-20)</div>
-                                <div style="font-size: 11px; color: #64748B;">Фіксація коефіцієнта закриття лінії (Closing Line) бенчмарк-букмекерів (Pinnacle/Betfair). Математична перевага (+EV).</div>
+                                <div style="font-size: 12.5px; font-weight: 700; color: {clv_t_clr};">Closing Line Value (CLV) & Beat the Line % (SPEC-20)</div>
+                                <div style="font-size: 11px; color: {clv_s_clr};">Фіксація коефіцієнта закриття лінії (Closing Line) бенчмарк-букмекерів (Pinnacle/Betfair). Математична перевага (+EV).</div>
                             </div>
                         </div>
                         <div style="display: flex; gap: 16px; align-items: center;">
                             <div style="text-align: right;">
-                                <div style="font-size: 11px; color: #64748B;">Beat the Line %</div>
+                                <div style="font-size: 11px; color: {clv_s_clr};">Beat the Line %</div>
                                 <div style="font-size: 14px; font-weight: 700; color: {beat_clr};">{clv_metrics['beat_line_pct']:.1f}%</div>
                             </div>
                             <div style="text-align: right;">
-                                <div style="font-size: 11px; color: #64748B;">Сер. CLV (+EV)</div>
+                                <div style="font-size: 11px; color: {clv_s_clr};">Сер. CLV (+EV)</div>
                                 <div style="font-size: 14px; font-weight: 700; color: {avg_clr};">{clv_metrics['avg_clv_pct']:+.2f}%</div>
                             </div>
                             <div style="text-align: right;">
-                                <div style="font-size: 11px; color: #64748B;">Зафіксовано ліній</div>
-                                <div style="font-size: 14px; font-weight: 700; color: #1E293B;">{clv_metrics['total_with_clv']} <span style="font-size: 11px; font-weight: 500; color: #64748B;">({clv_metrics['beat_count']} побито)</span></div>
+                                <div style="font-size: 11px; color: {clv_s_clr};">Зафіксовано ліній</div>
+                                <div style="font-size: 14px; font-weight: 700; color: {clv_v_clr};">{clv_metrics['total_with_clv']} <span style="font-size: 11px; font-weight: 500; color: {clv_s_clr};">({clv_metrics['beat_count']} побито)</span></div>
                             </div>
                         </div>
                     </div>
@@ -2044,17 +2277,19 @@ def run_streamlit_app():
                     fig_real.update_layout(
                         height=260,
                         margin=dict(l=10, r=10, t=25, b=10),
-                        template="plotly_white",
+                        template="plotly_dark" if is_dark else "plotly_white",
+                        plot_bgcolor="rgba(0,0,0,0)",
+                        paper_bgcolor="rgba(0,0,0,0)",
                         xaxis=dict(
                             showgrid=True,
-                            gridcolor="#F1F5F9",
+                            gridcolor="#1E293B" if is_dark else "#F1F5F9",
                             tickformat="%d.%m\n%H:%M",
-                            tickfont=dict(size=10, color="#64748B"),
+                            tickfont=dict(size=10, color="#94A3B8" if is_dark else "#64748B"),
                         ),
                         yaxis=dict(
                             showgrid=True,
-                            gridcolor="#F1F5F9",
-                            tickfont=dict(size=10, color="#64748B"),
+                            gridcolor="#1E293B" if is_dark else "#F1F5F9",
+                            tickfont=dict(size=10, color="#94A3B8" if is_dark else "#64748B"),
                             tickprefix="",
                             ticksuffix=" ₴",
                         ),
@@ -2090,43 +2325,55 @@ def run_streamlit_app():
                 exp_clr = "#16A34A" if exp_pct <= 15.0 else ("#EAB308" if exp_pct <= 20.0 else "#DC2626")
 
                 sl_badge = (
-                    '<span style="background: #FEE2E2; color: #991B1B; font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 9999px;">🛑 STOP-LOSS АКТИВОВАНО</span>'
-                    if sl_info.get("is_triggered") else
-                    f'<span style="background: #DCFCE7; color: #166534; font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 9999px;">🟢 Норма ({sl_info.get("daily_pnl_uah", 0.0):+.0f} ₴ / -{sl_info.get("threshold_pct", 7.0):.0f}%)</span>'
+                    '<span style="background: rgba(239, 68, 68, 0.2); color: #FCA5A5; font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 9999px;">🛑 STOP-LOSS АКТИВОВАНО</span>'
+                    if (is_dark and sl_info.get("is_triggered")) else (
+                        '<span style="background: #FEE2E2; color: #991B1B; font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 9999px;">🛑 STOP-LOSS АКТИВОВАНО</span>'
+                        if sl_info.get("is_triggered") else
+                        f'<span style="background: {"rgba(16, 185, 129, 0.15)" if is_dark else "#DCFCE7"}; color: {"#34D399" if is_dark else "#166534"}; font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 9999px;">🟢 Норма ({sl_info.get("daily_pnl_uah", 0.0):+.0f} ₴ / -{sl_info.get("threshold_pct", 7.0):.0f}%)</span>'
+                    )
                 )
                 corr_badge = (
-                    f'<span style="background: #FEF3C7; color: #92400E; font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 9999px;">⚠️ Кореляція ({len(corr_info.get("correlated_matches", []))})</span>'
+                    f'<span style="background: {"rgba(245, 158, 11, 0.2)" if is_dark else "#FEF3C7"}; color: {"#FCD34D" if is_dark else "#92400E"}; font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 9999px;">⚠️ Кореляція ({len(corr_info.get("correlated_matches", []))})</span>'
                     if corr_info.get("has_correlations") else
-                    '<span style="background: #F1F5F9; color: #475569; font-size: 11px; font-weight: 500; padding: 2px 7px; border-radius: 9999px;">🟢 Чисто</span>'
+                    f'<span style="background: {"#1E293B" if is_dark else "#F1F5F9"}; color: {"#94A3B8" if is_dark else "#475569"}; font-size: 11px; font-weight: 500; padding: 2px 7px; border-radius: 9999px;">🟢 Чисто</span>'
                 )
 
+                cb_card_bg = "#161F30" if is_dark else "#F8FAFC"
+                cb_card_border = "#233044" if is_dark else "#E2E8F0"
+                cb_t_clr = "#F8FAFC" if is_dark else "#0F172A"
+                cb_s_clr = "#94A3B8" if is_dark else "#475569"
+                bar_bg = "#233044" if is_dark else "#E2E8F0"
+
                 st.markdown(f"""
-                    <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px; margin-bottom: 10px;">
+                    <div style="background: {cb_card_bg}; border: 1px solid {cb_card_border}; border-radius: 8px; padding: 12px; margin-bottom: 10px;">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                            <span style="font-size: 12.5px; font-weight: 600; color: #0F172A;">🛑 Денний Stop-Loss (-7%):</span>
+                            <span style="font-size: 12.5px; font-weight: 600; color: {cb_t_clr};">🛑 Денний Stop-Loss (-7%):</span>
                             {sl_badge}
                         </div>
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                            <span style="font-size: 12.5px; font-weight: 600; color: #0F172A;">🔗 Анти-кореляція:</span>
+                            <span style="font-size: 12.5px; font-weight: 600; color: {cb_t_clr};">🔗 Анти-кореляція:</span>
                             {corr_badge}
                         </div>
                         <div style="display: flex; justify-content: space-between; font-size: 12px; margin-top: 8px; margin-bottom: 4px;">
-                            <span>🔒 <b>Експозиція (ліміт 20%):</b></span>
+                            <span style="color: {cb_t_clr};">🔒 <b>Експозиція (ліміт 20%):</b></span>
                             <span style="font-weight: 700; color: {exp_clr};">{real_exposure:,.2f} ₴ ({exp_pct:.1f}%)</span>
                         </div>
-                        <div style="width: 100%; background: #E2E8F0; height: 8px; border-radius: 4px; overflow: hidden; margin-bottom: 8px;">
+                        <div style="width: 100%; background: {bar_bg}; height: 8px; border-radius: 4px; overflow: hidden; margin-bottom: 8px;">
                             <div style="width: {exp_pct}%; background: {exp_clr}; height: 100%;"></div>
                         </div>
-                        <div style="display: flex; justify-content: space-between; font-size: 11.5px; color: #475569; border-top: 1px solid #E2E8F0; padding-top: 6px;">
+                        <div style="display: flex; justify-content: space-between; font-size: 11.5px; color: {cb_s_clr}; border-top: 1px solid {cb_card_border}; padding-top: 6px;">
                             <span>💵 Вільний залишок коштів:</span>
-                            <b>{free_real_balance:,.2f} ₴</b>
+                            <b style="color: {cb_t_clr};">{free_real_balance:,.2f} ₴</b>
                         </div>
                     </div>
                 """, unsafe_allow_html=True)
 
                 hard_limit = round(real_bal * 0.05, 2)
+                kv_bg = "rgba(16, 185, 129, 0.12)" if is_dark else "#F0FDF4"
+                kv_border = "rgba(16, 185, 129, 0.25)" if is_dark else "#BBF7D0"
+                kv_text = "#34D399" if is_dark else "#166534"
                 st.markdown(f"""
-                    <div style="background: #F0FDF4; border: 1px solid #BBF7D0; border-radius: 8px; padding: 10px; font-size: 12px; color: #166534;">
+                    <div style="background: {kv_bg}; border: 1px solid {kv_border}; border-radius: 8px; padding: 10px; font-size: 12px; color: {kv_text};">
                         <div style="font-weight: 700; margin-bottom: 4px;">📐 Модель No-Vig Kelly стейкінгу (SPEC-34):</div>
                         <div>• <b>Формула:</b> <code>0.10 × Kelly (Fair No-Vig Pinnacle)</code></div>
                         <div>• <b>Мінімальна ставка:</b> <code>20.00 ₴</code></div>
