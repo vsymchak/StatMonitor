@@ -314,7 +314,7 @@ def fetch_data(db_url):
 
         # 1. Ставки (Paper Bets)
         try:
-            bets_data = query_to_dataframe(cur, "SELECT * FROM paper_bets ORDER BY commence_time DESC LIMIT 150;")
+            bets_data = query_to_dataframe(cur, "SELECT * FROM paper_bets ORDER BY commence_time DESC LIMIT 1000;")
         except Exception as e:
             print("Bets query err:", e)
 
@@ -1376,6 +1376,7 @@ def run_streamlit_app():
         tab_titles.append("🟢 Реальний банк (Real Money)")
     tab_titles.extend([
         "🧠 AI-аналітика Gemini",
+        "🔬 Квантитативний Бектест (SPEC-42)",
         "⚙️ Розклад та Пульс",
     ])
     if is_admin:
@@ -1388,6 +1389,7 @@ def run_streamlit_app():
     if is_admin:
         t_idx += 1
     tab_ai = all_tabs[t_idx]; t_idx += 1
+    tab_backtest = all_tabs[t_idx]; t_idx += 1
     tab_pulse = all_tabs[t_idx]; t_idx += 1
     tab_thresholds = all_tabs[t_idx] if is_admin else None
 
@@ -3227,7 +3229,209 @@ def run_streamlit_app():
         else:
             st.info("ℹ️ AI-вердикти поки що не збережені в базі даних. Вони автоматично генеруються при знаходженні валуйних ставок.")
 
-    # ---------------- ВКЛАДКА 3: РОЗКЛАД ТА ПУЛЬС ----------------
+    # ---------------- ВКЛАДКА 3: КВАНТИТАТИВНИЙ БЕКТЕСТ (SPEC-42) ----------------
+    with tab_backtest:
+        bt_title_clr = '#F8FAFC' if is_dark else '#0F172A'
+        bt_sub_clr = '#94A3B8' if is_dark else '#64748B'
+        bt_card_bg = '#161F30' if is_dark else '#FFFFFF'
+        bt_card_border = '#233044' if is_dark else '#E2E8F0'
+        chart_bg = 'rgba(0,0,0,0)'
+        chart_grid = '#1E293B' if is_dark else '#EEF2F6'
+
+        st.markdown(f"""
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <div>
+                    <h3 style="margin: 0; padding: 0; color: {bt_title_clr}; font-size: 20px; font-weight: 700;">🔬 Квантитативний Бектест та Симуляція (SPEC-42)</h3>
+                    <div style="font-size: 12.5px; color: {bt_sub_clr}; margin-top: 2px;">
+                        Платформа покрокової хронологічної симуляції капіталу: порівняння Kelly vs Flat vs % Bank, оцінка просідань (Max Drawdown), коефіцієнтів Шарпа/Сортіно та контрфактичних сценаріїв ШІ.
+                    </div>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        try:
+            from statmonitor.backtest import run_backtest, run_benchmark_comparison
+
+            # Панель налаштування симулятора
+            with st.form("backtest_sim_form"):
+                st.markdown(f"<div style='font-size: 13.5px; font-weight: 700; color: {bt_title_clr}; margin-bottom: 8px;'>⚙️ Параметри симуляції капіталу:</div>", unsafe_allow_html=True)
+                c_bt1, c_bt2, c_bt3 = st.columns([1.5, 1.5, 1.5])
+                with c_bt1:
+                    sim_bank = st.number_input("Стартовий капітал (₴):", min_value=500.0, max_value=1000000.0, value=10000.0, step=500.0, format="%.0f")
+                    model_choice = st.selectbox(
+                        "Модель управління капіталом:",
+                        ["Дробовий Келлі (Fractional Kelly)", "Фіксована ставка (Flat UAH)", "Динамічний % від капіталу (% of Bank)"]
+                    )
+                with c_bt2:
+                    if "Келлі" in model_choice:
+                        sim_fraction = st.slider("Множник Келлі (Kelly Fraction):", min_value=0.02, max_value=0.50, value=0.10, step=0.01, format="%.2f")
+                        sim_flat = 100.0
+                        sim_pct_bank = 0.02
+                        model_key = "KELLY_FRACTION"
+                    elif "Flat" in model_choice:
+                        sim_flat = st.number_input("Фіксована ставка (₴):", min_value=10.0, max_value=50000.0, value=100.0, step=10.0, format="%.0f")
+                        sim_fraction = 0.10
+                        sim_pct_bank = 0.02
+                        model_key = "FLAT"
+                    else:
+                        pct_val = st.slider("% від поточного капіталу:", min_value=0.5, max_value=10.0, value=2.0, step=0.5)
+                        sim_pct_bank = pct_val / 100.0
+                        sim_fraction = 0.10
+                        sim_flat = 100.0
+                        model_key = "PERCENT_BANK"
+
+                    sim_conf = st.slider("Мінімальна оцінка Gemini Confidence (0..10):", min_value=0, max_value=10, value=7, step=1, help="0 — всі ставки, 7 — стандартний робочий поріг ШІ, 8+ — елітні сигнали.")
+                with c_bt3:
+                    sim_odds_range = st.slider("Діапазон коефіцієнтів (Min - Max Odds):", min_value=1.10, max_value=10.0, value=(1.15, 6.0), step=0.05)
+                    sim_shadow = st.checkbox("🕵️ Включити Shadow-ставки (Контрфактичний No-AI)", value=False, help="Моделювання сценарію без ШІ: враховує відсіяні системою ставки (status='FILTERED').")
+                    sim_walkaway = st.checkbox("🎯 Тільки валуйні ставки (Walkaway Odds ≥ 0)", value=False, help="Відбирати тільки ставки з коефіцієнтом не нижче порогу Walkaway Odds.")
+
+                st.write("")
+                btn_run_sim = st.form_submit_button("🚀 Запустити квантитативну симуляцію", type="primary", use_container_width=True)
+
+            # Формуємо конфігурацію симуляції
+            active_sim_cfg = {
+                "initial_bankroll": sim_bank,
+                "staking_model": model_key,
+                "fraction": sim_fraction,
+                "flat_amount": sim_flat,
+                "percent_bank": sim_pct_bank,
+                "min_confidence": sim_conf,
+                "min_odds": sim_odds_range[0],
+                "max_odds": sim_odds_range[1],
+                "include_shadow": sim_shadow,
+                "enforce_walkaway": sim_walkaway
+            }
+
+            # Запуск бектесту
+            sim_result = run_backtest(bets_df, active_sim_cfg)
+            m = sim_result["metrics"]
+            curve = sim_result["equity_curve"]
+            executed = sim_result["executed_bets"]
+
+            # 1. KPI-КАРТКИ СИМУЛЯЦІЇ
+            st.markdown(f"<div style='font-size: 14px; font-weight: 700; color: {bt_title_clr}; margin-top: 14px; margin-bottom: 8px;'>📊 Результати симуляції стратегії:</div>", unsafe_allow_html=True)
+            kpi_c1, kpi_c2, kpi_c3, kpi_c4, kpi_c5, kpi_c6 = st.columns(6)
+
+            pnl_val = m["net_profit"]
+            pnl_clr = "#16A34A" if pnl_val >= 0 else "#DC2626"
+            roi_val = m["roi_pct"]
+            roi_clr = "#16A34A" if roi_val >= 0 else "#DC2626"
+
+            with kpi_c1:
+                kpi_c1.metric("💰 Чистий прибуток", f"{pnl_val:+,.2f} ₴", f"{roi_val:+.2f}% ROI")
+            with kpi_c2:
+                kpi_c2.metric("🏦 Фінальний баланс", f"{m['final_balance']:,.0f} ₴", f"{m['cagr_pct']:+.1f}% від старту")
+            with kpi_c3:
+                kpi_c3.metric("📉 Max Drawdown", f"{m['max_drawdown_pct']:.1f}%", f"-{m['max_drawdown_uah']:,.0f} ₴", delta_color="inverse")
+            with kpi_c4:
+                kpi_c4.metric("⚡ Sharpe Ratio", f"{m['sharpe_ratio']:.2f}", f"Sortino: {m['sortino_ratio']:.2f}")
+            with kpi_c5:
+                pf_str = f"{m['profit_factor']:.2f}" if m['profit_factor'] < 50 else "∞"
+                kpi_c5.metric("⚖️ Profit Factor", pf_str, f"Серія: {m['max_win_streak']}W / {m['max_loss_streak']}L")
+            with kpi_c6:
+                kpi_c6.metric("🎯 Win Rate", f"{m['win_rate']:.1f}%", f"{m['won_count']}W • {m['lost_count']}L • {m['void_count']}V")
+
+            # 2. ГРАФІК КРИВОЇ КАПІТАЛУ (EQUITY CURVE & DRAWDOWN)
+            if curve and len(curve) > 1:
+                import plotly.graph_objects as go
+                st.markdown(f"<div style='font-size: 13.5px; font-weight: 700; color: {bt_title_clr}; margin-top: 14px; margin-bottom: 6px;'>📈 Крива капіталу (Simulated Equity Curve) & High Water Mark:</div>", unsafe_allow_html=True)
+                
+                steps = [c["step"] for c in curve]
+                balances = [c["balance"] for c in curve]
+                peaks = [c.get("peak", c["balance"]) for c in curve]
+                hover_texts = [
+                    f"Крок: #{c['step']}<br>Матч: {c.get('match', '')}<br>Маркет: {c.get('pick', '')}<br>Ставка: {c.get('stake', 0):,.0f} ₴ (Коеф: {c.get('odds', 0):.2f})<br>PnL: {c.get('pnl', 0):+,.2f} ₴<br><b>Баланс: {c['balance']:,.2f} ₴</b><br>Просідання: {c.get('drawdown_pct', 0):.1f}%"
+                    for c in curve
+                ]
+
+                fig_eq = go.Figure()
+
+                # Пік капіталу (High Water Mark)
+                fig_eq.add_trace(go.Scatter(
+                    x=steps,
+                    y=peaks,
+                    mode="lines",
+                    name="High Water Mark (Пік)",
+                    line=dict(color="#64748B", width=1.5, dash="dash"),
+                    hoverinfo="skip"
+                ))
+
+                # Фактична крива балансу
+                fig_eq.add_trace(go.Scatter(
+                    x=steps,
+                    y=balances,
+                    mode="lines+markers",
+                    name="Баланс симуляції",
+                    line=dict(color="#2563EB", width=2.5),
+                    marker=dict(size=4, color="#3B82F6"),
+                    text=hover_texts,
+                    hoverinfo="text"
+                ))
+
+                # Лінія стартового капіталу
+                fig_eq.add_hline(
+                    y=sim_bank,
+                    line_dash="dot",
+                    line_color="#94A3B8",
+                    annotation_text=f"Старт: {sim_bank:,.0f} ₴",
+                    annotation_position="bottom right"
+                )
+
+                fig_eq.update_layout(
+                    paper_bgcolor=chart_bg,
+                    plot_bgcolor=chart_bg,
+                    margin=dict(l=10, r=10, t=10, b=25),
+                    height=320,
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color=bt_title_clr, size=11)),
+                    xaxis=dict(
+                        title="Кількість ставок (Хронологія)",
+                        showgrid=True,
+                        gridcolor=chart_grid,
+                        tickfont=dict(color=bt_sub_clr, size=11)
+                    ),
+                    yaxis=dict(
+                        title="Баланс (грн)",
+                        showgrid=True,
+                        gridcolor=chart_grid,
+                        tickfont=dict(color=bt_sub_clr, size=11)
+                    )
+                )
+                st.plotly_chart(fig_eq, use_container_width=True, config={"displayModeBar": False})
+
+            # 3. МУЛЬТИСТРАТЕГІЧНЕ ПОРІВНЯННЯ БЕНЧМАРКІВ (BENCHMARK MATRIX)
+            st.markdown(f"<div style='font-size: 14px; font-weight: 700; color: {bt_title_clr}; margin-top: 16px; margin-bottom: 8px;'>🏆 Порівняльна матриця еталонних стратегій (Benchmark Grid):</div>", unsafe_allow_html=True)
+            benchmarks_data = run_benchmark_comparison(bets_df, initial_bank=sim_bank)
+            if benchmarks_data:
+                bench_df = pd.DataFrame(benchmarks_data)
+                cols_b_show = ["Стратегія", "Ставок", "Win Rate", "Чистий прибуток", "ROI", "Max Drawdown", "Profit Factor", "Sharpe Ratio", "Баланс"]
+                st.dataframe(bench_df[[c for c in cols_b_show if c in bench_df.columns]], use_container_width=True, hide_index=True)
+                st.caption("ℹ️ *Бенчмарки моделюють:* 1) Стандартну стратегію реальних грошей; 2) Агресивну модель Келлі; 3) Фіксовану ставку (Flat); 4) Контрфактичну поведінку No-AI (якби ШІ не відсіював слабкі сигнали); 5) Елітний відбір (сигнали ≥ 8/10 з позитивним Walkaway EV).")
+
+            # 4. ДЕТАЛЬНИЙ ЛОГ ЗМОДЕЛЬОВАНИХ СТАВОК (EXECUTED BETS)
+            with st.expander(f"📜 Журнал змодельованих ставок ({len(executed)})", expanded=False):
+                if executed:
+                    ex_disp = pd.DataFrame(executed)
+                    ex_disp["ID"] = ex_disp["id"].apply(lambda x: f"#{x}" if x else "—")
+                    ex_disp["Час"] = ex_disp["time"].apply(format_kyiv_time) if "time" in ex_disp.columns else "—"
+                    ex_disp["Подія"] = ex_disp["match"]
+                    ex_disp["Маркет"] = ex_disp["pick"]
+                    ex_disp["Коеф."] = ex_disp["odds"].apply(lambda x: f"{float(x):.2f}")
+                    ex_disp["Ставка"] = ex_disp["stake"].apply(lambda x: f"{float(x):,.0f} ₴")
+                    ex_disp["Результат"] = ex_disp["status"].apply(lambda s: "🟢 WON" if s == "WON" else ("🔴 LOST" if s == "LOST" else "⚪ VOID"))
+                    ex_disp["PnL"] = ex_disp["pnl"].apply(lambda x: f"{float(x):+,.2f} ₴")
+                    ex_disp["Баланс після угоди"] = ex_disp["balance"].apply(lambda x: f"{float(x):,.2f} ₴")
+                    ex_disp["Просідання"] = ex_disp["drawdown_pct"].apply(lambda x: f"{float(x):.1f}%")
+
+                    disp_cols = ["ID", "Час", "Подія", "Маркет", "Коеф.", "Ставка", "Результат", "PnL", "Баланс після угоди", "Просідання"]
+                    st.dataframe(ex_disp[[c for c in disp_cols if c in ex_disp.columns]], use_container_width=True, hide_index=True)
+                else:
+                    st.info("ℹ️ За обраними параметрами жодна ставка не пройшла фільтри.")
+
+        except Exception as e_bt:
+            st.error(f"Помилка модуля бектесту: {e_bt}")
+
+    # ---------------- ВКЛАДКА 4: РОЗКЛАД ТА ПУЛЬС ----------------
     with tab_pulse:
         # 4 статусні картки воркерів
         st.markdown("""
