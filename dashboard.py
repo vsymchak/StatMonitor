@@ -1975,6 +1975,69 @@ def run_streamlit_app():
                 )
                 cols_rp_show = [c for c in ["ID", "Час", "Турнір", "Подія", "Маркет", "Коеф.", "Поріг (Walkaway)", "Сума (Real)", "% банку", "Потенційний виграш"] if c in rp_disp.columns]
                 st.dataframe(rp_disp[cols_rp_show], use_container_width=True, hide_index=True)
+
+                # Коригування коефіцієнта та суми реальної ставки (Admin only)
+                with st.expander("✏️ Коригування активної ставки (Коефіцієнт / Сума в БК)", expanded=False):
+                    st.caption("Швидке коригування параметрів ставки (фактичний коефіцієнт у БК та сума ставки в цілих гривнях).")
+                    bet_options = {
+                        int(r["id"]): f"#{r['id']} | {r.get('match_name', '')} | {r.get('pick_label', '')} (Коеф: {float(r.get('real_odds') or r.get('odds') or 0):.2f}, Сума: {float(r.get('real_stake_uah') or r.get('stake_uah') or 0):,.0f} ₴)"
+                        for _, r in real_pending_df.iterrows()
+                    }
+                    selected_bet_id = st.selectbox(
+                        "Оберіть ставку для коригування:",
+                        options=list(bet_options.keys()),
+                        format_func=lambda x: bet_options[x],
+                        key="sb_edit_real_bet"
+                    )
+                    
+                    cur_row = real_pending_df[real_pending_df["id"] == selected_bet_id].iloc[0]
+                    curr_k = float(cur_row.get("real_odds") or cur_row.get("odds") or 1.85)
+                    curr_s = float(cur_row.get("real_stake_uah") or cur_row.get("stake_uah") or 50.0)
+
+                    c_ed1, c_ed2, c_ed3 = st.columns([1.5, 1.5, 1.2])
+                    with c_ed1:
+                        new_real_odds = st.number_input(
+                            "Новий коефіцієнт (odds):",
+                            min_value=1.02,
+                            max_value=50.0,
+                            value=curr_k,
+                            step=0.01,
+                            format="%.2f",
+                            key=f"ed_r_odds_{selected_bet_id}"
+                        )
+                    with c_ed2:
+                        new_real_stake = st.number_input(
+                            "Реальна сума ставки (₴):",
+                            min_value=1.0,
+                            max_value=100000.0,
+                            value=float(round(curr_s)),
+                            step=1.0,
+                            format="%d",
+                            key=f"ed_r_stake_{selected_bet_id}"
+                        )
+                    with c_ed3:
+                        st.write("")
+                        st.write("")
+                        if st.button("💾 Зберегти зміни", key="btn_save_real_bet_edit", type="primary", use_container_width=True):
+                            conn_ed, _ = get_db_connection(db_url)
+                            if conn_ed:
+                                cur_ed = conn_ed.cursor()
+                                try:
+                                    from statmonitor.real_bankroll import update_real_bet_params
+                                    ok_ed, msg_ed = update_real_bet_params(
+                                        cur_ed, conn_ed,
+                                        bet_id=selected_bet_id,
+                                        new_odds=new_real_odds,
+                                        new_stake=new_real_stake
+                                    )
+                                    if ok_ed:
+                                        st.toast(f"✅ {msg_ed}", icon="💾")
+                                        st.rerun()
+                                    else:
+                                        st.error(f"❌ {msg_ed}")
+                                finally:
+                                    cur_ed.close()
+                                    conn_ed.close()
             else:
                 st.info("ℹ️ Немає активних ставок у реальному банку. Відмітьте ставки прапорцем 🟢 Real на вкладці «📊 Paper Bank (Теорія)» та натисніть «⚡ Перенести в Реальні ставки & Розрахувати банк».")
 

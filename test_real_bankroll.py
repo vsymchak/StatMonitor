@@ -24,8 +24,15 @@ class MockCursor:
         return self.fetchone_data
 
 class MockConn:
-    def commit(self): pass
-    def rollback(self): pass
+    def __init__(self):
+        self.committed = False
+        self.rolled_back = False
+
+    def commit(self):
+        self.committed = True
+
+    def rollback(self):
+        self.rolled_back = True
 
 class TestRealBankroll(unittest.TestCase):
     def test_ensure_real_bankroll_tables(self):
@@ -186,6 +193,35 @@ class TestRealBankroll(unittest.TestCase):
         ok, msg = settle_real_bet_in_ledger(cur, conn, 42, "WON", 450.0)
         self.assertFalse(ok)
         self.assertIn("вже зафіксовано в леджері", msg)
+
+    def test_update_real_bet_params(self):
+        from statmonitor.real_bankroll import update_real_bet_params
+        cur = MockCursor(fetchone_data=(66, "Carlos Alcaraz - Flavio Cobolli", "Ф2 (+4.5)", 2.05, 185.0, 2.05, 185.0, "PENDING", True, 1.98))
+        conn = MockConn()
+        ok, msg = update_real_bet_params(cur, conn, 66, new_odds=2.09, new_stake=90.0)
+        self.assertTrue(ok)
+        self.assertIn("2.09", msg)
+        self.assertIn("90", msg)
+        self.assertTrue(conn.committed)
+
+    def test_toggle_real_bet_calculates_from_real_balance(self):
+        # Якщо real_stake не передано, ставка має розраховуватись від real_bankroll_ledger (наприклад 3000 ₴)
+        cur = MockCursor()
+        def mock_fetchone():
+            if len(cur.queries) == 1:
+                return (66, "Carlos Alcaraz - Flavio Cobolli", 2.09, 185.0) # orig_stake з Paper 10000 = 185
+            elif len(cur.queries) == 2:
+                return (3000.0,) # real_balance з леджера
+            return None
+        cur.fetchone = mock_fetchone
+        conn = MockConn()
+
+        ok, msg = toggle_real_bet(cur, conn, 66, is_real=True, real_stake=None)
+        self.assertTrue(ok)
+        # Перевіряємо що записано розраховану ставку від реального банку (наприклад 30 ₴ для базових без drop/conf або 90 ₴ при сигналі), а не 185 ₴ від Paper!
+        q, params = cur.queries[2]
+        self.assertNotEqual(params[1], 185.0)
+        self.assertEqual(params[1], 30.0)
 
 if __name__ == "__main__":
     unittest.main()

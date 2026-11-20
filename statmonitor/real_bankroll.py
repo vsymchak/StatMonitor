@@ -179,6 +179,9 @@ def toggle_real_bet(cur, conn, bet_id, is_real=True, real_stake=None, real_odds=
     """
     Позначає ставку як реальну або повертає її у віртуальний Paper режим.
     Може додатково оновити фактичні коефіцієнт та суму з купона БК.
+    Якщо ставка переноситься в Реальний банк (is_real=True) і сума (real_stake) не задана вручну,
+    вона автоматично розраховується від АКТУАЛЬНОГО БАЛАНСУ РЕАЛЬНОГО БАНКУ (SPEC-34),
+    а не копіюється з Paper банку.
     """
     try:
         cur.execute("SELECT id, match_name, odds, stake_uah FROM paper_bets WHERE id = %s;", (bet_id,))
@@ -192,13 +195,29 @@ def toggle_real_bet(cur, conn, bet_id, is_real=True, real_stake=None, real_odds=
         params = [bool(is_real)]
 
         if is_real:
+            # Визначаємо суму ставки:
+            # 1. Якщо передано вручну - беремо її (округлену до цілих гривень)
             if real_stake is not None and float(real_stake) > 0:
                 updates.append("real_stake_uah = %s")
                 params.append(float(round(float(real_stake))))
             else:
-                updates.append("real_stake_uah = COALESCE(real_stake_uah, %s)")
-                params.append(float(round(float(orig_stake or 0.0))))
+                # 2. Розраховуємо суму від реального балансу
+                from statmonitor.novig import calculate_real_stake
+                cur.execute("SELECT balance_after_uah FROM real_bankroll_ledger ORDER BY created_at DESC, id DESC LIMIT 1;")
+                row_bal = cur.fetchone()
+                real_bal = float(row_bal[0]) if (row_bal and row_bal[0] is not None) else 0.0
 
+                eff_odds = float(real_odds) if (real_odds is not None and float(real_odds) > 1.0) else float(orig_odds or 1.85)
+                if real_bal > 0:
+                    rec_stk, _, _ = calculate_real_stake(eff_odds, real_bal, fraction=0.10)
+                    auto_stake = float(round(rec_stk)) if rec_stk > 0 else 50.0
+                else:
+                    auto_stake = 50.0
+
+                updates.append("real_stake_uah = COALESCE(real_stake_uah, %s)")
+                params.append(auto_stake)
+
+            # Визначаємо коефіцієнт ставки
             if real_odds is not None and float(real_odds) > 1.0:
                 updates.append("real_odds = %s")
                 params.append(float(real_odds))
@@ -229,6 +248,65 @@ def toggle_real_bet(cur, conn, bet_id, is_real=True, real_stake=None, real_odds=
         if conn:
             conn.rollback()
         return False, f"Помилка оновлення статусу ставки: {e}"
+
+
+def update_real_bet_params(cur, conn, bet_id, new_odds=None, new_stake=None):
+    """
+    Коригує коефіцієнт та/або суму реальної ставки в грі (status = 'PENDING').
+    Гарантує округлення суми до цілих гривень без копійок.
+    Повертає: (ok: bool, msg: str)
+    """
+    try:
+        cur.execute("""
+            SELECT id, match_name, pick_label, odds, stake_uah, real_odds, real_stake_uah, status, is_real_bet, walkaway_odds
+            FROM paper_bets
+            WHERE id = %s;
+        """, (bet_id,))
+        row = cur.fetchone()
+        if not row:
+            return False, f"Ставку #{bet_id} не знайдено в базі."
+
+        bid, m_name, pick, p_odds, p_stake, cur_r_odds, cur_r_stake, status, is_real, walkaway = row
+
+        if str(status).upper() != "PENDING":
+            return False, f"Ставка #{bid} вже має статус [{status}], коригування дозволено тільки для нерозрахованих (PENDING) ставок."
+
+        updates = ["is_real_bet = TRUE"]
+        params = []
+        changes = []
+
+        if new_odds is not None:
+            k = float(new_odds)
+            if k <= 1.01:
+                return False, "Коефіцієнт повинен бути більше 1.01."
+            updates.append("real_odds = %s")
+            params.append(k)
+            old_k_disp = float(cur_r_odds or p_odds or 0.0)
+            changes.append(f"Коефіцієнт: {old_k_disp:.2f} ➔ {k:.2f}")
+
+        if new_stake is not None:
+            stk = float(round(float(new_stake)))
+            if stk <= 0:
+                return False, "Сума ставки повинна бути більшою за 0 грн."
+            updates.append("real_stake_uah = %s")
+            params.append(stk)
+            old_stk_disp = float(cur_r_stake or 0.0)
+            changes.append(f"Сума: {old_stk_disp:,.0f} ₴ ➔ {stk:,.0f} ₴")
+
+        if not params:
+            return False, "Не вказано нових параметрів для оновлення."
+
+        params.append(bet_id)
+        sql = f"UPDATE paper_bets SET {', '.join(updates)} WHERE id = %s;"
+        cur.execute(sql, tuple(params))
+        conn.commit()
+
+        change_summary = "; ".join(changes)
+        return True, f"Реальну ставку #{bid} ({m_name}) успішно оновлено! [{change_summary}]."
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        return False, f"Помилка коригування реальної ставки: {e}"
 
 
 def settle_real_bet_in_ledger(cur, conn, bet_id, status, profit_uah, stake_uah=None):

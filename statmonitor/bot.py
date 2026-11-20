@@ -433,6 +433,31 @@ def handle_command(cmd_text, chat_id, cur, conn):
             return resp, DEFAULT_KEYBOARD
         else:
             return f"❌ <b>Помилка оновлення:</b>\n{esc(msg)}", DEFAULT_KEYBOARD
+    elif cmd in ("edit_real", "editreal", "real_edit"):
+        if len(parts) < 3:
+            return (
+                "ℹ️ <b>Формат коригування реальної ставки:</b>\n"
+                "<code>/edit_real &lt;ID&gt; &lt;коеф&gt; [сума_грн]</code>\n\n"
+                "<i>Приклади:</i>\n"
+                "  • <code>/edit_real 66 2.09 90</code> — змінити коефіцієнт на 2.09 і суму на 90 ₴\n"
+                "  • <code>/edit_real 66 2.09</code> — змінити тільки коефіцієнт\n",
+                DEFAULT_KEYBOARD,
+            )
+        try:
+            bet_id = int(parts[1])
+            new_k = float(parts[2].replace(",", "."))
+            new_stk = float(parts[3].replace(",", ".")) if len(parts) > 3 else None
+        except ValueError:
+            return (
+                "⚠️ <b>Помилка аргументів:</b> ID і сума мають бути цілими числами, а коефіцієнт — десятковим числом (наприклад: <code>/edit_real 66 2.09 90</code>).",
+                DEFAULT_KEYBOARD,
+            )
+        from statmonitor.real_bankroll import update_real_bet_params
+        ok, msg = update_real_bet_params(cur, conn, bet_id=bet_id, new_odds=new_k, new_stake=new_stk)
+        if ok:
+            return f"✅ <b>{esc(msg)}</b>", DEFAULT_KEYBOARD
+        else:
+            return f"❌ <b>{esc(msg)}</b>", DEFAULT_KEYBOARD
     elif cmd in ("settle", "settle_bet", "fix_bet"):
         if len(parts) < 2:
             return (
