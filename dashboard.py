@@ -276,6 +276,19 @@ def fetch_data(db_url):
         except Exception as e_rnd:
             pass
 
+        # SPEC-Fix: Оновлення фори та коефіцієнта для матчу Daniil Medvedev - Frances Tiafoe (Ф2 (+2) за коеф. 2.25)
+        try:
+            cur.execute("""
+                UPDATE paper_bets
+                SET pick_label = 'Ф2 (+2)',
+                    odds = 2.25,
+                    real_odds = 2.25
+                WHERE status = 'PENDING'
+                  AND ((match_name ILIKE '%Medvedev%' AND match_name ILIKE '%Tiafoe%') OR id = 76);
+            """)
+        except Exception as e_med:
+            print("Auto-fix Medvedev-Tiafoe err:", e_med)
+
         # 1. Ставки (Paper Bets)
         try:
             bets_data = query_to_dataframe(cur, "SELECT * FROM paper_bets ORDER BY commence_time DESC LIMIT 150;")
@@ -1965,7 +1978,7 @@ def run_streamlit_app():
                 st.dataframe(ro_disp[cols_pending_show], use_container_width=True, hide_index=True)
 
             if is_admin:
-                with st.expander("✏️ Редагування коефіцієнта (Edit Odds для активної ставки)", expanded=False):
+                with st.expander("✏️ Редагування маркету та коефіцієнта (Edit Pick & Odds для активної ставки)", expanded=False):
                     bet_options = {}
                     for _, r_bet in pending_df.iterrows():
                         c_time_str = format_kyiv_time(r_bet.get('commence_time'))
@@ -1978,21 +1991,25 @@ def run_streamlit_app():
 
                     sel_lbl = st.selectbox("Оберіть ставку:", list(bet_options.keys()), key="sel_pending_bet_v3")
                     sel_id = bet_options[sel_lbl]
-                    curr_odds_val = float(pending_df[pending_df["id"] == sel_id]["odds"].iloc[0])
+                    cur_row_ed = pending_df[pending_df["id"] == sel_id].iloc[0]
+                    curr_odds_val = float(cur_row_ed.get("odds", 2.0))
+                    curr_pick_val = str(cur_row_ed.get("pick_label", ""))
 
-                    col_ed1, col_ed2 = st.columns([3, 1])
+                    col_ed1, col_ed2, col_ed3 = st.columns([2.5, 2.5, 2])
                     with col_ed1:
-                        new_k_input = st.number_input("Новий коефіцієнт:", min_value=1.01, max_value=50.00, value=curr_odds_val, step=0.01, format="%.2f", key="num_new_odds_v3")
+                        new_pick_input = st.text_input("Маркет / Фора:", value=curr_pick_val, key="txt_new_pick_v3")
                     with col_ed2:
+                        new_k_input = st.number_input("Новий коефіцієнт:", min_value=1.01, max_value=50.00, value=curr_odds_val, step=0.01, format="%.2f", key="num_new_odds_v3")
+                    with col_ed3:
                         st.write("")
                         st.write("")
-                        if st.button("💾 Оновити коефіцієнт", key="btn_save_odds_v3", use_container_width=True):
+                        if st.button("💾 Зберегти зміни", key="btn_save_odds_v3", use_container_width=True):
                             conn_edit, err_conn = get_db_connection(db_url)
                             if conn_edit:
                                 cur_edit = conn_edit.cursor()
                                 try:
                                     from statmonitor.paper_trading import update_pending_bet_odds
-                                    ok, msg, _ = update_pending_bet_odds(cur_edit, conn_edit, sel_id, new_k_input)
+                                    ok, msg, _ = update_pending_bet_odds(cur_edit, conn_edit, sel_id, new_k_input, new_pick=new_pick_input)
                                     if ok:
                                         st.success(f"✅ {msg}")
                                         st.rerun()

@@ -467,6 +467,19 @@ class TestMarketMedianOdds(unittest.TestCase):
         self.assertIn("1.58", msg)
         self.assertIn("58.0", msg)
 
+    def test_update_pending_bet_odds_with_pick_label(self):
+        from statmonitor.paper_trading import update_pending_bet_odds
+        cur = MockCursor(fetchone_data=(76, "Daniil Medvedev - Frances Tiafoe", "Ф2 (+1.5)", 2.48, 108.28, "PENDING"))
+        conn = MockConn()
+        ok, msg, old_k = update_pending_bet_odds(cur, conn, 76, 2.25, new_pick="Ф2 (+2)")
+        self.assertTrue(ok)
+        self.assertEqual(old_k, 2.48)
+        self.assertIn("2.25", msg)
+        self.assertIn("Ф2 (+2)", msg)
+        last_q, last_params = cur.queries[-1]
+        self.assertIn("pick_label = %s", last_q)
+        self.assertIn("Ф2 (+2)", last_params)
+
     def test_update_pending_bet_odds_invalid_range(self):
         from statmonitor.paper_trading import update_pending_bet_odds
         cur = MockCursor()

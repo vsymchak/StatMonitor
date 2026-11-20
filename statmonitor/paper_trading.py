@@ -774,9 +774,9 @@ def eval_outcome(pick_lbl, match_name, h_sc, a_sc):
         return "WON" if h_sc == a_sc else "LOST"
     return None
 
-def update_pending_bet_odds(cur=None, conn=None, bet_id=None, new_odds=None):
+def update_pending_bet_odds(cur=None, conn=None, bet_id=None, new_odds=None, new_pick=None):
     """
-    Оновлює коефіцієнт для нерозрахованої ставки (status = 'PENDING').
+    Оновлює коефіцієнт та маркет/фору для нерозрахованої ставки (status = 'PENDING').
     Повертає кортеж (success: bool, message: str, old_odds: float | None).
     """
     should_close = False
@@ -813,15 +813,27 @@ def update_pending_bet_odds(cur=None, conn=None, bet_id=None, new_odds=None):
         if st != "PENDING":
             return False, f"Неможливо змінити коефіцієнт: ставка #{bid} ({m_name}) вже має статус '{st}'. Редагування дозволено тільки для нерозрахованих ставок (PENDING).", old_k
 
-        cur.execute("""
-            UPDATE paper_bets
-            SET odds = %s
-            WHERE id = %s AND status = 'PENDING';
-        """, (k, bid))
+        if new_pick and str(new_pick).strip():
+            clean_pk = str(new_pick).strip()
+            cur.execute("""
+                UPDATE paper_bets
+                SET odds = %s,
+                    pick_label = %s,
+                    real_odds = COALESCE(real_odds, %s)
+                WHERE id = %s AND status = 'PENDING';
+            """, (k, clean_pk, k, bid))
+        else:
+            clean_pk = pk
+            cur.execute("""
+                UPDATE paper_bets
+                SET odds = %s,
+                    real_odds = COALESCE(real_odds, %s)
+                WHERE id = %s AND status = 'PENDING';
+            """, (k, k, bid))
         conn.commit()
 
         pot_profit = round(float(stake) * (k - 1.0), 2)
-        msg = f"Коефіцієнт для ставки #{bid} ({m_name} | {pk}) успішно змінено з {old_k:.2f} на {k:.2f}. Новий потенційний профіт: +{pot_profit:.2f} грн."
+        msg = f"Ставку #{bid} ({m_name} | {clean_pk}) оновлено: коефіцієнт {old_k:.2f} -> {k:.2f}. Новий потенційний профіт: +{pot_profit:.2f} грн."
         return True, msg, old_k
     except Exception as e:
         if conn:
@@ -914,6 +926,15 @@ def settle_and_report(cur, conn):
             WHERE id = 56 
               AND status = 'LOST' 
               AND (match_score LIKE '%7%6%' OR match_name ILIKE '%Shelton%');
+        """)
+        # SPEC-Fix: Оновлення фори та коефіцієнта для матчу Daniil Medvedev - Frances Tiafoe (Ф2 (+2) за коеф. 2.25)
+        cur.execute("""
+            UPDATE paper_bets
+            SET pick_label = 'Ф2 (+2)',
+                odds = 2.25,
+                real_odds = 2.25
+            WHERE status = 'PENDING'
+              AND ((match_name ILIKE '%Medvedev%' AND match_name ILIKE '%Tiafoe%') OR id = 76);
         """)
         # SPEC-Real-Rounding: Округлення копійок у реальних ставках до цілих гривень
         cur.execute("""
