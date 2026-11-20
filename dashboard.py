@@ -463,18 +463,40 @@ def run_streamlit_app():
         tag_bg = "#233044"
         tag_border = "#334155"
 
+        expander_summary_bg = "#161F30"
+        expander_hover_bg = "#1E293B"
+        expander_hover_color = "#60A5FA"
+
         dark_extra_css = """
             h1, h2, h3, h4, h5, h6 { color: #F8FAFC !important; }
-            div[data-testid="stExpander"] { background-color: #161F30 !important; border: 1px solid #233044 !important; border-radius: 10px !important; }
-            div[data-testid="stExpander"] details summary { color: #F8FAFC !important; }
-            div[data-testid="stExpander"] details summary:hover { color: #60A5FA !important; }
-            [data-testid="stDataFrame"], [data-testid="stDataEditor"] {
+            [data-testid="stDataFrame"], [data-testid="stDataEditor"],
+            div[data-testid="stDataFrame"], div[data-testid="stDataEditor"] {
                 --gdg-bg-cell: #161F30 !important;
+                --gdg-bg-cell-medium: #1A2438 !important;
                 --gdg-text-dark: #F8FAFC !important;
-                --gdg-bg-header: #0F172A !important;
                 --gdg-text-medium: #94A3B8 !important;
+                --gdg-text-light: #64748B !important;
+                --gdg-bg-header: #0F172A !important;
+                --gdg-bg-header-has-focus: #1E293B !important;
                 --gdg-bg-header-hovered: #233044 !important;
+                --gdg-text-header: #F8FAFC !important;
+                --gdg-text-header-selected: #60A5FA !important;
                 --gdg-border-color: #233044 !important;
+                --gdg-accent-color: #2563EB !important;
+                --gdg-accent-light: rgba(37, 99, 235, 0.2) !important;
+            }
+            div[data-testid="stElementToolbar"] {
+                background-color: #161F30 !important;
+                border: 1px solid #233044 !important;
+                border-radius: 8px !important;
+                color: #F8FAFC !important;
+            }
+            div[data-testid="stElementToolbar"] button {
+                color: #F8FAFC !important;
+            }
+            div[data-testid="stElementToolbar"] button:hover {
+                color: #60A5FA !important;
+                background-color: #1E293B !important;
             }
             div[data-testid="stAlert"] {
                 background-color: #161F30 !important;
@@ -512,15 +534,23 @@ def run_streamlit_app():
         tag_bg = "#F1F5F9"
         tag_border = "#CBD5E1"
 
+        expander_summary_bg = "#FFFFFF"
+        expander_hover_bg = "#F8FAFC"
+        expander_hover_color = "#2563EB"
+
         dark_extra_css = """
-            div[data-testid="stExpander"] { background-color: #FFFFFF !important; border: 1px solid #E2E8F0 !important; border-radius: 10px !important; }
-            div[data-testid="stExpander"] details summary { color: #0F172A !important; }
-            [data-testid="stDataFrame"], [data-testid="stDataEditor"] {
+            [data-testid="stDataFrame"], [data-testid="stDataEditor"],
+            div[data-testid="stDataFrame"], div[data-testid="stDataEditor"] {
                 --gdg-bg-cell: #FFFFFF !important;
+                --gdg-bg-cell-medium: #F8FAFC !important;
                 --gdg-text-dark: #0F172A !important;
-                --gdg-bg-header: #F8FAFC !important;
                 --gdg-text-medium: #64748B !important;
+                --gdg-text-light: #94A3B8 !important;
+                --gdg-bg-header: #F8FAFC !important;
+                --gdg-bg-header-has-focus: #F1F5F9 !important;
                 --gdg-bg-header-hovered: #F1F5F9 !important;
+                --gdg-text-header: #0F172A !important;
+                --gdg-text-header-selected: #2563EB !important;
                 --gdg-border-color: #E2E8F0 !important;
             }
         """
@@ -808,19 +838,104 @@ def run_streamlit_app():
                 color: __TEXT_PRIMARY__ !important;
             }
 
-            /* Expander заголовок відступи */
-            div[data-testid="stExpander"] details summary {
-                font-size: 13px !important;
-                font-weight: 600 !important;
+            /* ======================================================== */
+            /* УНІВЕРСАЛЬНИЙ СТИЛЬ EXPANDER (ШАПКА ТА КОНТЕЙНЕР)        */
+            /* ======================================================== */
+            div[data-testid="stExpander"],
+            [data-testid="stExpander"] {
+                background-color: __BG_CARD__ !important;
+                border: 1px solid __BORDER_CARD__ !important;
+                border-radius: 10px !important;
+                margin-bottom: 12px !important;
+                overflow: hidden !important;
+            }
+
+            div[data-testid="stExpander"] details,
+            [data-testid="stExpander"] details {
+                background-color: __BG_CARD__ !important;
+                border-radius: 10px !important;
+                border: none !important;
+            }
+
+            /* ШАПКА ЕКСПАНДЕРА (SUMMARY / HEADER) */
+            div[data-testid="stExpander"] summary,
+            div[data-testid="stExpander"] details summary,
+            div[data-testid="stExpander"] [data-testid="stExpanderSummary"],
+            [data-testid="stExpander"] summary,
+            [data-testid="stExpander"] details summary,
+            [data-testid="stExpander"] [data-testid="stExpanderSummary"] {
+                background-color: __EXPANDER_SUMMARY_BG__ !important;
                 color: __TEXT_PRIMARY__ !important;
+                border: none !important;
+                border-radius: 9px !important;
+                padding: 10px 14px !important;
+                font-size: 13.5px !important;
+                font-weight: 600 !important;
                 display: flex !important;
                 align-items: center !important;
                 gap: 8px !important;
+                cursor: pointer !important;
+                transition: background-color 0.15s ease, color 0.15s ease !important;
+                list-style: none !important;
             }
+
+            div[data-testid="stExpander"] summary::-webkit-details-marker,
+            [data-testid="stExpander"] summary::-webkit-details-marker {
+                display: none !important;
+            }
+
+            /* ШАПКА ХОВЕР */
+            div[data-testid="stExpander"] summary:hover,
+            div[data-testid="stExpander"] details summary:hover,
+            div[data-testid="stExpander"] [data-testid="stExpanderSummary"]:hover,
+            [data-testid="stExpander"] summary:hover,
+            [data-testid="stExpander"] details summary:hover,
+            [data-testid="stExpander"] [data-testid="stExpanderSummary"]:hover {
+                background-color: __EXPANDER_HOVER_BG__ !important;
+                color: __EXPANDER_HOVER_COLOR__ !important;
+            }
+
+            /* ТЕКСТ ВСЕРЕДИНІ ШАПКИ */
+            div[data-testid="stExpander"] summary *,
+            div[data-testid="stExpander"] details summary *,
+            div[data-testid="stExpander"] [data-testid="stExpanderSummary"] *,
+            [data-testid="stExpander"] summary *,
+            [data-testid="stExpander"] details summary *,
+            [data-testid="stExpander"] [data-testid="stExpanderSummary"] * {
+                color: inherit !important;
+                font-size: 13.5px !important;
+                font-weight: 600 !important;
+            }
+
+            /* ІКОНКА-СТРІЛКА ШАПКИ (TOGGLE ICON) */
+            div[data-testid="stExpander"] summary svg,
             div[data-testid="stExpander"] details summary svg,
-            div[data-testid="stExpander"] details summary [data-testid="stExpanderToggleIcon"] {
+            div[data-testid="stExpander"] [data-testid="stExpanderToggleIcon"],
+            [data-testid="stExpander"] summary svg,
+            [data-testid="stExpander"] details summary svg,
+            [data-testid="stExpander"] [data-testid="stExpanderToggleIcon"] {
+                color: inherit !important;
+                fill: currentColor !important;
                 margin-right: 6px !important;
                 flex-shrink: 0 !important;
+            }
+
+            /* ЛІНІЯ РОЗДІЛЕННЯ КОЛИ ВІДКРИТО */
+            div[data-testid="stExpander"] details[open] summary,
+            div[data-testid="stExpander"] details[open] > summary,
+            [data-testid="stExpander"] details[open] summary,
+            [data-testid="stExpander"] details[open] > summary {
+                border-bottom: 1px solid __BORDER_CARD__ !important;
+                border-bottom-left-radius: 0 !important;
+                border-bottom-right-radius: 0 !important;
+            }
+
+            /* ВМІСТ ЕКСПАНДЕРА (DETAILS BODY) */
+            div[data-testid="stExpander"] [data-testid="stExpanderDetails"],
+            [data-testid="stExpander"] [data-testid="stExpanderDetails"] {
+                background-color: __BG_CARD__ !important;
+                color: __TEXT_PRIMARY__ !important;
+                border-radius: 0 0 10px 10px !important;
             }
 
             __DARK_EXTRA_CSS__
@@ -849,6 +964,9 @@ def run_streamlit_app():
         .replace("__MENU_HOVER__", menu_hover)
         .replace("__TAG_BG__", tag_bg)
         .replace("__TAG_BORDER__", tag_border)
+        .replace("__EXPANDER_SUMMARY_BG__", expander_summary_bg)
+        .replace("__EXPANDER_HOVER_BG__", expander_hover_bg)
+        .replace("__EXPANDER_HOVER_COLOR__", expander_hover_color)
         .replace("__DARK_EXTRA_CSS__", dark_extra_css)
     )
     st.markdown(final_css, unsafe_allow_html=True)
@@ -1388,15 +1506,18 @@ def run_streamlit_app():
                         growth_pct = ((last_balance - INITIAL_BANKROLL) / INITIAL_BANKROLL) * 100.0
                         growth_badge = f"+{growth_pct:.1f}% від старту" if growth_pct >= 0 else f"{growth_pct:.1f}% від старту"
 
+                        chart_hdr_color = '#F8FAFC' if is_dark else '#1E293B'
+                        chart_badge_bg = 'rgba(37, 99, 235, 0.2)' if is_dark else '#EFF6FF'
+                        chart_badge_clr = '#60A5FA' if is_dark else '#2563EB'
                         st.markdown(f"""
                             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
                                 <div style="display: flex; align-items: center; gap: 8px;">
-                                    <span style="font-size: 13px; font-weight: 700; color: #1E293B;">📈 Динаміка капіталу (Paper Bank Balance Growth)</span>
-                                    <span style="font-size: 10.5px; font-weight: 600; background: #EFF6FF; color: #2563EB; padding: 2px 7px; border-radius: 6px;">{growth_badge}</span>
+                                    <span style="font-size: 13px; font-weight: 700; color: {chart_hdr_color};">📈 Динаміка капіталу (Paper Bank Balance Growth)</span>
+                                    <span style="font-size: 10.5px; font-weight: 600; background: {chart_badge_bg}; color: {chart_badge_clr}; padding: 2px 7px; border-radius: 6px;">{growth_badge}</span>
                                 </div>
-                                <div style="display: flex; align-items: center; gap: 12px; font-size: 11px; color: #64748B;">
+                                <div style="display: flex; align-items: center; gap: 12px; font-size: 11px; color: {'#94A3B8' if is_dark else '#64748B'};">
                                     <span style="display: flex; align-items: center; gap: 4px;"><span style="width: 7px; height: 7px; border-radius: 50%; background: #2563EB; display: inline-block;"></span> Баланс (грн)</span>
-                                    <span style="display: flex; align-items: center; gap: 4px;"><span style="width: 14px; height: 0; border-top: 1.5px dashed #94A3B8; display: inline-block;"></span> Старт: 10,000 ₴</span>
+                                    <span style="display: flex; align-items: center; gap: 4px;"><span style="width: 14px; height: 0; border-top: 1.5px dashed {'#64748B' if is_dark else '#94A3B8'}; display: inline-block;"></span> Старт: 10,000 ₴</span>
                                 </div>
                             </div>
                         """, unsafe_allow_html=True)
@@ -1744,11 +1865,14 @@ def run_streamlit_app():
             except Exception:
                 pending_df = pending_df.sort_values(by="commence_time", ascending=True)
 
+        p_hdr_color = '#F8FAFC' if is_dark else '#1E293B'
+        p_badge_bg = 'rgba(245, 158, 11, 0.2)' if is_dark else '#FEF3C7'
+        p_badge_color = '#FCD34D' if is_dark else '#92400E'
         st.markdown(f"""
             <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 14px; margin-bottom: 8px;">
                 <div style="display: flex; align-items: center; gap: 8px;">
-                    <span style="font-size: 14px; font-weight: 700; color: #1E293B;">⏳ Активні ставки в грі (Pending)</span>
-                    <span style="background: #FEF3C7; color: #92400E; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 6px;">{len(pending_df)}</span>
+                    <span style="font-size: 14px; font-weight: 700; color: {p_hdr_color};">⏳ Активні ставки в грі (Pending)</span>
+                    <span style="background: {p_badge_bg}; color: {p_badge_color}; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 6px;">{len(pending_df)}</span>
                 </div>
             </div>
         """, unsafe_allow_html=True)
@@ -1935,8 +2059,9 @@ def run_streamlit_app():
                                             sum_calc_stakes += user_stk_int
 
                                     tot_pct = round((sum_calc_stakes / real_bal) * 100.0, 1) if real_bal > 0 else 0.0
+                                    exp_txt_clr = '#F8FAFC' if is_dark else '#1E293B'
                                     st.markdown(f"""
-                                        <div style="font-size: 12.5px; margin: 8px 0; color: #1E293B;">
+                                        <div style="font-size: 12.5px; margin: 8px 0; color: {exp_txt_clr};">
                                             <b>Загальна експозиція:</b> <code>{sum_calc_stakes:,.0f} ₴</code> 
                                             ({tot_pct}% від реального капіталу)
                                         </div>
@@ -2186,11 +2311,13 @@ def run_streamlit_app():
     # ---------------- ВКЛАДКА 2: РЕАЛЬНИЙ БАНК (REAL MONEY - ADMIN ONLY) ----------------
     if is_admin and tab_real is not None:
         with tab_real:
-            st.markdown("""
+            real_title_clr = '#4ADE80' if is_dark else '#166534'
+            real_sub_clr = '#94A3B8' if is_dark else '#64748B'
+            st.markdown(f"""
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                     <div>
-                        <h3 style="margin: 0; padding: 0; color: #166534; font-size: 20px; font-weight: 700;">🟢 Реальний банк (Real Money Trading)</h3>
-                        <div style="font-size: 12.5px; color: #64748B; margin-top: 2px;">
+                        <h3 style="margin: 0; padding: 0; color: {real_title_clr}; font-size: 20px; font-weight: 700;">🟢 Реальний банк (Real Money Trading)</h3>
+                        <div style="font-size: 12.5px; color: {real_sub_clr}; margin-top: 2px;">
                             Автономний облік реального капіталу: депозити, фактичні ставки з No-Vig Kelly стейкінгом, верифікація через Gemini Vision OCR та розрахунок результатів.
                         </div>
                     </div>
@@ -2793,13 +2920,25 @@ def run_streamlit_app():
                         worst_title = "Баланс дисциплін"
                         worst_txt = "Усі задіяні види спорту показують позитивну динаміку прибутку (+EV). Дисперсія згладжується фракційним критерієм Келлі."
 
+        ai_card_bg = "#161F30" if is_dark else "#FFFFFF"
+        ai_card_border = "#233044" if is_dark else "#E2E8F0"
+        ai_title_clr = "#F8FAFC" if is_dark else "#0F172A"
+        ai_sub_clr = "#94A3B8" if is_dark else "#64748B"
+        ai_body_clr = "#CBD5E1" if is_dark else "#475569"
+        ai_info_bg = "#1E293B" if is_dark else "#F8FAFC"
+        ai_info_border = "#334155" if is_dark else "#E2E8F0"
+        ai_info_clr = "#F8FAFC" if is_dark else "#334155"
+        ai_tip_bg = "rgba(37, 99, 235, 0.15)" if is_dark else "#EFF6FF"
+        ai_tip_border = "rgba(37, 99, 235, 0.3)" if is_dark else "#BFDBFE"
+        ai_tip_clr = "#93C5FD" if is_dark else "#1E40AF"
+
         with col_ai_left:
             st.markdown(f"""
-                <div style="background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; padding: 14px; margin-bottom: 14px;">
+                <div style="background: {ai_card_bg}; border: 1px solid {ai_card_border}; border-radius: 12px; padding: 14px; margin-bottom: 14px;">
                     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
                         <div style="display: flex; align-items: center; gap: 8px;">
                             <span style="font-size: 18px;">🧠</span>
-                            <span style="font-size: 14px; font-weight: 700; color: #0F172A;">Gemini 2.5 Flash — Автоматичний аудит стратегії</span>
+                            <span style="font-size: 14px; font-weight: 700; color: {ai_title_clr};">Gemini 2.5 Flash — Автоматичний аудит стратегії</span>
                         </div>
                         <span style="font-size: 11px; font-weight: 600; background: #EEF2FF; color: #4F46E5; padding: 2px 8px; border-radius: 9999px;">Free Tier Optimized • 1,500 RPD</span>
                     </div>
@@ -2812,7 +2951,7 @@ def run_streamlit_app():
                             <b>⚠️ Зона уваги: {worst_title}</b><br>
                             {worst_txt}
                         </div>
-                        <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 10px; color: #334155;">
+                        <div style="background: {ai_info_bg}; border: 1px solid {ai_info_border}; border-radius: 8px; padding: 10px; color: {ai_info_clr};">
                             <b>📊 Ризик-менеджмент (Дробовий Критерій Келлі)</b><br>
                             Максимальне просідання контролюється динамічною часткою банку (1.0% — 3.8%) залежно від коефіцієнта та сили сигналу.
                         </div>
@@ -2823,16 +2962,16 @@ def run_streamlit_app():
         with col_ai_right:
             cur_bank_val = metrics.get('current_bank', 10000) if isinstance(metrics, dict) else 10000
             st.markdown(f"""
-                <div style="background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; padding: 14px; margin-bottom: 14px;">
+                <div style="background: {ai_card_bg}; border: 1px solid {ai_card_border}; border-radius: 12px; padding: 14px; margin-bottom: 14px;">
                     <div style="display: flex; align-items: gap: 8px; margin-bottom: 10px;">
                         <span style="font-size: 16px;">🎯</span>
-                        <span style="font-size: 13px; font-weight: 700; color: #0F172A;">Топ-сигнали та налаштування банку</span>
+                        <span style="font-size: 13px; font-weight: 700; color: {ai_title_clr};">Топ-сигнали та налаштування банку</span>
                     </div>
-                    <div style="background: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 8px; padding: 10px; font-size: 12px; color: #1E40AF; margin-bottom: 10px;">
+                    <div style="background: {ai_tip_bg}; border: 1px solid {ai_tip_border}; border-radius: 8px; padding: 10px; font-size: 12px; color: {ai_tip_clr}; margin-bottom: 10px;">
                         💡 <b>Paper Bank:</b> {cur_bank_val:,.0f} ₴ баланс (старт: 10,000 ₴).<br>
                         Розмір ставки генерується за формулою Келлі (Quarter Kelly 0.25, діапазон 1.0% — 3.8%).
                     </div>
-                    <div style="font-size: 11.5px; color: #64748B;">
+                    <div style="font-size: 11.5px; color: {ai_sub_clr};">
                         ℹ️ Згідно зі SPEC-30, детальні аналітичні звіти зберігаються в базі даних та доступні на цьому дашборді без перевантаження Telegram.
                     </div>
                 </div>
@@ -2844,16 +2983,16 @@ def run_streamlit_app():
             cf_audit = calculate_counterfactual_audit(bets_df)
             cal_data = calculate_confidence_calibration(bets_df)
 
-            st.markdown("""
-                <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 12px; padding: 14px; margin-top: 6px; margin-bottom: 16px;">
+            st.markdown(f"""
+                <div style="background: {ai_card_bg}; border: 1px solid {ai_card_border}; border-radius: 12px; padding: 14px; margin-top: 6px; margin-bottom: 16px;">
                     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
                         <div style="display: flex; align-items: center; gap: 8px;">
                             <span style="font-size: 18px;">🔬</span>
-                            <span style="font-size: 14.5px; font-weight: 700; color: #0F172A;">Counterfactual AI Audit & A/B Бектест (SPEC-35)</span>
+                            <span style="font-size: 14.5px; font-weight: 700; color: {ai_title_clr};">Counterfactual AI Audit & A/B Бектест (SPEC-35)</span>
                         </div>
                         <span style="font-size: 11px; font-weight: 600; background: #FEF3C7; color: #92400E; padding: 2px 8px; border-radius: 9999px;">AI Value-Add & Calibration</span>
                     </div>
-                    <div style="font-size: 12px; color: #475569; margin-bottom: 12px;">
+                    <div style="font-size: 12px; color: {ai_body_clr}; margin-bottom: 12px;">
                         Оцінка доданої вартості ШІ: порівняння результатів допущених ставок (Confidence ≥ 7) проти відсіяних Shadow-ставок (Confidence < 7 або Skip).
                     </div>
             """, unsafe_allow_html=True)
@@ -3152,11 +3291,13 @@ def run_streamlit_app():
     # ---------------- ВКЛАДКА 4: ПОРОГИ ЛІГ (ADMIN - SPEC-25) ----------------
     if is_admin and tab_thresholds is not None:
         with tab_thresholds:
-            st.markdown("""
+            lg_title_clr = '#F8FAFC' if is_dark else '#1E293B'
+            lg_sub_clr = '#94A3B8' if is_dark else '#64748B'
+            st.markdown(f"""
                 <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
                     <div>
-                        <span style="font-size: 16px; font-weight: 700; color: #1E293B;">🎛️ Керування лігами та Smart Rate-Limiter (SPEC-25)</span>
-                        <div style="font-size: 12px; color: #64748B; margin-top: 2px;">
+                        <span style="font-size: 16px; font-weight: 700; color: {lg_title_clr};">🎛️ Керування лігами та Smart Rate-Limiter (SPEC-25)</span>
+                        <div style="font-size: 12px; color: {lg_sub_clr}; margin-top: 2px;">
                             Увімкнення та вимкнення чемпіонатів за видами спорту. Зняття прапорця повністю виключає лігу з опитування The Odds API, зберігаючи квоту запитів.
                         </div>
                     </div>
