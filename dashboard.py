@@ -1770,20 +1770,17 @@ def run_streamlit_app():
                 cols_pending_show = [c for c in ["ID", "Час", "Турнір", "Подія", "Маркет", "Коеф.", "Поріг (Walkaway)", "ШІ Сигнал", "% банку (Келлі)", "Сума (Paper)", "Результат"] if c in p_disp.columns]
 
             if is_admin and hasattr(st, "data_editor"):
-                # Перевіряємо чи є вже активні ставки на реальні гроші (SPEC-34 & User Rule: заборона вибору Real при наявній ставці)
+                # Перевіряємо які ставки вже зафіксовані як реальні (SPEC-34)
                 active_real_df = pending_df[pending_df["is_real_bet"] == True]
-                has_active_real = not active_real_df.empty
+                already_real_ids = set(active_real_df["id"].tolist()) if not active_real_df.empty else set()
 
-                if has_active_real:
-                    act_r = active_real_df.iloc[0]
-                    act_id = act_r["id"]
-                    act_m = act_r.get("match_name", "")
-                    act_s = float(act_r.get("real_stake_uah") or act_r.get("stake_uah") or 0.0)
-                    st.warning(f"🔒 **Вибір прапорця Real заблоковано:** у грі вже є ставка на реальні гроші (**#{act_id} {act_m}** — **{act_s:,.0f} ₴**). Одночасно дозволена тільки одна активна реальна ставка. Наступну можна обрати після розрахунку поточної.")
-                    disabled_cols = list(cols_pending_show)
+                if already_real_ids:
+                    st.caption("ℹ️ *Адміністратор:* відмічайте прапорець у колонці **🟢 Real**, щоб доставити нові події в облік реальних грошей. Рядки, які вже зафіксовані у грі, захищені від випадкової зміни.")
                 else:
                     st.caption("ℹ️ *Адміністратор:* відмічайте прапорець у колонці **🟢 Real**, щоб включити ставку в облік реальних грошей. Всі ставки завжди йдуть у Paper-трейдинг.")
-                    disabled_cols = [c for c in cols_pending_show if c != "🟢 Real"]
+
+                # Дозволяємо редагувати колонку "🟢 Real" для вибору наступних подій
+                disabled_cols = [c for c in cols_pending_show if c != "🟢 Real"]
 
                 edited_p = st.data_editor(
                     p_disp[cols_pending_show],
@@ -1806,11 +1803,17 @@ def run_streamlit_app():
                         if bool(orig_r.get("🟢 Real")) != bool(edit_r.get("🟢 Real")):
                             raw_id = int(str(orig_r.get("ID")).lstrip("#"))
                             new_st = bool(edit_r.get("🟢 Real"))
-                            changed_list.append((raw_id, new_st))
+                            changed_list.append((raw_id, new_st, orig_r))
 
                     if changed_list:
-                        if has_active_real and any(new_st for _, new_st in changed_list):
-                            st.error(f"❌ Заборонено: у грі вже є ставка на реальні гроші (#{act_id} {act_m})! Зачекайте на розрахунок результату.")
+                        # Захист конкретного рядка: якщо рядок вже був зафіксований у реальному банку
+                        blocked_for_already = [
+                            (b_id, r_info) for b_id, b_val, r_info in changed_list
+                            if b_id in already_real_ids
+                        ]
+                        if blocked_for_already:
+                            b_id, r_info = blocked_for_already[0]
+                            st.warning(f"🔒 Рядок #{b_id} ({r_info.get('Подія', '')}) вже зафіксовано в Реальному банку. Його вибір заблоковано від повторної зміни. Коригування доступне у вкладці «🟢 Реальний банк».")
                             st.rerun()
 
                         conn_chg, err_chg = get_db_connection(db_url)
@@ -1818,8 +1821,8 @@ def run_streamlit_app():
                             cur_chg = conn_chg.cursor()
                             try:
                                 from statmonitor.real_bankroll import toggle_real_bet
-                                for b_id, b_val in changed_list:
-                                    ok_t, msg_t = toggle_real_bet(cur_chg, conn_chg, b_id, is_real=b_val, enforce_single_active=True)
+                                for b_id, b_val, _ in changed_list:
+                                    ok_t, msg_t = toggle_real_bet(cur_chg, conn_chg, b_id, is_real=b_val, enforce_single_active=False)
                                     if not ok_t and b_val:
                                         st.error(f"❌ {msg_t}")
                                         st.rerun()
@@ -1833,43 +1836,45 @@ def run_streamlit_app():
                                 conn_chg.close()
 
                 # SPEC-34: Кнопка переносу в Реальний банк та розрахунку ставок
-                already_real_ids = set(active_real_df["id"].tolist()) if has_active_real else set()
                 new_checked_real_ids = [
                     int(str(r.get("ID")).lstrip("#"))
                     for r in (edited_p.to_dict("records") if edited_p is not None else p_disp.to_dict("records"))
                     if bool(r.get("🟢 Real")) and int(str(r.get("ID")).lstrip("#")) not in already_real_ids
                 ]
 
-                # 1. Розтягуємо кнопку на всю ширину таблиці (use_container_width=True)
-                # 2. Якщо вже є реальна ставка - кнопка заблокована з поясненням
-                if has_active_real:
-                    btn_calc_lbl = f"🔒 У грі вже є реальна ставка (#{act_id} {act_m}) — вибір нових заблоковано"
-                    st.button(btn_calc_lbl, key="btn_trigger_real_stake_calc_v1", disabled=True, use_container_width=True)
-                else:
-                    btn_calc_lbl = f"⚡ Перенести в Реальні ставки & Розрахувати банк ({len(new_checked_real_ids)} обрано)"
-                    if st.button(
-                        btn_calc_lbl,
-                        key="btn_trigger_real_stake_calc_v1",
-                        type="primary" if new_checked_real_ids else "secondary",
-                        disabled=(len(new_checked_real_ids) == 0),
-                        use_container_width=True
-                    ):
-                        st.session_state["show_real_stake_calc"] = True
+                # Кнопка розтягнута на всю ширину таблиці та активна для нових обраних подій
+                btn_calc_lbl = f"⚡ Перенести в Реальні ставки & Розрахувати банк ({len(new_checked_real_ids)} обрано)"
+                if st.button(
+                    btn_calc_lbl,
+                    key="btn_trigger_real_stake_calc_v1",
+                    type="primary" if new_checked_real_ids else "secondary",
+                    disabled=(len(new_checked_real_ids) == 0),
+                    use_container_width=True
+                ):
+                    st.session_state["show_real_stake_calc"] = True
 
                 # SPEC-34: Блок розрахунку та фіксації ставок від реального депозиту
                 if st.session_state.get("show_real_stake_calc"):
-                    st.markdown("""
-                        <div style="background: #F0FDF4; border: 1.5px solid #86EFAC; border-radius: 10px; padding: 10px 14px; margin: 10px 0 14px 0;">
-                            <div style="font-weight: 700; color: #166534; font-size: 13.5px; margin-bottom: 2px;">
+                    calc_box_bg = "rgba(16, 185, 129, 0.12)" if is_dark else "#F0FDF4"
+                    calc_box_border = "rgba(16, 185, 129, 0.35)" if is_dark else "#86EFAC"
+                    calc_box_title = "#34D399" if is_dark else "#166534"
+                    calc_box_text = "#94A3B8" if is_dark else "#374151"
+                    st.markdown(f"""
+                        <div style="background: {calc_box_bg}; border: 1.5px solid {calc_box_border}; border-radius: 10px; padding: 10px 14px; margin: 10px 0 14px 0;">
+                            <div style="font-weight: 700; color: {calc_box_title}; font-size: 13.5px; margin-bottom: 2px;">
                                 💼 Розрахунок реальних ставок від фактичного капіталу (SPEC-34)
                             </div>
-                            <div style="font-size: 11.5px; color: #374151;">
+                            <div style="font-size: 11.5px; color: {calc_box_text};">
                                 Розмір ставки для обраних матчів розраховується <b>строго від актуального залишку Реального банку</b> (ультра-консервативний Келлі 0.10 × Kelly, макс. 5% на ставку).
                             </div>
                         </div>
                     """, unsafe_allow_html=True)
 
-                    targets_calc = new_checked_real_ids if new_checked_real_ids else [int(str(r.get("ID")).lstrip("#")) for r in (edited_p.to_dict("records") if edited_p is not None else p_disp.to_dict("records")) if bool(r.get("🟢 Real"))]
+                    targets_calc = new_checked_real_ids if new_checked_real_ids else [
+                        int(str(r.get("ID")).lstrip("#"))
+                        for r in (edited_p.to_dict("records") if edited_p is not None else p_disp.to_dict("records"))
+                        if bool(r.get("🟢 Real")) and int(str(r.get("ID")).lstrip("#")) not in already_real_ids
+                    ]
                     if not targets_calc:
                         st.info("ℹ️ Будь ласка, відмітьте прапорцем **🟢 Real** хоча б одну ставку в таблиці вище для розрахунку.")
                     else:
