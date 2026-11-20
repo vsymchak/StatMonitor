@@ -692,10 +692,11 @@ def prepare_real_stakes_batch(cur, bet_ids, fraction=0.10, min_stake=20.0, max_p
             except Exception:
                 w_val = None
 
-        # Розраховуємо суму від реального балансу
+        # Розраховуємо суму від реального балансу з урахуванням розрахованого Kelly % ставки
         rec_stake, rec_pct, status_msg = calculate_real_stake(
             eff_odds,
             real_balance,
+            kelly_pct=k_pct,
             fraction=fraction,
             min_stake=min_stake,
             max_pct=max_pct

@@ -289,6 +289,29 @@ def fetch_data(db_url):
         except Exception as e_med:
             print("Auto-fix Medvedev-Tiafoe err:", e_med)
 
+        # SPEC-Real-AutoRecalc: Автоматичне коригування застряглих ставок по 30 грн відповідно до їхнього Kelly %
+        try:
+            cur.execute("""
+                SELECT balance_after_uah FROM real_bankroll_ledger ORDER BY created_at DESC, id DESC LIMIT 1;
+            """)
+            r_bal_row = cur.fetchone()
+            cur_r_bal = float(r_bal_row[0]) if (r_bal_row and r_bal_row[0]) else 3000.0
+
+            cur.execute("""
+                SELECT id, odds, kelly_pct 
+                FROM paper_bets 
+                WHERE is_real_bet = TRUE AND status = 'PENDING' AND real_stake_uah = 30.0 AND kelly_pct > 1.0;
+            """)
+            stuck_bets = cur.fetchall()
+            for b_id, b_odds, k_val in stuck_bets:
+                if k_val:
+                    from statmonitor.novig import calculate_real_stake
+                    c_stk, c_pct, _ = calculate_real_stake(b_odds, cur_r_bal, kelly_pct=k_val)
+                    if c_stk > 0:
+                        cur.execute("UPDATE paper_bets SET real_stake_uah = %s WHERE id = %s;", (float(c_stk), b_id))
+        except Exception as e_recalc:
+            print("Auto-recalc real stakes err:", e_recalc)
+
         # 1. Ставки (Paper Bets)
         try:
             bets_data = query_to_dataframe(cur, "SELECT * FROM paper_bets ORDER BY commence_time DESC LIMIT 150;")
@@ -2550,7 +2573,10 @@ def run_streamlit_app():
                 rp_disp["Сума (Real)"] = rp_disp.apply(
                     lambda r: f"{float(r.get('real_stake_uah') or r.get('stake_uah') or 0):,.0f} ₴", axis=1
                 )
-                rp_disp["% банку"] = rp_disp.apply(_get_kelly_badge, axis=1)
+                rp_disp["% банку"] = rp_disp.apply(
+                    lambda r: f"{(float(r.get('real_stake_uah') or 0) / real_bal * 100):.1f}%" if (real_bal > 0 and r.get('real_stake_uah')) else _get_kelly_badge(r),
+                    axis=1
+                )
                 rp_disp["Потенційний виграш"] = rp_disp.apply(
                     lambda r: f"+{(float(r.get('real_stake_uah') or r.get('stake_uah') or 0) * (float(r.get('real_odds') or r.get('odds') or 1) - 1.0)):,.2f} ₴",
                     axis=1

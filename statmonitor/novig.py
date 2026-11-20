@@ -176,6 +176,7 @@ def calculate_real_stake(
     fair_prob=None,
     drop_pct=None,
     confidence=None,
+    kelly_pct=None,
     fraction=0.10,
     min_stake=20.0,
     max_pct=0.05
@@ -190,6 +191,7 @@ def calculate_real_stake(
     - fair_prob: чесна ймовірність без маржі (якщо відома)
     - drop_pct: відсоток просідання лінії (fallback)
     - confidence: оцінка сили сигналу Gemini (1-10)
+    - kelly_pct: розрахований відсоток Келлі для ставки (наприклад 3.4%)
     - fraction: коефіцієнт Келлі для реального банку (за замовчуванням 0.10)
     - min_stake: мінімальна ставка в БК (за замовчуванням 20.0 ₴)
     - max_pct: максимальний ліміт ризику на одну ставку (за замовчуванням 5%)
@@ -206,34 +208,46 @@ def calculate_real_stake(
     except (ValueError, TypeError):
         return 0.0, 0.0, "Некоректні параметри коефіцієнта або балансу."
 
-    b = k - 1.0
-
-    # 1. Якщо передано de-vig fair_prob — рахуємо чистий математичний EV
-    if fair_prob is not None:
+    # 1. Якщо передано вже розраховану частку Келлі ставки (з paper_bets)
+    if kelly_pct is not None:
         try:
-            p = float(fair_prob)
-            if 0.0 < p < 1.0:
-                ev = (k * p) - 1.0
-                if ev <= 0:
-                    return 0.0, 0.0, f"Ставка не має математичної переваги (EV: {ev*100:+.2f}%, p_fair: {p:.3f})."
-                full_kelly = ev / b
+            kp = float(kelly_pct)
+            if kp > 0:
+                k_fraction = (kp / 100.0) if kp > 0.5 else kp
+                clamped_pct = max(0.01, min(float(max_pct), k_fraction))
             else:
-                full_kelly = 0.02 / b
+                clamped_pct = 0.01
         except (ValueError, TypeError):
-            full_kelly = 0.02 / b
+            clamped_pct = 0.01
     else:
-        # 2. Fallback оцінка Edge на основі сили прогрузу та Confidence
-        d = min(float(drop_pct or 0.0), 30.0)
-        edge = 0.02 + (d / 100.0) * 0.18
-        if confidence is not None:
-            c = max(1.0, min(10.0, float(confidence)))
-            edge *= (0.6 + (c / 10.0) * 0.4)
-        full_kelly = edge / b
+        b = k - 1.0
 
-    # 3. Дробовий консервативний Келлі для реального банку
-    frac_k = full_kelly * float(fraction)
-    # Межі для реальних грошей: від 1% до max_pct (за замовчуванням 5%)
-    clamped_pct = max(0.01, min(float(max_pct), frac_k))
+        # 2. Якщо передано de-vig fair_prob — рахуємо чистий математичний EV
+        if fair_prob is not None:
+            try:
+                p = float(fair_prob)
+                if 0.0 < p < 1.0:
+                    ev = (k * p) - 1.0
+                    if ev <= 0:
+                        return 0.0, 0.0, f"Ставка не має математичної переваги (EV: {ev*100:+.2f}%, p_fair: {p:.3f})."
+                    full_kelly = ev / b
+                else:
+                    full_kelly = 0.02 / b
+            except (ValueError, TypeError):
+                full_kelly = 0.02 / b
+        else:
+            # 3. Fallback оцінка Edge на основі сили прогрузу та Confidence
+            d = min(float(drop_pct or 0.0), 30.0)
+            edge = 0.02 + (d / 100.0) * 0.18
+            if confidence is not None:
+                c = max(1.0, min(10.0, float(confidence)))
+                edge *= (0.6 + (c / 10.0) * 0.4)
+            full_kelly = edge / b
+
+        # Дробовий консервативний Келлі для реального банку
+        frac_k = full_kelly * float(fraction)
+        # Межі для реальних грошей: від 1% до max_pct (за замовчуванням 5%)
+        clamped_pct = max(0.01, min(float(max_pct), frac_k))
 
     # 4. Розрахунок номіналу ставки та округлення до цілих гривень (без копійок)
     raw_stake = clamped_pct * bal

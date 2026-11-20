@@ -98,6 +98,20 @@ class TestNovigEdge(unittest.TestCase):
         self.assertLessEqual(stake, 150.0)
         self.assertLessEqual(pct, 5.0)
 
+    def test_calculate_real_stake_with_explicit_kelly_pct(self):
+        # With real balance 3000 ₴ and different Kelly % from paper bets
+        s_34, p_34, _ = calculate_real_stake(odds=1.45, real_balance=3000.0, kelly_pct=3.4)
+        self.assertEqual(s_34, 100.0)
+        self.assertEqual(p_34, 3.3)
+
+        s_23, p_23, _ = calculate_real_stake(odds=1.75, real_balance=3000.0, kelly_pct=2.3)
+        self.assertEqual(s_23, 70.0)
+        self.assertEqual(p_23, 2.3)
+
+        s_10, p_10, _ = calculate_real_stake(odds=3.85, real_balance=3000.0, kelly_pct=1.0)
+        self.assertEqual(s_10, 30.0)
+        self.assertEqual(p_10, 1.0)
+
     def test_calculate_real_stake_insufficient_balance(self):
         # Real balance 10 ₴ < min 20 ₴
         stake, pct, msg = calculate_real_stake(odds=1.95, real_balance=10.0, min_stake=20.0)
