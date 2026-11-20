@@ -266,6 +266,16 @@ def fetch_data(db_url):
         except Exception as e_fix:
             print("Auto-fix bet 56 err:", e_fix)
 
+        # SPEC-Real-Rounding: Округлення копійок у реальних ставках до цілих гривень
+        try:
+            cur.execute("""
+                UPDATE paper_bets
+                SET real_stake_uah = ROUND(real_stake_uah)
+                WHERE is_real_bet = TRUE AND real_stake_uah IS NOT NULL AND real_stake_uah != ROUND(real_stake_uah);
+            """)
+        except Exception as e_rnd:
+            pass
+
         # 1. Ставки (Paper Bets)
         try:
             bets_data = query_to_dataframe(cur, "SELECT * FROM paper_bets ORDER BY commence_time DESC LIMIT 150;")
@@ -1361,7 +1371,7 @@ def run_streamlit_app():
             p_disp["ШІ Сигнал"] = p_disp.apply(_get_ai_score_badge, axis=1)
             p_disp["Сума (Paper)"] = p_disp["stake_uah"].apply(lambda x: f"{float(x):,.2f} ₴" if x else "—")
             p_disp["Сума (Real)"] = p_disp.apply(
-                lambda r: f"🟢 {float(r['real_stake_uah']):,.2f} ₴" if (r.get("is_real_bet") and r.get("real_stake_uah")) else "—",
+                lambda r: f"🟢 {float(r['real_stake_uah']):,.0f} ₴" if (r.get("is_real_bet") and r.get("real_stake_uah")) else "—",
                 axis=1
             )
             p_disp["% банку (Келлі)"] = p_disp.apply(_get_kelly_badge, axis=1)
@@ -1476,19 +1486,21 @@ def run_streamlit_app():
                                             user_stk = st.number_input(
                                                 "Сума (₴):",
                                                 min_value=10.0,
-                                                max_value=float(max(100.0, real_bal)),
-                                                value=float(p['current_real_stake'] or p['recommended_stake'] or 50.0),
-                                                step=10.0,
+                                                max_value=float(math.floor(max(100.0, real_bal))),
+                                                value=float(round(float(p['current_real_stake'] or p['recommended_stake'] or 50.0))),
+                                                step=1.0,
+                                                format="%d",
                                                 key=f"inp_r_stk_{p['id']}",
                                                 label_visibility="collapsed"
                                             )
-                                            calc_configs.append({"id": p['id'], "real_stake": user_stk, "real_odds": p['odds']})
-                                            sum_calc_stakes += user_stk
+                                            user_stk_int = float(round(user_stk))
+                                            calc_configs.append({"id": p['id'], "real_stake": user_stk_int, "real_odds": p['odds']})
+                                            sum_calc_stakes += user_stk_int
 
                                     tot_pct = round((sum_calc_stakes / real_bal) * 100.0, 1) if real_bal > 0 else 0.0
                                     st.markdown(f"""
                                         <div style="font-size: 12.5px; margin: 8px 0; color: #1E293B;">
-                                            <b>Загальна експозиція:</b> <code>{sum_calc_stakes:,.2f} ₴</code> 
+                                            <b>Загальна експозиція:</b> <code>{sum_calc_stakes:,.0f} ₴</code> 
                                             ({tot_pct}% від реального капіталу)
                                         </div>
                                     """, unsafe_allow_html=True)
@@ -1954,7 +1966,7 @@ def run_streamlit_app():
                     lambda x: f"≥ {float(x):.2f}" if (x is not None and not (pd is not None and pd.isna(x))) else "—"
                 ) if "walkaway_odds" in rp_disp.columns else "—"
                 rp_disp["Сума (Real)"] = rp_disp.apply(
-                    lambda r: f"{float(r.get('real_stake_uah') or r.get('stake_uah') or 0):,.2f} ₴", axis=1
+                    lambda r: f"{float(r.get('real_stake_uah') or r.get('stake_uah') or 0):,.0f} ₴", axis=1
                 )
                 rp_disp["% банку"] = rp_disp.apply(_get_kelly_badge, axis=1)
                 rp_disp["Потенційний виграш"] = rp_disp.apply(
@@ -1991,7 +2003,7 @@ def run_streamlit_app():
                         lambda r: f"{float(r.get('real_odds') or r.get('odds') or 0):.2f}", axis=1
                     )
                     rs_disp["Сума (Real)"] = rs_disp.apply(
-                        lambda r: f"{float(r.get('real_stake_uah') or r.get('stake_uah') or 0):,.2f} ₴", axis=1
+                        lambda r: f"{float(r.get('real_stake_uah') or r.get('stake_uah') or 0):,.0f} ₴", axis=1
                     )
                     rs_disp["Результат"] = rs_disp.apply(_format_result, axis=1)
                     rs_disp["Чистий прибуток"] = rs_disp["profit_uah"].apply(
@@ -2163,7 +2175,7 @@ def run_streamlit_app():
                             time_badge = f" [🕒 {c_time_str}]" if c_time_str else ""
                             stk_val = float(r_bet.get('real_stake_uah') or r_bet.get('stake_uah') or 0)
                             sp_icon = get_sport_icon(r_bet.get('sport'))
-                            s_lbl = f"ID #{r_bet['id']} | {sp_icon} {r_bet.get('match_name', '')} ({r_bet.get('pick_label', '')}){time_badge} — {stk_val:.2f} ₴ | Коеф: {float(r_bet.get('real_odds') or r_bet.get('odds') or 0):.2f}"
+                            s_lbl = f"ID #{r_bet['id']} | {sp_icon} {r_bet.get('match_name', '')} ({r_bet.get('pick_label', '')}){time_badge} — {stk_val:,.0f} ₴ | Коеф: {float(r_bet.get('real_odds') or r_bet.get('odds') or 0):.2f}"
                             settle_real_opts[s_lbl] = r_bet["id"]
 
                         sel_sr_lbl = st.selectbox("Оберіть реальну ставку для розрахунку:", list(settle_real_opts.keys()), key="sel_settle_real_bet_v1")
@@ -2175,7 +2187,7 @@ def run_streamlit_app():
                                 <b>Подія:</b> {cur_rbet_info.get('match_name', '—')} &nbsp;|&nbsp;
                                 <b>Маркет:</b> {cur_rbet_info.get('pick_label', '—')} &nbsp;|&nbsp;
                                 <b>Коеф:</b> {float(cur_rbet_info.get('real_odds') or cur_rbet_info.get('odds') or 0):.2f} &nbsp;|&nbsp;
-                                <b>Сума:</b> {float(cur_rbet_info.get('real_stake_uah') or cur_rbet_info.get('stake_uah') or 0):,.2f} ₴
+                                <b>Сума:</b> {float(cur_rbet_info.get('real_stake_uah') or cur_rbet_info.get('stake_uah') or 0):,.0f} ₴
                             </div>
                         """, unsafe_allow_html=True)
 

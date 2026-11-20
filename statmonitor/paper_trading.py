@@ -904,6 +904,7 @@ def manual_settle_bet(cur, conn, bet_id, score_str, forced_status=None):
 def settle_and_report(cur, conn):
     # SPEC-Fix: Автоматичне виправлення некоректно розрахованої ставки #56 (Ben Shelton - Rafael Jodar 7:6, 7:5 -> WON)
     try:
+        # SPEC-Fix: Автоматичне виправлення некоректно розрахованої ставки #56 (Ben Shelton - Rafael Jodar 7:6, 7:5 -> WON)
         cur.execute("""
             UPDATE paper_bets
             SET status = 'WON',
@@ -913,6 +914,12 @@ def settle_and_report(cur, conn):
             WHERE id = 56 
               AND status = 'LOST' 
               AND (match_score LIKE '%7%6%' OR match_name ILIKE '%Shelton%');
+        """)
+        # SPEC-Real-Rounding: Округлення копійок у реальних ставках до цілих гривень
+        cur.execute("""
+            UPDATE paper_bets
+            SET real_stake_uah = ROUND(real_stake_uah)
+            WHERE is_real_bet = TRUE AND real_stake_uah IS NOT NULL AND real_stake_uah != ROUND(real_stake_uah);
         """)
         conn.commit()
     except Exception:

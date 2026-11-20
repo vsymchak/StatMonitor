@@ -156,6 +156,29 @@ class TestRealBankroll(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("не є реальною", msg)
 
+    def test_real_stake_integer_rounding(self):
+        from statmonitor.novig import calculate_real_stake
+        # При балансі 7,686 ₴ та 5% ліміті (384.30 ₴) ставка має бути рівно цілими гривнями (384 ₴ або 380 ₴), без копійок!
+        stake, pct, msg = calculate_real_stake(
+            odds=1.49,
+            real_balance=7686.0,
+            confidence=9,
+            drop_pct=10.0,
+            fraction=0.10,
+            max_pct=0.05
+        )
+        self.assertEqual(msg, "OK")
+        self.assertEqual(stake, round(stake))
+        self.assertEqual(stake % 1.0, 0.0)
+
+        # Тест toggle_real_bet з копійками -> має округлити до цілих гривень
+        cur = MockCursor(fetchone_data=(56, "Ben Shelton - Rafael Jodar", 1.49, 384.30))
+        conn = MockConn()
+        ok, _ = toggle_real_bet(cur, conn, 56, is_real=True, real_stake=384.30)
+        self.assertTrue(ok)
+        q, params = cur.queries[1]
+        self.assertEqual(params[1], 384.0)
+
     def test_settle_real_bet_in_ledger_duplicate(self):
         cur = MockCursor()
         cur.fetchone = lambda: (True, "Arsenal - Chelsea") if len(cur.queries) == 1 else (1,)

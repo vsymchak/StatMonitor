@@ -194,10 +194,10 @@ def toggle_real_bet(cur, conn, bet_id, is_real=True, real_stake=None, real_odds=
         if is_real:
             if real_stake is not None and float(real_stake) > 0:
                 updates.append("real_stake_uah = %s")
-                params.append(float(real_stake))
+                params.append(float(round(float(real_stake))))
             else:
                 updates.append("real_stake_uah = COALESCE(real_stake_uah, %s)")
-                params.append(float(orig_stake or 0.0))
+                params.append(float(round(float(orig_stake or 0.0))))
 
             if real_odds is not None and float(real_odds) > 1.0:
                 updates.append("real_odds = %s")
@@ -619,9 +619,9 @@ def prepare_real_stakes_batch(cur, bet_ids, fraction=0.10, min_stake=20.0, max_p
             "walkaway_odds": w_val,
             "sport": sport,
             "real_balance": real_balance,
-            "recommended_stake": rec_stake,
+            "recommended_stake": float(round(rec_stake)),
             "recommended_pct": rec_pct,
-            "current_real_stake": float(cur_r_stake) if cur_r_stake else rec_stake,
+            "current_real_stake": float(round(float(cur_r_stake))) if cur_r_stake else float(round(rec_stake)),
             "is_real_bet": bool(is_real),
             "status_msg": status_msg
         })
@@ -659,7 +659,7 @@ def apply_real_stakes_batch(cur, conn, bet_configs, bypass_guardrails=False):
 
         for item in bet_configs:
             b_id = item.get("id")
-            r_stake = float(item.get("real_stake") or 0.0)
+            r_stake = float(round(float(item.get("real_stake") or 0.0)))
             r_odds = float(item.get("real_odds") or 0.0) if item.get("real_odds") else None
 
             if not b_id or r_stake <= 0:

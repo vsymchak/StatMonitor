@@ -180,7 +180,8 @@ def apply_slip_to_bet(cur, conn, bet_id, slip_data, image_path=None):
     """
     try:
         from statmonitor.real_bankroll import toggle_real_bet
-        real_stake = float(slip_data.get("stake_uah", 0) or 0)
+        raw_stk = float(slip_data.get("stake_uah", 0) or 0)
+        real_stake = float(round(raw_stk)) if raw_stk > 0 else 0.0
         real_odds = float(slip_data.get("odds", 0) or 0)
         bookmaker = slip_data.get("bookmaker")
 

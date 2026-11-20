@@ -235,22 +235,26 @@ def calculate_real_stake(
     # Межі для реальних грошей: від 1% до max_pct (за замовчуванням 5%)
     clamped_pct = max(0.01, min(float(max_pct), frac_k))
 
-    # 4. Розрахунок номіналу ставки та округлення до красивих круглих сум
+    # 4. Розрахунок номіналу ставки та округлення до цілих гривень (без копійок)
     raw_stake = clamped_pct * bal
 
-    # Округлюємо: для суми до 100 грн — до 5 грн, вище — до 10 грн
+    # Округлюємо: для суми до 100 грн — до 5 грн, вище — до 10 грн (завжди цілі гривні)
     if raw_stake < 100.0:
         stake = round(raw_stake / 5.0) * 5.0
     else:
         stake = round(raw_stake / 10.0) * 10.0
 
-    # Захисні межі ставки
-    stake = max(min_stake, stake)
-    max_allowed = round(bal * float(max_pct), 2)
-    if stake > max_allowed:
+    # Захисні межі ставки: обов'язково цілі гривні без копійок
+    import math
+    min_int = float(round(min_stake))
+    stake = max(min_int, stake)
+
+    max_allowed = float(math.floor(bal * float(max_pct)))
+    if max_allowed >= min_int and stake > max_allowed:
         stake = max_allowed
     if stake > bal:
-        stake = bal
+        stake = float(math.floor(bal))
 
-    actual_pct = round((stake / bal) * 100.0, 1)
-    return round(stake, 2), actual_pct, "OK"
+    stake = float(round(stake))
+    actual_pct = round((stake / bal) * 100.0, 1) if bal > 0 else 0.0
+    return stake, actual_pct, "OK"
