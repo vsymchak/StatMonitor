@@ -110,6 +110,30 @@ class TestLeagueThresholds(unittest.TestCase):
         self.assertFalse(th["enabled"])
         self.assertIn("btts", th["markets"])
 
+    def test_save_all_leagues_batch(self):
+        from statmonitor.league_config import save_all_leagues_batch
+        mock_cur = MagicMock()
+        mock_conn = MagicMock()
+        leagues = [
+            {"key": "icehockey_nhl", "title": "НХЛ", "category": "icehockey", "enabled": True, "min_drop_pct": 4.5, "min_odds": 1.35, "max_odds": 4.20, "markets": ["h2h", "totals"]},
+            {"key": "basketball_nba", "title": "NBA", "category": "basketball", "enabled": True, "min_drop_pct": 4.0, "min_odds": 1.35, "max_odds": 4.20, "markets": ["h2h"]},
+        ]
+        ok, msg = save_all_leagues_batch(mock_cur, mock_conn, leagues)
+        self.assertTrue(ok)
+        self.assertIn("Успішно збережено 2 ліг", msg)
+        mock_conn.commit.assert_called()
+
+    def test_load_leagues_config_with_cur_merge(self):
+        mock_cur = MagicMock()
+        # Імітуємо збережену в БД НХЛ як enabled=True
+        mock_cur.fetchall.return_value = [
+            ("icehockey_nhl", "США/Канада (НХЛ / NHL)", "icehockey", True, 4.5, 1.35, 4.20, ["h2h", "totals", "spreads"])
+        ]
+        cfg = load_leagues_config(cur=mock_cur)
+        nhl_matches = [lg for lg in cfg["leagues"] if lg["key"] == "icehockey_nhl"]
+        self.assertTrue(len(nhl_matches) > 0)
+        self.assertTrue(nhl_matches[0]["enabled"])
+
     def test_reset_league_thresholds_to_default(self):
         mock_cur = MagicMock()
         mock_conn = MagicMock()

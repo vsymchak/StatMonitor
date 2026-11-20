@@ -2898,12 +2898,13 @@ def run_streamlit_app():
                 from statmonitor.league_config import (
                     load_leagues_config,
                     save_league_threshold,
+                    save_all_leagues_batch,
                     save_all_leagues_to_file,
                     reset_league_thresholds_to_default,
                 )
 
-                # Миттєве та надійне зчитування конфігурації ліг (без блокувань чи очікування з'єднань БД)
-                cfg_leagues = load_leagues_config()
+                # Миттєве та надійне зчитування конфігурації ліг (з DB як єдиного джерела істини)
+                cfg_leagues = load_leagues_config(db_url=db_url)
                 all_leagues_list = cfg_leagues.get("leagues", [])
 
                 # Ініціалізація стану в session_state
@@ -2981,12 +2982,16 @@ def run_streamlit_app():
                         with c_act1:
                             if st.button(f"✅ Обрати всі", key=f"btn_all_{cat_key}"):
                                 for lg in grp_leagues:
-                                    st.session_state.league_enabled_state[lg["key"]] = True
+                                    k_id = lg["key"]
+                                    st.session_state.league_enabled_state[k_id] = True
+                                    st.session_state[f"chk_lg_{k_id}"] = True
                                 st.rerun()
                         with c_act2:
                             if st.button(f"❌ Зняти всі", key=f"btn_none_{cat_key}"):
                                 for lg in grp_leagues:
-                                    st.session_state.league_enabled_state[lg["key"]] = False
+                                    k_id = lg["key"]
+                                    st.session_state.league_enabled_state[k_id] = False
+                                    st.session_state[f"chk_lg_{k_id}"] = False
                                 st.rerun()
 
                         # Виведення сітки прапорців у 2 колонки
@@ -2995,12 +3000,12 @@ def run_streamlit_app():
                             target_col = col_l if (i % 2 == 0) else col_r
                             with target_col:
                                 k = lg["key"]
-                                cur_checked = st.session_state.league_enabled_state.get(k, bool(lg.get("enabled", True)))
+                                if f"chk_lg_{k}" not in st.session_state:
+                                    st.session_state[f"chk_lg_{k}"] = st.session_state.league_enabled_state.get(k, bool(lg.get("enabled", True)))
                                 drop_info = f"Поріг: {float(lg.get('min_drop_pct', 5.0)):.1f}% | Кеф: {float(lg.get('min_odds', 1.40)):.2f}–{float(lg.get('max_odds', 4.00)):.2f}"
                                 
                                 val = st.checkbox(
                                     f"**{lg.get('title', k)}** (`{k}`) — _{drop_info}_",
-                                    value=cur_checked,
                                     key=f"chk_lg_{k}",
                                     help=f"Увімкнути/вимкнути автосканування для {lg.get('title', k)}"
                                 )
@@ -3014,36 +3019,34 @@ def run_streamlit_app():
                         updated_list = []
                         for lg in all_leagues_list:
                             item = dict(lg)
-                            item["enabled"] = bool(st.session_state.league_enabled_state.get(item["key"], item.get("enabled", True)))
+                            k = item["key"]
+                            is_en = bool(st.session_state.get(f"chk_lg_{k}", st.session_state.league_enabled_state.get(k, item.get("enabled", True))))
+                            item["enabled"] = is_en
+                            st.session_state.league_enabled_state[k] = is_en
                             updated_list.append(item)
 
                         # 2. Зберігаємо у файл leagues.json
                         save_all_leagues_to_file(updated_list)
 
-                        # 3. Зберігаємо у базу даних PostgreSQL (якщо є підключення)
+                        # 3. Зберігаємо у базу даних PostgreSQL (Supabase) єдиним пакетом
                         conn_sv, err_sv = get_db_connection(db_url)
                         if conn_sv:
                             cur_sv = conn_sv.cursor()
                             try:
-                                for item in updated_list:
-                                    save_league_threshold(
-                                        cur_sv, conn_sv,
-                                        sport_key=item["key"],
-                                        title=item.get("title"),
-                                        category=item.get("category"),
-                                        enabled=item["enabled"],
-                                        min_drop_pct=item.get("min_drop_pct"),
-                                        min_odds=item.get("min_odds"),
-                                        max_odds=item.get("max_odds"),
-                                        markets=item.get("markets"),
-                                    )
+                                ok_sv, msg_sv = save_all_leagues_batch(cur_sv, conn_sv, updated_list)
+                                if ok_sv:
+                                    st.toast("✅ Налаштування ліг збережено в базі даних!", icon="🎯")
+                                else:
+                                    st.error(f"❌ {msg_sv}")
                             except Exception as se:
                                 print(f"DB league save warning: {se}")
+                                st.error(f"❌ Помилка запису в БД: {se}")
                             finally:
                                 cur_sv.close()
                                 conn_sv.close()
+                        else:
+                            st.toast("✅ Налаштування ліг збережено локально!", icon="💾")
 
-                        st.toast("✅ Налаштування ліг та Smart Rate-Limiter збережено!", icon="🎯")
                         st.rerun()
 
                 with col_reset_all:
@@ -3059,6 +3062,9 @@ def run_streamlit_app():
                                 conn_rst.close()
                         if "league_enabled_state" in st.session_state:
                             del st.session_state["league_enabled_state"]
+                        for k_s in list(st.session_state.keys()):
+                            if str(k_s).startswith("chk_lg_"):
+                                del st.session_state[k_s]
                         st.toast("✅ Налаштування скинуто до початкових!", icon="🔄")
                         st.rerun()
 

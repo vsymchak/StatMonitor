@@ -94,6 +94,8 @@ from statmonitor.league_config import (
     fetch_db_leagues,
     sync_leagues_to_db,
     save_league_threshold,
+    save_all_leagues_batch,
+    ensure_league_thresholds_table,
     reset_league_thresholds_to_default,
 )
 from statmonitor.digest import (

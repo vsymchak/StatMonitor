@@ -1174,7 +1174,7 @@
       "key": "icehockey_nhl",
       "title": "США/Канада (НХЛ / NHL)",
       "category": "icehockey",
-      "enabled": false,
+      "enabled": true,
       "min_drop_pct": 4.5,
       "min_odds": 1.35,
       "max_odds": 4.2,

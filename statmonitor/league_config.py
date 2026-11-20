@@ -89,6 +89,75 @@ def fetch_db_leagues(cur):
     except Exception:
         return None
 
+def ensure_league_thresholds_table(cur, conn):
+    """Гарантує наявність таблиці league_thresholds у БД."""
+    if cur is None or conn is None:
+        return
+    try:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS league_thresholds (
+                sport_key TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                category TEXT NOT NULL DEFAULT 'soccer',
+                enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                min_drop_pct NUMERIC(5,2) NOT NULL DEFAULT 5.00,
+                min_odds NUMERIC(5,2) NOT NULL DEFAULT 1.40,
+                max_odds NUMERIC(5,2) NOT NULL DEFAULT 4.00,
+                markets JSONB NOT NULL DEFAULT '["h2h", "totals", "spreads"]'::jsonb,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+        """)
+        conn.commit()
+    except Exception as e:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+
+
+def save_all_leagues_batch(cur, conn, leagues_list):
+    """
+    Зберігає повний список ліг у БД в одній транзакції (надійний захист від тайм-аутів та втрати стану).
+    """
+    if cur is None or conn is None:
+        return False, "Відсутнє підключення до БД"
+    try:
+        ensure_league_thresholds_table(cur, conn)
+        for item in leagues_list:
+            cur.execute("""
+                INSERT INTO league_thresholds (sport_key, title, category, enabled, min_drop_pct, min_odds, max_odds, markets, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, NOW())
+                ON CONFLICT (sport_key) DO UPDATE SET
+                    title = EXCLUDED.title,
+                    category = EXCLUDED.category,
+                    enabled = EXCLUDED.enabled,
+                    min_drop_pct = EXCLUDED.min_drop_pct,
+                    min_odds = EXCLUDED.min_odds,
+                    max_odds = EXCLUDED.max_odds,
+                    markets = EXCLUDED.markets,
+                    updated_at = NOW();
+            """, (
+                item["key"],
+                item.get("title", item["key"]),
+                item.get("category", "soccer"),
+                bool(item.get("enabled", True)),
+                float(item.get("min_drop_pct", 5.0)),
+                float(item.get("min_odds", 1.40)),
+                float(item.get("max_odds", 4.00)),
+                json.dumps(item.get("markets", ["h2h", "totals", "spreads"]))
+            ))
+        conn.commit()
+        return True, f"Успішно збережено {len(leagues_list)} ліг у базі даних."
+    except Exception as e:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        return False, f"Помилка пакетного збереження ліг: {e}"
+
+
 def sync_leagues_to_db(cur, conn, config=None, force=False):
     """
     Синхронізує конфігурацію ліг у БД: якщо таблиця порожня або force=True,
@@ -231,29 +300,67 @@ def reset_league_thresholds_to_default(cur=None, conn=None):
         return sync_leagues_to_db(cur, conn, config=cfg, force=True)
     return True, "Скинуто до дефолтної конфігурації."
 
-def load_leagues_config(config_path=None, cur=None):
+def load_leagues_config(config_path=None, cur=None, db_url=None):
     """
     Завантажує конфігурацію ліг із БД або JSON-файлу.
-    При відсутності файлу чи помилці повертає DEFAULT_LEAGUES_CONFIG.
+    Якщо є підключення до БД, накладає збережені налаштування з league_thresholds (DB is source of truth).
     """
-    if cur is not None:
-        db_leagues = fetch_db_leagues(cur)
-        if db_leagues:
-            return {"version": "1.0", "leagues": db_leagues}
-
+    # 1. Завантажуємо базовий список усіх ліг з файлу leagues.json
     path = resolve_config_path(config_path)
-    if not path.exists():
-        return DEFAULT_LEAGUES_CONFIG
+    base_data = DEFAULT_LEAGUES_CONFIG
+    if path.exists():
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict) and "leagues" in data and isinstance(data["leagues"], list):
+                    base_data = data
+        except Exception as e:
+            print(f"Warning: Failed to load leagues config from {path}: {e}. Using fallback defaults.")
 
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            if isinstance(data, dict) and "leagues" in data and isinstance(data["leagues"], list):
-                return data
-    except Exception as e:
-        print(f"Warning: Failed to load leagues config from {path}: {e}. Using fallback defaults.")
+    # 2. Якщо передано cur або можна з'єднатися через db_url чи SUPABASE_DB_URL
+    db_cur = cur
+    db_conn_to_close = None
+    if db_cur is None:
+        url = db_url or os.environ.get("SUPABASE_DB_URL", "")
+        if url:
+            try:
+                import psycopg2
+                db_conn_to_close = psycopg2.connect(url, connect_timeout=5)
+                db_cur = db_conn_to_close.cursor()
+            except Exception:
+                db_cur = None
 
-    return DEFAULT_LEAGUES_CONFIG
+    if db_cur is not None:
+        try:
+            db_leagues = fetch_db_leagues(db_cur)
+            if db_leagues:
+                db_map = {lg["key"]: lg for lg in db_leagues}
+                merged_leagues = []
+                seen_keys = set()
+                for base_lg in base_data.get("leagues", []):
+                    k = base_lg["key"]
+                    seen_keys.add(k)
+                    if k in db_map:
+                        item = dict(base_lg)
+                        item.update(db_map[k])
+                        merged_leagues.append(item)
+                    else:
+                        merged_leagues.append(base_lg)
+                for k, db_lg in db_map.items():
+                    if k not in seen_keys:
+                        merged_leagues.append(db_lg)
+                base_data = {"version": "2.0", "leagues": merged_leagues}
+        except Exception as e:
+            print(f"Warning: Failed to merge leagues from DB: {e}")
+        finally:
+            if db_conn_to_close:
+                try:
+                    db_cur.close()
+                    db_conn_to_close.close()
+                except Exception:
+                    pass
+
+    return base_data
 
 def get_active_sports_map(config=None, cur=None):
     """Повертає словник {sport_key: localized_title} тільки для активних ліг (enabled=True)."""
