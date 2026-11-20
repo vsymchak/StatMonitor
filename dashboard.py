@@ -292,23 +292,23 @@ def fetch_data(db_url):
         # SPEC-Real-AutoRecalc: Автоматичне коригування застряглих ставок по 30 грн відповідно до їхнього Kelly %
         try:
             cur.execute("""
-                SELECT balance_after_uah FROM real_bankroll_ledger ORDER BY created_at DESC, id DESC LIMIT 1;
-            """)
-            r_bal_row = cur.fetchone()
-            cur_r_bal = float(r_bal_row[0]) if (r_bal_row and r_bal_row[0]) else 3000.0
-
-            cur.execute("""
                 SELECT id, odds, kelly_pct 
                 FROM paper_bets 
                 WHERE is_real_bet = TRUE AND status = 'PENDING' AND real_stake_uah = 30.0 AND kelly_pct > 1.0;
             """)
             stuck_bets = cur.fetchall()
-            for b_id, b_odds, k_val in stuck_bets:
-                if k_val:
-                    from statmonitor.novig import calculate_real_stake
-                    c_stk, c_pct, _ = calculate_real_stake(b_odds, cur_r_bal, kelly_pct=k_val)
-                    if c_stk > 0:
-                        cur.execute("UPDATE paper_bets SET real_stake_uah = %s WHERE id = %s;", (float(c_stk), b_id))
+            if stuck_bets:
+                cur.execute("""
+                    SELECT balance_after_uah FROM real_bankroll_ledger ORDER BY created_at DESC, id DESC LIMIT 1;
+                """)
+                r_bal_row = cur.fetchone()
+                cur_r_bal = float(r_bal_row[0]) if (r_bal_row and r_bal_row[0]) else 3000.0
+                for b_id, b_odds, k_val in stuck_bets:
+                    if k_val:
+                        from statmonitor.novig import calculate_real_stake
+                        c_stk, c_pct, _ = calculate_real_stake(b_odds, cur_r_bal, kelly_pct=k_val)
+                        if c_stk > 0:
+                            cur.execute("UPDATE paper_bets SET real_stake_uah = %s WHERE id = %s;", (float(c_stk), b_id))
         except Exception as e_recalc:
             print("Auto-recalc real stakes err:", e_recalc)
 
@@ -2143,15 +2143,18 @@ def run_streamlit_app():
                     curr_odds_val = float(cur_row_ed.get("odds", 2.0))
                     curr_pick_val = str(cur_row_ed.get("pick_label", ""))
 
-                    col_ed1, col_ed2, col_ed3 = st.columns([2.5, 2.5, 2])
-                    with col_ed1:
-                        new_pick_input = st.text_input("Маркет / Фора:", value=curr_pick_val, key="txt_new_pick_v3")
-                    with col_ed2:
-                        new_k_input = st.number_input("Новий коефіцієнт:", min_value=1.01, max_value=50.00, value=curr_odds_val, step=0.01, format="%.2f", key="num_new_odds_v3")
-                    with col_ed3:
-                        st.write("")
-                        st.write("")
-                        if st.button("💾 Зберегти зміни", key="btn_save_odds_v3", use_container_width=True):
+                    with st.form(key=f"form_edit_paper_bet_{sel_id}"):
+                        col_ed1, col_ed2, col_ed3 = st.columns([2.5, 2.5, 2])
+                        with col_ed1:
+                            new_pick_input = st.text_input("Маркет / Фора:", value=curr_pick_val, key="txt_new_pick_v3")
+                        with col_ed2:
+                            new_k_input = st.number_input("Новий коефіцієнт:", min_value=1.01, max_value=50.00, value=curr_odds_val, step=0.01, format="%.2f", key="num_new_odds_v3")
+                        with col_ed3:
+                            st.write("")
+                            st.write("")
+                            btn_save_p_ed = st.form_submit_button("💾 Зберегти зміни", type="primary", use_container_width=True)
+
+                        if btn_save_p_ed:
                             conn_edit, err_conn = get_db_connection(db_url)
                             if conn_edit:
                                 cur_edit = conn_edit.cursor()
@@ -2240,18 +2243,21 @@ def run_streamlit_app():
 
                     with settle_tabs[1]:
                         st.caption("Виправлення або повторний розрахунок будь-якої ставки (наприклад #56 Shelton - Jodar)")
-                        col_fx1, col_fx2, col_fx3 = st.columns([1.5, 2.5, 2])
-                        with col_fx1:
-                            fix_bet_id = st.number_input("ID ставки для виправлення:", min_value=1, value=56, step=1, key="num_fix_bet_id")
-                        with col_fx2:
-                            fix_score = st.text_input("Рахунок матчу:", value="7:6, 7:5", key="txt_fix_score")
-                        with col_fx3:
-                            fix_status = st.selectbox(
-                                "Встановити статус:",
-                                ["✅ WON (Виграш)", "❌ LOST (Програш)", "🔄 VOID (Повернення)", "Автоматично за рахунком"],
-                                key="sel_fix_status"
-                            )
-                        if st.button("🔄 Оновити / Виправити результат ставки", key="btn_apply_fix_bet", use_container_width=True):
+                        with st.form("form_fix_bet"):
+                            col_fx1, col_fx2, col_fx3 = st.columns([1.5, 2.5, 2])
+                            with col_fx1:
+                                fix_bet_id = st.number_input("ID ставки для виправлення:", min_value=1, value=56, step=1, key="num_fix_bet_id")
+                            with col_fx2:
+                                fix_score = st.text_input("Рахунок матчу:", value="7:6, 7:5", key="txt_fix_score")
+                            with col_fx3:
+                                fix_status = st.selectbox(
+                                    "Встановити статус:",
+                                    ["✅ WON (Виграш)", "❌ LOST (Програш)", "🔄 VOID (Повернення)", "Автоматично за рахунком"],
+                                    key="sel_fix_status"
+                                )
+                            btn_fix_sub = st.form_submit_button("🔄 Оновити / Виправити результат ставки", type="primary", use_container_width=True)
+
+                        if btn_fix_sub:
                             f_res = None
                             if "WON" in fix_status:
                                 f_res = "WON"
@@ -2602,31 +2608,34 @@ def run_streamlit_app():
                     curr_k = float(cur_row.get("real_odds") or cur_row.get("odds") or 1.85)
                     curr_s = float(cur_row.get("real_stake_uah") or cur_row.get("stake_uah") or 50.0)
 
-                    c_ed1, c_ed2, c_ed3 = st.columns([1.5, 1.5, 1.2])
-                    with c_ed1:
-                        new_real_odds = st.number_input(
-                            "Новий коефіцієнт (odds):",
-                            min_value=1.02,
-                            max_value=50.0,
-                            value=curr_k,
-                            step=0.01,
-                            format="%.2f",
-                            key=f"ed_r_odds_{selected_bet_id}"
-                        )
-                    with c_ed2:
-                        new_real_stake = st.number_input(
-                            "Реальна сума ставки (₴):",
-                            min_value=1.0,
-                            max_value=100000.0,
-                            value=float(round(curr_s)),
-                            step=1.0,
-                            format="%d",
-                            key=f"ed_r_stake_{selected_bet_id}"
-                        )
-                    with c_ed3:
-                        st.write("")
-                        st.write("")
-                        if st.button("💾 Зберегти зміни", key="btn_save_real_bet_edit", type="primary", use_container_width=True):
+                    with st.form(key=f"form_edit_real_bet_{selected_bet_id}"):
+                        c_ed1, c_ed2, c_ed3 = st.columns([1.5, 1.5, 1.2])
+                        with c_ed1:
+                            new_real_odds = st.number_input(
+                                "Новий коефіцієнт (odds):",
+                                min_value=1.02,
+                                max_value=50.0,
+                                value=curr_k,
+                                step=0.01,
+                                format="%.2f",
+                                key=f"ed_r_odds_{selected_bet_id}"
+                            )
+                        with c_ed2:
+                            new_real_stake = st.number_input(
+                                "Реальна сума ставки (₴):",
+                                min_value=1.0,
+                                max_value=100000.0,
+                                value=float(round(curr_s)),
+                                step=1.0,
+                                format="%d",
+                                key=f"ed_r_stake_{selected_bet_id}"
+                            )
+                        with c_ed3:
+                            st.write("")
+                            st.write("")
+                            btn_save_ed = st.form_submit_button("💾 Зберегти зміни", type="primary", use_container_width=True)
+
+                        if btn_save_ed:
                             conn_ed, _ = get_db_connection(db_url)
                             if conn_ed:
                                 cur_ed = conn_ed.cursor()
@@ -2698,36 +2707,39 @@ def run_streamlit_app():
 
                 if is_admin:
                     st.markdown("##### 📝 Внесення транзакції в леджер (Депозит / Виведення)")
-                    col_tx1, col_tx2, col_tx3, col_tx4 = st.columns([2, 1.5, 3, 1.5])
-                    with col_tx1:
-                        tx_type_sel = st.selectbox(
-                            "Тип транзакції:",
-                            ["📥 Депозит (DEPOSIT)", "📤 Виведення (WITHDRAWAL)", "⚙️ Коригування (ADJUSTMENT)"],
-                            key="sel_tx_type_v2"
-                        )
-                    with col_tx2:
-                        tx_amt = st.number_input("Сума (грн):", min_value=1.0, max_value=1000000.0, value=1000.0, step=100.0, key="num_tx_amt_v2")
-                    with col_tx3:
-                        tx_comment = st.text_input("Коментар / Призначення:", placeholder="Поповнення банкролу", key="txt_tx_desc_v2")
-                    with col_tx4:
-                        st.write("")
-                        st.write("")
-                        if st.button("💾 Провести", key="btn_save_real_tx_v2", use_container_width=True):
-                            raw_tx_type = "DEPOSIT" if "DEPOSIT" in tx_type_sel else ("WITHDRAWAL" if "WITHDRAWAL" in tx_type_sel else "ADJUSTMENT")
-                            conn_tx, err_tx = get_db_connection(db_url)
-                            if conn_tx:
-                                cur_tx = conn_tx.cursor()
-                                try:
-                                    from statmonitor.real_bankroll import record_real_transaction
-                                    ok_tx, new_b, msg_tx = record_real_transaction(cur_tx, conn_tx, raw_tx_type, tx_amt, description=tx_comment or tx_type_sel)
-                                    if ok_tx:
-                                        st.success(f"✅ {msg_tx}")
-                                        st.rerun()
-                                    else:
-                                        st.error(f"❌ {msg_tx}")
-                                finally:
-                                    cur_tx.close()
-                                    conn_tx.close()
+                    with st.form("form_ledger_tx"):
+                        col_tx1, col_tx2, col_tx3, col_tx4 = st.columns([2, 1.5, 3, 1.5])
+                        with col_tx1:
+                            tx_type_sel = st.selectbox(
+                                "Тип транзакції:",
+                                ["📥 Депозит (DEPOSIT)", "📤 Виведення (WITHDRAWAL)", "⚙️ Коригування (ADJUSTMENT)"],
+                                key="sel_tx_type_v2"
+                            )
+                        with col_tx2:
+                            tx_amt = st.number_input("Сума (грн):", min_value=1.0, max_value=1000000.0, value=1000.0, step=100.0, key="num_tx_amt_v2")
+                        with col_tx3:
+                            tx_comment = st.text_input("Коментар / Призначення:", placeholder="Поповнення банкролу", key="txt_tx_desc_v2")
+                        with col_tx4:
+                            st.write("")
+                            st.write("")
+                            btn_tx_sub = st.form_submit_button("💾 Провести", type="primary", use_container_width=True)
+
+                    if btn_tx_sub:
+                        raw_tx_type = "DEPOSIT" if "DEPOSIT" in tx_type_sel else ("WITHDRAWAL" if "WITHDRAWAL" in tx_type_sel else "ADJUSTMENT")
+                        conn_tx, err_tx = get_db_connection(db_url)
+                        if conn_tx:
+                            cur_tx = conn_tx.cursor()
+                            try:
+                                from statmonitor.real_bankroll import record_real_transaction
+                                ok_tx, new_b, msg_tx = record_real_transaction(cur_tx, conn_tx, raw_tx_type, tx_amt, description=tx_comment or tx_type_sel)
+                                if ok_tx:
+                                    st.success(f"✅ {msg_tx}")
+                                    st.rerun()
+                                else:
+                                    st.error(f"❌ {msg_tx}")
+                            finally:
+                                cur_tx.close()
+                                conn_tx.close()
 
                 if isinstance(real_ledger_df, pd.DataFrame) and not real_ledger_df.empty:
                     st.markdown("##### 📜 Журнал останніх транзакцій леджера")
