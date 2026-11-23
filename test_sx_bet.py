@@ -37,10 +37,10 @@ class TestSXBetClient(unittest.TestCase):
         dec_odds = client.convert_percentage_to_odds(pct_odds)
         self.assertEqual(dec_odds, 2.0)
 
-        # 1.50 decimal odds = 66.666%
+        # 1.50 decimal odds = 66.666% (округлюється до найближчого кроку 125)
         pct_odds_150 = client.convert_odds_to_percentage(1.50)
         dec_odds_150 = client.convert_percentage_to_odds(pct_odds_150)
-        self.assertEqual(dec_odds_150, 1.5)
+        self.assertAlmostEqual(dec_odds_150, 1.5, delta=0.01)
 
     def test_invalid_odds_conversion(self):
         client = SXBetClient()

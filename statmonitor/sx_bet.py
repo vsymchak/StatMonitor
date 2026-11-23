@@ -165,16 +165,27 @@ class SXBetClient:
             "amount": amount,
         }
 
-    def convert_odds_to_percentage(self, decimal_odds: float) -> str:
+    def convert_odds_to_percentage(self, decimal_odds: float, step_size: int = 125) -> str:
         """
-        Конвертує десятковий коефіцієнт (наприклад 2.00) у формат ймовірності SX Bet (10^20).
-        Формула: (1.0 / decimal_odds) * 10^20
+        Конвертує десятковий коефіцієнт (наприклад 2.00) у формат ймовірності SX Bet (10^20)
+        із обов'язковим округленням до сходинки oddsLadderStepSize (за замовчуванням 125).
+        Формула сходинки: step = step_size * 10^15
         """
         if decimal_odds <= 1.0:
             raise ValueError(f"Десятковий коефіцієнт має бути > 1.0, отримано {decimal_odds}")
         implied_prob = 1.0 / decimal_odds
-        val = int(implied_prob * (10**20))
-        return str(val)
+        raw_val = int(implied_prob * (10**20))
+
+        # Винятки для екстремумів 0.1% та 99.9%
+        exc_low = 10**17
+        exc_high = 999 * (10**17)
+        if raw_val == exc_low or raw_val == exc_high:
+            return str(raw_val)
+
+        # Округлення до дозволеної сітки сходинки (odds ladder)
+        ladder_step = step_size * (10**15)
+        valid_val = raw_val - (raw_val % ladder_step)
+        return str(valid_val)
 
     def convert_percentage_to_odds(self, percentage_odds_str: str) -> float:
         """
