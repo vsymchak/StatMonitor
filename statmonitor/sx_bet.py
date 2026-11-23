@@ -11,6 +11,7 @@ import os
 import time
 import secrets
 import logging
+from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 import requests
 
@@ -471,6 +472,20 @@ def sync_sx_positions_to_db(conn, client: Optional[SXBetClient] = None) -> int:
                         """, (f"payout_{m_hash[:20]}", payout, f"Виграш по ринку {ev_name} ({side})"))
             else:
                 order_id = p.get("orderId") or m_hash
+                raw_gt = market.get("gameTime")
+                gt_dt = None
+                if raw_gt:
+                    try:
+                        if isinstance(raw_gt, (int, float)):
+                            gt_dt = datetime.fromtimestamp(raw_gt, timezone.utc)
+                        elif isinstance(raw_gt, str):
+                            if raw_gt.isdigit():
+                                gt_dt = datetime.fromtimestamp(int(raw_gt), timezone.utc)
+                            else:
+                                gt_dt = raw_gt
+                    except Exception:
+                        gt_dt = None
+
                 cur.execute("""
                     INSERT INTO sx_bets (
                         order_id, market_hash, event_id, sport_label, event_name,
@@ -493,7 +508,7 @@ def sync_sx_positions_to_db(conn, client: Optional[SXBetClient] = None) -> int:
                     round(total_stake + max_win_val, 2),
                     status,
                     pnl if pnl is not None else 0.0,
-                    market.get("gameTime"),
+                    gt_dt,
                 ))
                 updated_count += 1
 
