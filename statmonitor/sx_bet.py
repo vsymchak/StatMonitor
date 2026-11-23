@@ -20,8 +20,9 @@ logger = logging.getLogger("statmonitor.sx_bet")
 SX_MAINNET_API = "https://api.sx.bet"
 SX_TESTNET_API = "https://api.toronto.sx.bet"
 
-# Мінімальні ставки згідно протоколу SX Bet
-MIN_BET_MAINNET_USDC = 5.0
+# Мінімальні ставки згідно протоколу SX Bet (OrderBook V3)
+# Раніше в V2 було 5 USDC, але в актуальній версії OBv3 мінімальний розмір знижено до 1 USDC
+MIN_BET_MAINNET_USDC = 1.0
 MIN_BET_TESTNET_USDC = 1.0
 
 # Відомі адреси USDC контрактів
@@ -82,6 +83,13 @@ class SXBetClient:
         except Exception as e:
             logger.error(f"Помилка з'єднання з SX Bet: {e}")
             return False
+
+    def get_metadata(self) -> Dict[str, Any]:
+        """Отримати актуальні метадані біржі (OBv3), включаючи ліміти, токени та затримки лайву."""
+        r = requests.get(f"{self.base_url}/metadata/obv3", headers=self.headers, timeout=self.timeout)
+        r.raise_for_status()
+        data = r.json()
+        return data.get("data", {})
 
     def get_sports(self) -> List[Dict[str, Any]]:
         """Отримати список доступних видів спорту."""

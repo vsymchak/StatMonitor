@@ -22,6 +22,13 @@ class TestSXBetClient(unittest.TestCase):
         client = SXBetClient(testnet=True)
         self.assertEqual(client.base_url, "https://api.toronto.sx.bet")
 
+    def test_metadata_endpoint(self):
+        client = SXBetClient()
+        meta = client.get_metadata()
+        self.assertIn("limits", meta)
+        self.assertEqual(meta["limits"]["orderSizeMinimum"], "1")
+        self.assertEqual(meta["activeAsset"]["symbol"], "USDC")
+
     def test_odds_conversion(self):
         client = SXBetClient()
         # 2.00 decimal odds = 50% implied probability = 5 * 10^19
@@ -48,12 +55,14 @@ class TestSXBetClient(unittest.TestCase):
         self.assertFalse(res_usdt["valid"])
         self.assertTrue(any("USDT" in err for err in res_usdt["errors"]))
 
-        # 2. Помилка: Менше мінімальної суми (0.50 замість 5.0 USDC на Mainnet)
+        # 2. Помилка: Менше мінімальної суми (0.50 замість 1.0 USDC на OBv3)
         res_small = client.validate_bet_parameters(amount=0.50, currency="USDC")
         self.assertFalse(res_small["valid"])
         self.assertTrue(any("мінімально дозволений ліміт" in err for err in res_small["errors"]))
 
-        # 3. Успіх: Валідна ставка 5.0 USDC
+        # 3. Успіх: Валідна ставка 1.0 USDC та 5.0 USDC
+        res_1 = client.validate_bet_parameters(amount=1.0, currency="USDC")
+        self.assertTrue(res_1["valid"])
         res_ok = client.validate_bet_parameters(amount=5.0, currency="USDC")
         self.assertTrue(res_ok["valid"])
         self.assertEqual(len(res_ok["errors"]), 0)
