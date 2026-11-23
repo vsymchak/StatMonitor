@@ -346,7 +346,7 @@ def calculate_market_breakdown(settled_bets):
 def calculate_counterfactual_audit(bets):
     """
     SPEC-35: Розрахунок метрик контрфактичного аудиту для порівняння
-    активних ставок (AI Confidence >= 7) проти відсіяних Shadow-ставок (Confidence < 7 або Skip).
+    активних ставок (AI Confidence >= 8 · Золотий стандарт) проти відсіяних Shadow-ставок (Confidence < 8 або Skip).
     
     Повертає словник:
     - live: {total, won, lost, void, pending, turnover, profit, roi_pct, win_rate}
@@ -453,21 +453,25 @@ def calculate_counterfactual_audit(bets):
 
 def calculate_confidence_calibration(bets):
     """
-    SPEC-35: Калібровка AI Confidence Score за бакетами:
+    SPEC-35 & SPEC-41: Калібровка AI Confidence Score та Brier Score Dashboard:
     - 1-4: Слабкі сигнали / Пропуск
     - 5-6: Сумнівні / Відсіяні
     - 7-8: Стандартний валуй (прохідний поріг)
     - 9-10: Висока впевненість
     
-    Для кожного бакета рахується Win Rate, ROI %, середній CLV % та Brier Score.
+    Для кожного бакета рахується Win Rate, ROI %, середній CLV %, Brier Score,
+    а також розраховується Expected Calibration Error (ECE), Brier Skill Score (BSS)
+    та детальна сегментація за окремими оцінками 1-10.
     """
     records = _to_records(bets)
     buckets = {
-        "1-4": {"name": "1-4 (Слабкі / Пропуск)", "range": (1, 4), "bets": []},
-        "5-6": {"name": "5-6 (Сумнівні / Відсіяні)", "range": (5, 6), "bets": []},
-        "7-8": {"name": "7-8 (Стандартний валуй)", "range": (7, 8), "bets": []},
-        "9-10": {"name": "9-10 (Висока впевненість)", "range": (9, 10), "bets": []},
+        "1-4": {"name": "1-4 (Слабкі / Пропуск)", "range": (1, 4), "midpoint": 2.5, "bets": []},
+        "5-6": {"name": "5-6 (Сумнівні / Відсіяні)", "range": (5, 6), "midpoint": 5.5, "bets": []},
+        "7-8": {"name": "7-8 (Стандартний валуй)", "range": (7, 8), "midpoint": 7.5, "bets": []},
+        "9-10": {"name": "9-10 (Висока впевненість)", "range": (9, 10), "midpoint": 9.5, "bets": []},
     }
+
+    granular_dict = {i: [] for i in range(1, 11)}
 
     for b in records:
         conf = b.get("confidence_score")
@@ -478,6 +482,9 @@ def calculate_confidence_calibration(bets):
         except (ValueError, TypeError):
             continue
 
+        if 1 <= c_val <= 10:
+            granular_dict[c_val].append(b)
+
         for b_key, b_data in buckets.items():
             low, high = b_data["range"]
             if low <= c_val <= high:
@@ -486,6 +493,8 @@ def calculate_confidence_calibration(bets):
 
     results = []
     total_squared_errors = []
+    all_decided_preds = []
+    all_decided_actuals = []
 
     for b_key in ["1-4", "5-6", "7-8", "9-10"]:
         b_data = buckets[b_key]
@@ -515,6 +524,7 @@ def calculate_confidence_calibration(bets):
         avg_clv = round(sum(clvs) / len(clvs), 2) if clvs else 0.0
 
         brier_bucket = []
+        pred_probs = []
         for b, res, _ in settled:
             if res in ("WON", "LOST"):
                 p_est = min(1.0, max(0.0, float(b.get("confidence_score") or 5) / 10.0))
@@ -522,8 +532,13 @@ def calculate_confidence_calibration(bets):
                 sq_err = (p_est - actual) ** 2
                 brier_bucket.append(sq_err)
                 total_squared_errors.append(sq_err)
+                all_decided_preds.append(p_est)
+                all_decided_actuals.append(actual)
+                pred_probs.append(p_est * 100.0)
 
         bucket_brier = round(sum(brier_bucket) / len(brier_bucket), 4) if brier_bucket else None
+        avg_pred_wr = round(sum(pred_probs) / len(pred_probs), 1) if pred_probs else round(b_data["midpoint"] * 10.0, 1)
+        cal_diff = round(win_rate - avg_pred_wr, 1) if (won + lost) > 0 else 0.0
 
         results.append({
             "bucket": b_key,
@@ -533,6 +548,8 @@ def calculate_confidence_calibration(bets):
             "lost": lost,
             "void": void,
             "win_rate": win_rate,
+            "expected_win_rate": avg_pred_wr,
+            "calibration_gap": cal_diff,
             "roi_pct": roi,
             "turnover": turnover,
             "profit": profit,
@@ -540,10 +557,117 @@ def calculate_confidence_calibration(bets):
             "brier_score": bucket_brier,
         })
 
+    # Granular scores 1..10 breakdown
+    granular_results = []
+    for score in range(1, 11):
+        s_bets = granular_dict[score]
+        settled_s = []
+        for b in s_bets:
+            is_sh = bool(b.get("is_shadow")) or b.get("status") == "FILTERED"
+            res = (b.get("shadow_status") if is_sh else b.get("status")) or ""
+            if str(res).upper() in ("WON", "LOST", "VOID"):
+                settled_s.append((b, str(res).upper(), is_sh))
+
+        won_s = sum(1 for _, res, _ in settled_s if res == "WON")
+        lost_s = sum(1 for _, res, _ in settled_s if res == "LOST")
+        void_s = sum(1 for _, res, _ in settled_s if res == "VOID")
+        tot_s = won_s + lost_s + void_s
+
+        turnover_s = sum(float(b.get("stake_uah") or 0.0) for b, _, _ in settled_s)
+        profit_s = sum(
+            float(b.get("shadow_profit_uah") if is_sh else b.get("profit_uah") or 0.0)
+            for b, _, is_sh in settled_s
+        )
+        roi_s = round((profit_s / turnover_s * 100.0), 2) if turnover_s > 0 else 0.0
+        win_rate_s = round((won_s / (won_s + lost_s) * 100.0), 1) if (won_s + lost_s) > 0 else 0.0
+
+        clvs_s = [float(b.get("clv_pct")) for b, _, _ in settled_s if b.get("clv_pct") is not None]
+        avg_clv_s = round(sum(clvs_s) / len(clvs_s), 2) if clvs_s else 0.0
+
+        brier_s = []
+        for b, res, _ in settled_s:
+            if res in ("WON", "LOST"):
+                p_est = score / 10.0
+                actual = 1.0 if res == "WON" else 0.0
+                brier_s.append((p_est - actual) ** 2)
+
+        score_brier = round(sum(brier_s) / len(brier_s), 4) if brier_s else None
+        expected_wr_s = round(score * 10.0, 1)
+
+        granular_results.append({
+            "score": score,
+            "label": f"★ {score}/10",
+            "total_bets": tot_s,
+            "won": won_s,
+            "lost": lost_s,
+            "void": void_s,
+            "win_rate": win_rate_s,
+            "expected_win_rate": expected_wr_s,
+            "calibration_gap": round(win_rate_s - expected_wr_s, 1) if (won_s + lost_s) > 0 else 0.0,
+            "roi_pct": roi_s,
+            "turnover": turnover_s,
+            "profit": profit_s,
+            "avg_clv_pct": avg_clv_s,
+            "brier_score": score_brier,
+        })
+
     overall_brier = round(sum(total_squared_errors) / len(total_squared_errors), 4) if total_squared_errors else None
+
+    # Expected Calibration Error (ECE) across active buckets
+    total_decided = len(all_decided_actuals)
+    if total_decided > 0:
+        ece_acc = 0.0
+        for b in results:
+            decided_b = b["won"] + b["lost"]
+            if decided_b > 0:
+                gap = abs(b["win_rate"] - b["expected_win_rate"]) / 100.0
+                ece_acc += (decided_b / total_decided) * gap
+        ece = round(ece_acc, 4)
+        ece_pct = round(ece_acc * 100.0, 2)
+    else:
+        ece = None
+        ece_pct = None
+
+    # Brier Skill Score (BSS) vs Climatological reference
+    if total_decided > 0 and overall_brier is not None:
+        p_base = sum(all_decided_actuals) / total_decided
+        brier_ref = p_base * (1.0 - p_base)
+        if brier_ref > 0.0001:
+            bss = round((1.0 - (overall_brier / brier_ref)) * 100.0, 2)
+        else:
+            bss = 0.0
+    else:
+        bss = None
+
+    # Verdict
+    if total_decided < 3 or overall_brier is None or ece_pct is None:
+        verdict = "INSUFFICIENT_DATA"
+        verdict_label = "Недостатньо розрахованих даних (<3 ставок)"
+    elif ece_pct <= 10.0:
+        verdict = "EXCELLENT"
+        verdict_label = f"Відмінне калібрування (ECE {ece_pct:.1f}%)"
+    elif ece_pct <= 20.0:
+        verdict = "GOOD"
+        verdict_label = f"Добре калібрування (ECE {ece_pct:.1f}%)"
+    else:
+        avg_pred = sum(all_decided_preds) / total_decided
+        avg_act = sum(all_decided_actuals) / total_decided
+        if avg_pred > avg_act:
+            verdict = "OVERCONFIDENT"
+            verdict_label = f"Надмірна впевненість ШІ (ECE {ece_pct:.1f}%)"
+        else:
+            verdict = "UNDERCONFIDENT"
+            verdict_label = f"Занижена впевненість ШІ (ECE {ece_pct:.1f}%)"
 
     return {
         "buckets": results,
+        "granular_scores": granular_results,
         "overall_brier_score": overall_brier,
+        "expected_calibration_error": ece,
+        "ece_pct": ece_pct,
+        "brier_skill_score": bss,
+        "calibration_verdict": verdict,
+        "calibration_verdict_label": verdict_label,
+        "total_evaluated_bets": total_decided,
     }
 

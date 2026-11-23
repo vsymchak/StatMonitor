@@ -73,6 +73,7 @@ from statmonitor.analytics import (
     calculate_market_breakdown,
     calculate_clv_value,
     calculate_clv_metrics,
+    calculate_confidence_calibration,
 )
 from statmonitor.limiter import (
     get_budget_mode,
@@ -97,6 +98,8 @@ from statmonitor.league_config import (
     save_all_leagues_batch,
     ensure_league_thresholds_table,
     reset_league_thresholds_to_default,
+    get_global_defaults,
+    save_global_defaults,
 )
 from statmonitor.digest import (
     generate_weekly_digest,
@@ -108,10 +111,10 @@ from statmonitor.real_bankroll import (
     toggle_real_bet,
     settle_real_bet_in_ledger,
 )
-from statmonitor.slip_ocr import (
-    parse_bet_slip_with_gemini,
-    match_slip_with_pending_bets,
-    apply_slip_to_bet,
+from statmonitor.cold_archive import (
+    archive_cold_odds,
+    get_cold_archive_summary,
+    records_to_parquet_bytes,
 )
 
 __all__ = [
@@ -169,6 +172,8 @@ __all__ = [
     "sync_leagues_to_db",
     "save_league_threshold",
     "reset_league_thresholds_to_default",
+    "get_global_defaults",
+    "save_global_defaults",
     "parse_pick_label",
     "resolve_alert_from_history",
     "get_market_median_odds",
@@ -182,6 +187,7 @@ __all__ = [
     "calculate_market_breakdown",
     "calculate_clv_value",
     "calculate_clv_metrics",
+    "calculate_confidence_calibration",
     "build_weekly_equity_chart",
     "generate_weekly_digest",
     "ensure_real_bankroll_tables",
@@ -189,7 +195,7 @@ __all__ = [
     "record_real_transaction",
     "toggle_real_bet",
     "settle_real_bet_in_ledger",
-    "parse_bet_slip_with_gemini",
-    "match_slip_with_pending_bets",
-    "apply_slip_to_bet",
+    "archive_cold_odds",
+    "get_cold_archive_summary",
+    "records_to_parquet_bytes",
 ]

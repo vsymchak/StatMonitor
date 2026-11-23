@@ -4,6 +4,7 @@ import statistics
 from datetime import datetime
 from statmonitor.config import (
     INITIAL_BANKROLL,
+    DEFAULT_MIN_CONFIDENCE,
     API_KEY,
     API_KEY_RESERVE,
     API_KEY_RESERVE1,
@@ -475,7 +476,7 @@ def calculate_kelly_fraction(odds, drop_pct=None, confidence=None, fraction=0.25
     clamped = max(min_pct, min(max_pct, frac_kelly))
     return round(clamped, 4)
 
-def place_paper_bet(cur, conn, ev_id, sport, match, c_time, pick_lbl, odds, drop_pct=None, confidence=None, risk_level=None, save_shadow=True, walkaway_odds=None):
+def place_paper_bet(cur, conn, ev_id, sport, match, c_time, pick_lbl, odds, drop_pct=None, confidence=None, risk_level=None, save_shadow=True, walkaway_odds=None, min_confidence=None):
     try:
         # SPEC-37: Розрахунок порогу беззбитковості (Walkaway Odds), якщо не передано явно
         if walkaway_odds is None and odds:
@@ -485,14 +486,16 @@ def place_paper_bet(cur, conn, ev_id, sport, match, c_time, pick_lbl, odds, drop
             except Exception:
                 walkaway_odds = None
 
+        effective_min_conf = DEFAULT_MIN_CONFIDENCE if min_confidence is None else int(min_confidence)
+
         filter_reason = None
         if any(w in str(pick_lbl).lower() for w in ("пропустити", "утриматися")):
             filter_reason = "AI_SKIP"
         elif confidence is not None:
             try:
                 conf_val = int(confidence)
-                if conf_val < 7:
-                    filter_reason = f"LOW_CONFIDENCE ({conf_val}/10 < 7)"
+                if conf_val < effective_min_conf:
+                    filter_reason = f"LOW_CONFIDENCE ({conf_val}/10 < {effective_min_conf})"
             except (ValueError, TypeError):
                 pass
 

@@ -9,6 +9,7 @@ import math
 import re
 from datetime import datetime
 from statmonitor.novig import calculate_real_stake
+from statmonitor.config import DEFAULT_MIN_CONFIDENCE
 
 def _to_records(data):
     if data is None:
@@ -65,7 +66,7 @@ def run_backtest(bets_data, config=None):
     - fraction: float (дефолт: 0.10 для Kelly)
     - flat_amount: float (дефолт: 100.0 ₴)
     - percent_bank: float (дефолт: 0.02, тобто 2%)
-    - min_confidence: int (дефолт: 7, 0..10)
+    - min_confidence: int (дефолт: 8, Золотий стандарт якості ШІ)
     - min_odds: float (дефолт: 1.10)
     - max_odds: float (дефолт: 10.00)
     - include_shadow: bool (дефолт: False)
@@ -80,7 +81,7 @@ def run_backtest(bets_data, config=None):
     fraction = float(cfg.get("fraction", 0.10))
     flat_amount = float(cfg.get("flat_amount", 100.0))
     percent_bank = float(cfg.get("percent_bank", 0.02))
-    min_confidence = int(cfg.get("min_confidence", 7))
+    min_confidence = int(cfg.get("min_confidence", DEFAULT_MIN_CONFIDENCE))
     min_odds = float(cfg.get("min_odds", 1.10))
     max_odds = float(cfg.get("max_odds", 10.00))
     include_shadow = bool(cfg.get("include_shadow", False))
@@ -406,32 +407,32 @@ def run_benchmark_comparison(bets_data, initial_bank=10000.0):
     """
     benchmarks = [
         {
-            "name": "1. Live Real (0.10x Kelly, Conf ≥ 7)",
+            "name": "1. Live Real (0.10x Kelly, Conf ≥ 8 · Золотий стандарт)",
             "cfg": {
                 "initial_bankroll": initial_bank,
                 "staking_model": "KELLY_FRACTION",
                 "fraction": 0.10,
-                "min_confidence": 7,
+                "min_confidence": 8,
                 "include_shadow": False
             }
         },
         {
-            "name": "2. Aggressive Kelly (0.25x Kelly, Conf ≥ 7)",
+            "name": "2. Aggressive Kelly (0.25x Kelly, Conf ≥ 8)",
             "cfg": {
                 "initial_bankroll": initial_bank,
                 "staking_model": "KELLY_FRACTION",
                 "fraction": 0.25,
-                "min_confidence": 7,
+                "min_confidence": 8,
                 "include_shadow": False
             }
         },
         {
-            "name": "3. Conservative Flat (100 ₴, Conf ≥ 7)",
+            "name": "3. Conservative Flat (100 ₴, Conf ≥ 8)",
             "cfg": {
                 "initial_bankroll": initial_bank,
                 "staking_model": "FLAT",
                 "flat_amount": 100.0,
-                "min_confidence": 7,
+                "min_confidence": 8,
                 "include_shadow": False
             }
         },
@@ -446,12 +447,12 @@ def run_benchmark_comparison(bets_data, initial_bank=10000.0):
             }
         },
         {
-            "name": "5. Elite EV (0.10x Kelly, Conf ≥ 8, Walkaway)",
+            "name": "5. Elite EV (0.10x Kelly, Conf ≥ 9, Walkaway)",
             "cfg": {
                 "initial_bankroll": initial_bank,
                 "staking_model": "KELLY_FRACTION",
                 "fraction": 0.10,
-                "min_confidence": 8,
+                "min_confidence": 9,
                 "enforce_walkaway": True,
                 "include_shadow": False
             }

@@ -73,6 +73,19 @@ class TestOrchestrationSyncAndACID(unittest.TestCase):
         amt_signed = params[1]
         self.assertEqual(amt_signed, -4000.00)
 
+    def test_adjustment_negative_amount_as_delta(self):
+        """
+        Перевіряє, що від'ємна сума (наприклад -22.25) коректно зменшує баланс на цю дельту.
+        """
+        cur = MockCursor(fetchone_data=(3000.00,))
+        conn = MockConn()
+
+        ok, new_bal, msg = record_real_transaction(cur, conn, "ADJUSTMENT", -22.25, "Списання / коригування", is_delta=True)
+        self.assertTrue(ok)
+        self.assertEqual(new_bal, 2977.75)
+        self.assertEqual(cur.queries[-1][1][1], -22.25)
+        self.assertEqual(cur.queries[-1][1][2], 2977.75)
+
     def test_ledger_summary_reconciles_sum_over_stale_balance(self):
         """
         Перевіряє, що get_real_bankroll_summary використовує математичну суму леджера,

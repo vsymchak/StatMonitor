@@ -129,11 +129,12 @@ def get_real_bankroll_summary(cur, conn=None):
     return summary
 
 
-def record_real_transaction(cur, conn, tx_type, amount, description="", bet_id=None):
+def record_real_transaction(cur, conn, tx_type, amount, description="", bet_id=None, is_delta=False):
     """
     Записує фінансову транзакцію в журнал реального банку з гарантією атомарності (SPEC-38):
     - tx_type: 'INITIAL', 'DEPOSIT', 'WITHDRAWAL', 'BET_RESULT', 'ADJUSTMENT'
     - amount: сума транзакції (позитивна або від'ємна)
+    - is_delta: чи є сума дельтою (+/- до балансу) при коригуванні ADJUSTMENT
     - Гарантує SUM(amount_uah) == balance_after_uah для будь-якої транзакції.
     """
     try:
@@ -154,8 +155,12 @@ def record_real_transaction(cur, conn, tx_type, amount, description="", bet_id=N
             amt_signed = amt
             new_balance = round(current_b + amt, 2)
         elif tx_type_upper == "ADJUSTMENT":
-            new_balance = round(amt, 2)
-            amt_signed = round(new_balance - current_b, 2)
+            if is_delta or amt < 0:
+                new_balance = round(max(0.0, current_b + amt), 2)
+                amt_signed = round(new_balance - current_b, 2)
+            else:
+                new_balance = round(amt, 2)
+                amt_signed = round(new_balance - current_b, 2)
         elif tx_type_upper == "INITIAL":
             new_balance = round(amt, 2)
             amt_signed = amt
@@ -640,23 +645,42 @@ def evaluate_real_risk_guardrails(cur, candidate_configs=None, stop_loss_pct=7.0
     }
 
 
-def prepare_real_stakes_batch(cur, bet_ids, fraction=0.10, min_stake=20.0, max_pct=0.05, return_guardrails=False):
+def prepare_real_stakes_batch(cur, bet_ids, fraction=0.20, min_stake=20.0, max_pct=0.05, return_guardrails=False):
     """
     Підготовлює розрахунок розмірів ставок для списку bet_ids
-    строго від балансу реального банку (SPEC-34 & SPEC-36).
-    Повертає: (real_balance, proposals_list) або (real_balance, proposals_list, guardrails)
+    строго від ВІЛЬНОГО ЗАЛИШКУ реального банку (SPEC-34 & SPEC-36).
+    Вільний залишок = Баланс леджера - Сума інших активних ставок у грі.
+    Повертає: (free_real_balance, proposals_list) або (free_real_balance, proposals_list, guardrails)
     """
     from statmonitor.novig import calculate_real_stake
 
-    cur.execute("SELECT balance_after_uah FROM real_bankroll_ledger ORDER BY created_at DESC, id DESC LIMIT 1;")
-    row_b = cur.fetchone()
-    real_balance = float(row_b[0]) if (row_b and row_b[0] is not None) else 0.0
+    # Розраховуємо загальний баланс леджера та експозицію інших ставок у грі
+    try:
+        cur.execute("""
+            SELECT 
+                (SELECT balance_after_uah FROM real_bankroll_ledger ORDER BY created_at DESC, id DESC LIMIT 1),
+                (SELECT COALESCE(SUM(COALESCE(real_stake_uah, stake_uah)), 0) 
+                 FROM paper_bets 
+                 WHERE is_real_bet = TRUE AND status = 'PENDING' AND NOT (id = ANY(%s)))
+        """, (list(bet_ids or [0]),))
+        row_b = cur.fetchone()
+        ledger_balance = float(row_b[0]) if (row_b and row_b[0] is not None) else 0.0
+        pending_exposure = float(row_b[1]) if (row_b and len(row_b) > 1 and row_b[1] is not None) else 0.0
+    except Exception:
+        cur.execute("SELECT balance_after_uah FROM real_bankroll_ledger ORDER BY created_at DESC, id DESC LIMIT 1;")
+        row_b = cur.fetchone()
+        ledger_balance = float(row_b[0]) if (row_b and row_b[0] is not None) else 0.0
+        pending_exposure = 0.0
+
+    # Вільний залишок реального банку
+    free_real_balance = max(0.0, ledger_balance - pending_exposure)
+    real_balance = free_real_balance
 
     if not bet_ids:
         empty_guard = evaluate_real_risk_guardrails(cur, candidate_configs=[])
         if return_guardrails:
-            return real_balance, [], empty_guard
-        return real_balance, []
+            return free_real_balance, [], empty_guard
+        return free_real_balance, []
 
     # Витягуємо інформацію про вибрані ставки (включно з walkaway_odds, SPEC-37)
     try:
@@ -715,10 +739,12 @@ def prepare_real_stakes_batch(cur, bet_ids, fraction=0.10, min_stake=20.0, max_p
             "odds": eff_odds,
             "walkaway_odds": w_val,
             "sport": sport,
-            "real_balance": real_balance,
+            "real_balance": free_real_balance,
+            "ledger_balance": ledger_balance,
+            "pending_exposure": pending_exposure,
             "recommended_stake": float(round(rec_stake)),
             "recommended_pct": rec_pct,
-            "current_real_stake": float(round(float(cur_r_stake))) if cur_r_stake else float(round(rec_stake)),
+            "current_real_stake": float(round(float(cur_r_stake))) if (cur_r_stake and float(cur_r_stake) not in (25.0, 30.0) and is_real) else float(round(rec_stake)),
             "is_real_bet": bool(is_real),
             "status_msg": status_msg
         })
