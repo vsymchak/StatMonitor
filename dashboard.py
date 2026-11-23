@@ -289,25 +289,30 @@ def fetch_data(db_url):
         except Exception as e_med:
             print("Auto-fix Medvedev-Tiafoe err:", e_med)
 
-        # SPEC-Real-AutoRecalc: Автоматичне коригування застряглих ставок по 30 грн відповідно до їхнього Kelly %
+        # SPEC-Real-AutoRecalc: Автоматичне коригування застряглих ставок по 25 або 30 грн відповідно до їхнього Kelly %
         try:
             cur.execute("""
                 SELECT id, odds, kelly_pct 
                 FROM paper_bets 
-                WHERE is_real_bet = TRUE AND status = 'PENDING' AND real_stake_uah = 30.0 AND kelly_pct > 1.0;
+                WHERE is_real_bet = TRUE AND status = 'PENDING' AND real_stake_uah IN (25.0, 30.0) AND kelly_pct > 1.0;
             """)
             stuck_bets = cur.fetchall()
             if stuck_bets:
                 cur.execute("""
-                    SELECT balance_after_uah FROM real_bankroll_ledger ORDER BY created_at DESC, id DESC LIMIT 1;
+                    SELECT 
+                        (SELECT balance_after_uah FROM real_bankroll_ledger ORDER BY created_at DESC, id DESC LIMIT 1),
+                        (SELECT COALESCE(SUM(COALESCE(real_stake_uah, stake_uah)), 0) 
+                         FROM paper_bets 
+                         WHERE is_real_bet = TRUE AND status = 'PENDING')
                 """)
                 r_bal_row = cur.fetchone()
-                cur_r_bal = float(r_bal_row[0]) if (r_bal_row and r_bal_row[0]) else 3000.0
+                tot_bal = float(r_bal_row[0]) if (r_bal_row and r_bal_row[0]) else 3000.0
+                cur_r_bal = max(1000.0, tot_bal)
                 for b_id, b_odds, k_val in stuck_bets:
                     if k_val:
                         from statmonitor.novig import calculate_real_stake
                         c_stk, c_pct, _ = calculate_real_stake(b_odds, cur_r_bal, kelly_pct=k_val)
-                        if c_stk > 0:
+                        if c_stk > 0 and c_stk not in (25.0, 30.0):
                             cur.execute("UPDATE paper_bets SET real_stake_uah = %s WHERE id = %s;", (float(c_stk), b_id))
         except Exception as e_recalc:
             print("Auto-recalc real stakes err:", e_recalc)
@@ -396,9 +401,9 @@ def fetch_data(db_url):
         except Exception as e:
             print("Heartbeat query err:", e)
 
-        # 5. Smart Rate-Limiter (SPEC-10)
+        # 5. Smart Rate-Limiter (SPEC-10) — повна вибірка ліг за кількістю запитів
         try:
-            poll_data = query_to_dataframe(cur, "SELECT sport, tier, last_polled_at, poll_count FROM sports_poll_log ORDER BY last_polled_at DESC LIMIT 30;")
+            poll_data = query_to_dataframe(cur, "SELECT sport, tier, last_polled_at, poll_count FROM sports_poll_log ORDER BY poll_count DESC;")
         except Exception:
             pass
 
@@ -1347,6 +1352,57 @@ def run_streamlit_app():
             </div>
         """, unsafe_allow_html=True)
 
+    # SPEC: Витрата API-токенів / запитів за видами спорту (Хто з'їв квоту)
+    try:
+        from statmonitor.limiter import compute_sports_quota_breakdown
+        from statmonitor.league_config import load_leagues_config
+        q_breakdown = compute_sports_quota_breakdown(poll_df, leagues_config=load_leagues_config())
+        
+        top_cats = [c for c in q_breakdown.get("categories", []) if c.get("poll_count", 0) > 0]
+        top_sport_label = f" (Топ-споживач: {top_cats[0]['category_name']} — {top_cats[0]['poll_count']} запитів)" if top_cats else ""
+        
+        with st.expander(f"📊 Деталізація витрати API: Який вид спорту з'їв токени? ({q_breakdown['total_polls']} / {q_breakdown['total_limit']} запитів){top_sport_label}", expanded=False):
+            if top_cats:
+                col_qb1, col_qb2 = st.columns([6, 4])
+                with col_qb1:
+                    df_cats_disp = pd.DataFrame([
+                        {
+                            "Вид спорту": c["category_name"],
+                            "Запитів (токенів)": c["poll_count"],
+                            "% від витраченої квоти": f"{c['pct_of_used']:.1f}%",
+                            "% від місячного ліміту": f"{c['pct_of_limit']:.1f}%",
+                            "Ліг у скануванні": c["leagues_count"],
+                            "Топ-ліга споживач": c["top_league_title"]
+                        }
+                        for c in top_cats
+                    ])
+                    st.dataframe(df_cats_disp, use_container_width=True, hide_index=True)
+                with col_qb2:
+                    cat_names_rev = [c["category_name"] for c in reversed(top_cats)]
+                    cat_polls_rev = [c["poll_count"] for c in reversed(top_cats)]
+                    fig_sp_quota = go.Figure(go.Bar(
+                        x=cat_polls_rev,
+                        y=cat_names_rev,
+                        orientation="h",
+                        marker=dict(color="#3B82F6"),
+                        text=[f"{v} ({round(v / q_breakdown['total_polls'] * 100, 1)}%)" for v in cat_polls_rev],
+                        textposition="auto",
+                    ))
+                    fig_sp_quota.update_layout(
+                        height=max(180, len(top_cats) * 32),
+                        margin=dict(l=10, r=10, t=10, b=10),
+                        template="plotly_dark" if is_dark else "plotly_white",
+                        plot_bgcolor="rgba(0,0,0,0)",
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        xaxis=dict(showgrid=True, gridcolor="#1E293B" if is_dark else "#F1F5F9"),
+                        yaxis=dict(showgrid=False),
+                    )
+                    st.plotly_chart(fig_sp_quota, use_container_width=True, config={"displayModeBar": False})
+            else:
+                st.info("ℹ️ Дані про опитування ліг ще накопичуються в базі даних sports_poll_log.")
+    except Exception as q_err:
+        print("API quota breakdown render err:", q_err)
+
     # SPEC-31: Банер стану реального банку (доступний тільки адміністратору)
     if is_admin and (real_summary.get("total_deposits", 0) > 0 or real_summary.get("total_real_bets", 0) > 0 or real_summary.get("current_balance", 0) > 0):
         p_sign = "+" if real_summary.get('real_profit', 0) > 0 else ""
@@ -1959,50 +2015,25 @@ def run_streamlit_app():
                     key="admin_pending_editor_v2",
                 )
 
-                if edited_p is not None and not edited_p.empty and "🟢 Real" in edited_p.columns:
-                    changed_list = []
-                    for orig_r, edit_r in zip(p_disp.to_dict("records"), edited_p.to_dict("records")):
-                        if bool(orig_r.get("🟢 Real")) != bool(edit_r.get("🟢 Real")):
-                            raw_id = int(str(orig_r.get("ID")).lstrip("#"))
-                            new_st = bool(edit_r.get("🟢 Real"))
-                            changed_list.append((raw_id, new_st, orig_r))
-
-                    if changed_list:
-                        # Захист конкретного рядка: якщо рядок вже був зафіксований у реальному банку
-                        blocked_for_already = [
-                            (b_id, r_info) for b_id, b_val, r_info in changed_list
-                            if b_id in already_real_ids
-                        ]
-                        if blocked_for_already:
-                            b_id, r_info = blocked_for_already[0]
-                            st.warning(f"🔒 Рядок #{b_id} ({r_info.get('Подія', '')}) вже зафіксовано в Реальному банку. Його вибір заблоковано від повторної зміни. Коригування доступне у вкладці «🟢 Реальний банк».")
-                            st.rerun()
-
-                        conn_chg, err_chg = get_db_connection(db_url)
-                        if conn_chg:
-                            cur_chg = conn_chg.cursor()
-                            try:
-                                from statmonitor.real_bankroll import toggle_real_bet
-                                for b_id, b_val, _ in changed_list:
-                                    ok_t, msg_t = toggle_real_bet(cur_chg, conn_chg, b_id, is_real=b_val, enforce_single_active=False)
-                                    if not ok_t and b_val:
-                                        st.error(f"❌ {msg_t}")
-                                        st.rerun()
-                                    if b_val:
-                                        st.session_state["show_real_stake_calc"] = True
-                                status_text = "🟢 Real" if b_val else "⚪ Paper"
-                                st.toast(f"✅ Статус ставки #{b_id} оновлено: {status_text}", icon="💾")
-                                st.rerun()
-                            finally:
-                                cur_chg.close()
-                                conn_chg.close()
-
-                # SPEC-34: Кнопка переносу в Реальний банк та розрахунку ставок
+                # SPEC: Вибір подій для перенесення в Real (БЕЗ миттєвого збереження при кліку на чекбокс — ЛИШЕ на кнопку)
                 new_checked_real_ids = [
                     int(str(r.get("ID")).lstrip("#"))
                     for r in (edited_p.to_dict("records") if edited_p is not None else p_disp.to_dict("records"))
                     if bool(r.get("🟢 Real")) and int(str(r.get("ID")).lstrip("#")) not in already_real_ids
                 ]
+
+                # Збираємо активні події в грі для захисту від дублікатів
+                active_real_matches_set = set()
+                active_real_ev_ids_set = set()
+                if bets_df is not None and not bets_df.empty and "is_real_bet" in bets_df.columns:
+                    rp_act = bets_df[(bets_df["is_real_bet"] == True) & (bets_df["status"] == "PENDING")]
+                    for _, r_rp in rp_act.iterrows():
+                        mn = str(r_rp.get("match_name", "")).strip().lower()
+                        if mn:
+                            active_real_matches_set.add(mn)
+                        eid = str(r_rp.get("event_id", "")).strip()
+                        if eid:
+                            active_real_ev_ids_set.add(eid)
 
                 # Кнопка розтягнута на всю ширину таблиці та активна для нових обраних подій
                 btn_calc_lbl = f"⚡ Перенести в Реальні ставки & Розрахувати банк ({len(new_checked_real_ids)} обрано)"
@@ -2013,7 +2044,35 @@ def run_streamlit_app():
                     disabled=(len(new_checked_real_ids) == 0),
                     use_container_width=True
                 ):
-                    st.session_state["show_real_stake_calc"] = True
+                    p_records_map = {int(str(r.get("ID")).lstrip("#")): r for r in p_disp.to_dict("records")}
+                    valid_candidates = []
+                    duplicate_warnings = []
+
+                    for cand_id in new_checked_real_ids:
+                        c_row = p_records_map.get(cand_id, {})
+                        c_match = str(c_row.get("Подія", "") or c_row.get("match_name", "")).strip()
+                        c_ev = str(c_row.get("event_id", "")).strip()
+
+                        is_dup = False
+                        if c_match and c_match.lower() in active_real_matches_set:
+                            is_dup = True
+                        elif c_ev and c_ev in active_real_ev_ids_set:
+                            is_dup = True
+
+                        if is_dup:
+                            duplicate_warnings.append(f"#{cand_id} ({c_match})")
+                        else:
+                            valid_candidates.append(cand_id)
+
+                    if duplicate_warnings:
+                        st.warning(f"⚠️ Виявлено дублікати: події {', '.join(duplicate_warnings)} вже поставлені в Реальних ставках! Повторне перенесення відхилено.")
+
+                    if valid_candidates:
+                        st.session_state["target_real_calc_ids"] = valid_candidates
+                        st.session_state["show_real_stake_calc"] = True
+                        st.rerun()
+                    else:
+                        st.error("❌ Жодної унікальної нової події для перенесення не обрано або всі вибрані події вже поставлені в Реальному банку.")
 
                 # SPEC-34: Блок розрахунку та фіксації ставок від реального депозиту
                 if st.session_state.get("show_real_stake_calc"):
@@ -2024,19 +2083,15 @@ def run_streamlit_app():
                     st.markdown(f"""
                         <div style="background: {calc_box_bg}; border: 1.5px solid {calc_box_border}; border-radius: 10px; padding: 10px 14px; margin: 10px 0 14px 0;">
                             <div style="font-weight: 700; color: {calc_box_title}; font-size: 13.5px; margin-bottom: 2px;">
-                                💼 Розрахунок реальних ставок від фактичного капіталу (SPEC-34)
+                                💼 Розрахунок реальних ставок від вільного залишку реального капіталу (SPEC-34)
                             </div>
                             <div style="font-size: 11.5px; color: {calc_box_text};">
-                                Розмір ставки для обраних матчів розраховується <b>строго від актуального залишку Реального банку</b> (ультра-консервативний Келлі 0.10 × Kelly, макс. 5% на ставку).
+                                Розмір ставки для обраних матчів розраховується <b>строго від вільного залишку Реального банку</b> (з урахуванням Kelly % ставки, макс. 5% на ставку).
                             </div>
                         </div>
                     """, unsafe_allow_html=True)
 
-                    targets_calc = new_checked_real_ids if new_checked_real_ids else [
-                        int(str(r.get("ID")).lstrip("#"))
-                        for r in (edited_p.to_dict("records") if edited_p is not None else p_disp.to_dict("records"))
-                        if bool(r.get("🟢 Real")) and int(str(r.get("ID")).lstrip("#")) not in already_real_ids
-                    ]
+                    targets_calc = st.session_state.get("target_real_calc_ids") or new_checked_real_ids
                     if not targets_calc:
                         st.info("ℹ️ Будь ласка, відмітьте прапорцем **🟢 Real** хоча б одну ставку в таблиці вище для розрахунку.")
                     else:
@@ -2048,9 +2103,11 @@ def run_streamlit_app():
                                 real_bal, proposals = prepare_real_stakes_batch(cur_calc, targets_calc)
 
                                 if real_bal <= 0:
-                                    st.error(f"❌ Реальний банк порожній ({real_bal:,.2f} ₴). Будь ласка, спочатку внесіть депозит у блоці «Каса реального банку» нижче.")
+                                    st.error(f"❌ Вільний залишок реального банку порожній ({real_bal:,.2f} ₴). Будь ласка, внесіть депозит або дочекайтеся розрахунку активних ставок.")
                                 else:
-                                    st.markdown(f"💰 **Поточний реальний баланс:** <code>{real_bal:,.2f} ₴</code>")
+                                    st.markdown(f"💰 **Вільний залишок реального банку:** <code>{real_bal:,.2f} ₴</code>")
+                                    if proposals and "ledger_balance" in proposals[0]:
+                                        st.caption(f"ℹ️ Загальний капітал: {proposals[0]['ledger_balance']:,.2f} ₴ • Вже заблоковано в грі: {proposals[0]['pending_exposure']:,.2f} ₴")
                                     calc_configs = []
                                     sum_calc_stakes = 0.0
 
@@ -2073,7 +2130,7 @@ def run_streamlit_app():
                                                 "Сума (₴):",
                                                 min_value=10.0,
                                                 max_value=float(math.floor(max(100.0, real_bal))),
-                                                value=float(round(float(p['current_real_stake'] or p['recommended_stake'] or 50.0))),
+                                                value=float(round(float(p['recommended_stake']))),
                                                 step=1.0,
                                                 format="%d",
                                                 key=f"inp_r_stk_{p['id']}",
@@ -2087,8 +2144,8 @@ def run_streamlit_app():
                                     exp_txt_clr = '#F8FAFC' if is_dark else '#1E293B'
                                     st.markdown(f"""
                                         <div style="font-size: 12.5px; margin: 8px 0; color: {exp_txt_clr};">
-                                            <b>Загальна експозиція:</b> <code>{sum_calc_stakes:,.0f} ₴</code> 
-                                            ({tot_pct}% від реального капіталу)
+                                            <b>Загальна експозиція обраних:</b> <code>{sum_calc_stakes:,.0f} ₴</code> 
+                                            ({tot_pct}% від вільного залишку банку)
                                         </div>
                                     """, unsafe_allow_html=True)
 
@@ -2112,12 +2169,14 @@ def run_streamlit_app():
                                             if ok_app:
                                                 st.success(f"✅ {msg_app}")
                                                 st.session_state["show_real_stake_calc"] = False
+                                                st.session_state["target_real_calc_ids"] = []
                                                 st.rerun()
                                             else:
                                                 st.error(f"❌ {msg_app}")
                                     with col_cancel_stk:
                                         if st.button("Скасувати", key="btn_cancel_real_stake_calc", use_container_width=True):
                                             st.session_state["show_real_stake_calc"] = False
+                                            st.session_state["target_real_calc_ids"] = []
                                             st.rerun()
                             finally:
                                 cur_calc.close()
@@ -3497,17 +3556,39 @@ def run_streamlit_app():
             else:
                 st.info("ℹ️ Записів пульсу не знайдено.")
 
-            # Smart Rate-Limiter
-            st.markdown("##### 🚦 Smart Rate-Limiter (Облік ліг)")
+            # Smart Rate-Limiter (Облік ліг та витрата квоти за видами спорту)
+            st.markdown("##### 🚦 Smart Rate-Limiter (Облік ліг та витрата API за видами спорту)")
             df_poll = pd.DataFrame(poll_df) if (pd is not None and not isinstance(poll_df, pd.DataFrame)) else poll_df
             if df_poll is not None and not df_poll.empty:
                 disp_poll = df_poll.copy()
                 try:
                     from statmonitor.league_config import load_leagues_config
-                    all_title_map = {lg["key"]: lg.get("title", lg["key"]) for lg in load_leagues_config().get("leagues", [])}
+                    from statmonitor.limiter import compute_sports_quota_breakdown
+                    cfg_lg_all = load_leagues_config()
+                    all_title_map = {lg["key"]: lg.get("title", lg["key"]) for lg in cfg_lg_all.get("leagues", [])}
+                    q_tab_breakdown = compute_sports_quota_breakdown(disp_poll, leagues_config=cfg_lg_all)
                 except Exception:
                     all_title_map = {}
+                    q_tab_breakdown = {}
 
+                # 1. Розподіл за категоріями спорту
+                tab_cats = [c for c in q_tab_breakdown.get("categories", []) if c.get("poll_count", 0) > 0]
+                if tab_cats:
+                    st.caption("🏆 **Розподіл витрати запитів (токенів) за видами спорту:**")
+                    df_cats_tab = pd.DataFrame([
+                        {
+                            "Вид спорту": c["category_name"],
+                            "Запитів": c["poll_count"],
+                            "% витрати": f"{c['pct_of_used']:.1f}%",
+                            "% ліміту": f"{c['pct_of_limit']:.1f}%",
+                            "Ліг у скануванні": c["leagues_count"],
+                            "Топ-ліга споживач": c["top_league_title"],
+                        }
+                        for c in tab_cats
+                    ])
+                    st.dataframe(df_cats_tab, use_container_width=True, hide_index=True)
+
+                # 2. Повна таблиця опитуваних ліг
                 if "sport" in disp_poll.columns:
                     disp_poll["Турнір"] = disp_poll["sport"].map(lambda x: all_title_map.get(x, s_map.get(x, x)))
                 if "tier" in disp_poll.columns:
@@ -3525,6 +3606,7 @@ def run_streamlit_app():
                 if "poll_count" in disp_poll.columns:
                     disp_poll["Кількість запитів"] = disp_poll["poll_count"]
 
+                st.caption("📋 **Повний лог опитування ліг (відсортовано за кількістю запитів):**")
                 cols_poll_show = [c for c in ["Турнір", "Активність (Tier)", "Останнє опитування (Київ)", "Кількість запитів", "sport"] if c in disp_poll.columns]
                 st.dataframe(disp_poll[cols_poll_show], use_container_width=True, hide_index=True)
             else:
@@ -3629,7 +3711,14 @@ def run_streamlit_app():
 
                     grp_active = sum(1 for lg in grp_leagues if st.session_state.league_enabled_state.get(lg["key"], bool(lg.get("enabled", True))))
                     
-                    with st.expander(f"{grp['title']} — {grp_active}/{len(grp_leagues)} активних", expanded=(grp_active > 0)):
+                    # Розрахунок використаних запитів для цієї групи спорту
+                    grp_keys = {lg["key"] for lg in grp_leagues}
+                    grp_poll_cnt = 0
+                    if df_poll is not None and not df_poll.empty and "sport" in df_poll.columns and "poll_count" in df_poll.columns:
+                        grp_poll_cnt = int(df_poll[df_poll["sport"].isin(grp_keys)]["poll_count"].sum())
+                    grp_poll_badge = f" • 📊 {grp_poll_cnt} запитів" if grp_poll_cnt > 0 else ""
+
+                    with st.expander(f"{grp['title']} — {grp_active}/{len(grp_leagues)} активних{grp_poll_badge}", expanded=(grp_active > 0)):
                         c_act1, c_act2, c_act_space = st.columns([1.5, 1.5, 5])
                         with c_act1:
                             if st.button(f"✅ Обрати всі", key=f"btn_all_{cat_key}"):

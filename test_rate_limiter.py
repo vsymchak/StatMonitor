@@ -5,6 +5,7 @@ from statmonitor.limiter import (
     classify_sports_urgency,
     filter_sports_to_poll,
     record_poll_success,
+    compute_sports_quota_breakdown,
 )
 
 class MockCursor:
@@ -129,6 +130,38 @@ class TestRateLimiter(unittest.TestCase):
         self.assertEqual(len(cur.queries), 1)
         self.assertIn("INSERT INTO sports_poll_log", cur.queries[0][0])
         self.assertIn("ON CONFLICT (sport) DO UPDATE", cur.queries[0][0])
+
+    def test_compute_sports_quota_breakdown(self):
+        poll_records = [
+            {"sport": "soccer_epl", "tier": "HOT", "last_polled_at": "2026-11-20T12:00:00Z", "poll_count": 600},
+            {"sport": "soccer_spain_la_liga", "tier": "WARM", "last_polled_at": "2026-11-20T11:00:00Z", "poll_count": 120},
+            {"sport": "basketball_nba", "tier": "HOT", "last_polled_at": "2026-11-20T12:30:00Z", "poll_count": 340},
+            {"sport": "tennis_atp", "tier": "COLD", "last_polled_at": "2026-11-20T10:00:00Z", "poll_count": 150},
+            {"sport": "icehockey_nhl", "tier": "WARM", "last_polled_at": "2026-11-20T09:00:00Z", "poll_count": 50},
+        ]
+        cfg = {
+            "leagues": [
+                {"key": "soccer_epl", "title": "Англія (АПЛ)", "category": "soccer"},
+                {"key": "soccer_spain_la_liga", "title": "Іспанія (Ла Ліга)", "category": "soccer"},
+                {"key": "basketball_nba", "title": "США (NBA)", "category": "basketball"},
+                {"key": "tennis_atp", "title": "Теніс (ATP)", "category": "tennis"},
+                {"key": "icehockey_nhl", "title": "США/Канада (NHL)", "category": "icehockey"},
+            ]
+        }
+        res = compute_sports_quota_breakdown(poll_records, leagues_config=cfg, total_monthly_limit=2500)
+        self.assertEqual(res["total_polls"], 1260)
+        self.assertAlmostEqual(res["quota_used_pct"], 50.4, places=1)
+        
+        cats = res["categories"]
+        # Футбол має бути на першому місці
+        self.assertEqual(cats[0]["category_name"], "⚽ Футбол")
+        self.assertEqual(cats[0]["poll_count"], 720)
+        self.assertAlmostEqual(cats[0]["pct_of_used"], 57.1, places=1)
+        self.assertAlmostEqual(cats[0]["pct_of_limit"], 28.8, places=1)
+        
+        # Баскетбол на другому
+        self.assertEqual(cats[1]["category_name"], "🏀 Баскетбол")
+        self.assertEqual(cats[1]["poll_count"], 340)
 
 if __name__ == "__main__":
     unittest.main()

@@ -166,3 +166,122 @@ def record_poll_success(cur, conn, polled_sports, tiers=None, now_utc=None):
                 r,
             )
     conn.commit()
+
+
+def compute_sports_quota_breakdown(poll_data, leagues_config=None, total_monthly_limit=2500):
+    """
+    Аналізує розподіл витрати API-токенів / запитів The Odds API за видами спорту (SPEC-10 & SPEC-25).
+    Показує, який саме вид спорту та які конкретно ліги спожили квоту.
+    """
+    # Нормалізація вхідних даних у список словників
+    records = []
+    if poll_data is not None:
+        if hasattr(poll_data, "to_dict"):
+            records = poll_data.to_dict("records")
+        elif isinstance(poll_data, list):
+            for item in poll_data:
+                if isinstance(item, dict):
+                    records.append(item)
+                elif isinstance(item, (list, tuple)) and len(item) >= 4:
+                    records.append({
+                        "sport": item[0],
+                        "tier": item[1],
+                        "last_polled_at": item[2],
+                        "poll_count": item[3]
+                    })
+
+    # Створюємо мапу назв та категорій із конфігурації ліг
+    title_map = {}
+    cat_map = {}
+    if leagues_config and isinstance(leagues_config, dict) and "leagues" in leagues_config:
+        for lg in leagues_config["leagues"]:
+            k = lg.get("key")
+            if k:
+                title_map[k] = lg.get("title", k)
+                cat_map[k] = lg.get("category", "")
+
+    CATEGORY_METADATA = {
+        "soccer": {"name": "⚽ Футбол", "order": 1},
+        "basketball": {"name": "🏀 Баскетбол", "order": 2},
+        "tennis": {"name": "🎾 Теніс", "order": 3},
+        "icehockey": {"name": "🏒 Хокей", "order": 4},
+        "mma": {"name": "🥊 ММА / Бокс", "order": 5},
+        "americanfootball": {"name": "🏈 Американський футбол", "order": 6},
+        "baseball": {"name": "⚾ Бейсбол", "order": 7},
+        "other": {"name": "🎯 Інші види спорту", "order": 8},
+    }
+
+    def detect_category(sport_key):
+        if not sport_key:
+            return "other"
+        sk = str(sport_key).lower()
+        if sk in cat_map and cat_map[sk] in CATEGORY_METADATA:
+            return cat_map[sk]
+        for prefix in ("soccer", "basketball", "tennis", "icehockey", "mma", "boxing", "americanfootball", "baseball"):
+            if sk.startswith(prefix):
+                return "mma" if prefix == "boxing" else prefix
+        return "other"
+
+    total_polls = 0
+    grouped_cats = {}
+    for c_key, c_info in CATEGORY_METADATA.items():
+        grouped_cats[c_key] = {
+            "category_key": c_key,
+            "category_name": c_info["name"],
+            "order": c_info["order"],
+            "poll_count": 0,
+            "leagues": [],
+        }
+
+    for r in records:
+        sp_key = r.get("sport") or ""
+        p_cnt = int(r.get("poll_count") or 0)
+        total_polls += p_cnt
+        cat = detect_category(sp_key)
+        disp_title = title_map.get(sp_key, sp_key)
+
+        league_entry = {
+            "sport": sp_key,
+            "title": disp_title,
+            "tier": str(r.get("tier", "COLD")),
+            "last_polled_at": r.get("last_polled_at"),
+            "poll_count": p_cnt,
+            "category_key": cat,
+            "category_name": CATEGORY_METADATA[cat]["name"],
+        }
+        grouped_cats[cat]["poll_count"] += p_cnt
+        grouped_cats[cat]["leagues"].append(league_entry)
+
+    categories_list = []
+    for c_key, c_data in grouped_cats.items():
+        p_cnt = c_data["poll_count"]
+        pct_used = round((p_cnt / total_polls * 100.0), 1) if total_polls > 0 else 0.0
+        pct_limit = round((p_cnt / float(total_monthly_limit) * 100.0), 1) if total_monthly_limit > 0 else 0.0
+
+        c_data["leagues"].sort(key=lambda x: x["poll_count"], reverse=True)
+        top_lg = c_data["leagues"][0] if c_data["leagues"] else None
+        top_desc = f"{top_lg['title']} ({top_lg['poll_count']})" if top_lg else "—"
+
+        categories_list.append({
+            "category_key": c_key,
+            "category_name": c_data["category_name"],
+            "poll_count": p_cnt,
+            "pct_of_used": pct_used,
+            "pct_of_limit": pct_limit,
+            "leagues_count": len(c_data["leagues"]),
+            "top_league_title": top_desc,
+            "leagues": c_data["leagues"],
+        })
+
+    # Сортуємо види спорту за кількістю запитів у порядку спадання
+    categories_list.sort(key=lambda x: x["poll_count"], reverse=True)
+
+    quota_used_pct = round((total_polls / float(total_monthly_limit) * 100.0), 1) if total_monthly_limit > 0 else 0.0
+
+    return {
+        "total_polls": total_polls,
+        "total_limit": total_monthly_limit,
+        "quota_used_pct": quota_used_pct,
+        "categories": categories_list,
+    }
+
