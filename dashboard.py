@@ -3821,7 +3821,19 @@ def run_streamlit_app():
                             cur_g_mkts = global_cfg.get("markets", all_mkts)
                             if not isinstance(cur_g_mkts, list):
                                 cur_g_mkts = all_mkts
-                            gd_mkts = st.multiselect("Дозволені ринки за замовчуванням:", all_mkts, default=[m for m in cur_g_mkts if m in all_mkts], key="gd_mkts_select")
+                            market_labels_ua = {
+                                "h2h": "h2h (Переможець 1X2 / П1, Х, П2)",
+                                "totals": "totals (Тотали / Більше, Менше)",
+                                "spreads": "spreads (Фори / Гандикапи)",
+                                "btts": "btts (Обидві заб'ють / Так, Ні)"
+                            }
+                            gd_mkts = st.multiselect(
+                                "Дозволені ринки за замовчуванням:",
+                                all_mkts,
+                                default=[m for m in cur_g_mkts if m in all_mkts],
+                                format_func=lambda x: market_labels_ua.get(x, x),
+                                key="gd_mkts_select"
+                            )
                             gd_en = st.checkbox("Увімкнено за замовчуванням для нових ліг", value=bool(global_cfg.get("enabled", True)), key="gd_en_chk")
 
                         btn_save_gd = st.form_submit_button("💾 Зберегти загальні дефолтні налаштування", type="primary", use_container_width=True)
@@ -4012,7 +4024,13 @@ def run_streamlit_app():
                             if not isinstance(cur_mkts, list):
                                 cur_mkts = ["h2h", "totals", "spreads"]
                             all_mkts = ["h2h", "totals", "spreads", "btts"]
-                            tune_sel_mkts = st.multiselect("Дозволені маркети:", all_mkts, default=[m for m in cur_mkts if m in all_mkts], key="tune_mkts_v3")
+                            tune_sel_mkts = st.multiselect(
+                                "Дозволені маркети:",
+                                all_mkts,
+                                default=[m for m in cur_mkts if m in all_mkts],
+                                format_func=lambda x: market_labels_ua.get(x, x),
+                                key="tune_mkts_v3"
+                            )
 
                             if st.button(f"💾 Застосувати для {cur_obj.get('title', cur_key)}", key="btn_apply_tune_v3"):
                                 st.session_state.league_enabled_state[cur_key] = tune_en
