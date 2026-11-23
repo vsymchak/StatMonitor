@@ -1,6 +1,6 @@
 # Візуальна діаграма дорожньої карти (Roadmap diagram)
 
-**38 з 42 кроків реалізовано (38 Shipped, 0 Planned, 4 Idea) · 194 Unit Tests** · Детальний опис: [roadmap.md](roadmap.md)
+**39 з 42 кроків реалізовано (39 Shipped, 0 Planned, 3 Idea) · 195 Unit Tests** · Детальний опис: [roadmap.md](roadmap.md)
 
 > 🟩 **Реалізовано (Shipped)** · 🟧 **У розробці (In Progress)** · 🟪 **Заплановано (Idea)** · ⬜ **Концепт (Fog)**  
 > Колонки — це послідовні хвилі виконання (**Execution Waves**). Стрілка показує залежність («потрібен для»).
@@ -85,7 +85,7 @@ flowchart LR
 
     subgraph Wave12["Хвиля 12: Холодний архів, Бектест & Web3"]
         39["39 · Холодний архів Parquet (R2)<br><small>Довгострокове збереження ліній</small><br><b>M</b>"]:::shipped
-        40["40 · SX Bet Web3 Auto-Staking<br><small>API EIP-712, нішеві ставки в USDC</small><br><b>L</b>"]:::in_progress
+        40["40 · SX Bet Web3 Auto-Staking<br><small>API EIP-712, нішеві ставки в USDC</small><br><b>L</b>"]:::shipped
         41["41 · Калібрування AI & Brier Score<br><small>Reliability diagram, ECE, BSS</small><br><b>S</b>"]:::shipped
         42["42 · Quantitative Backtest Engine<br><small>Симулятор сітки параметрів</small><br><b>L</b>"]:::shipped
     end
@@ -229,6 +229,6 @@ flowchart LR
 | **37** | **Walkaway Odds у Telegram** | `S` | 🟩 Shipped | Індикація у сповіщеннях Telegram мінімально допустимого коефіцієнта для входу (`🎯 Ставити, поки коеф ≥ X.XX`) для захисту від просідання. |
 | **38** | **Zero-Cost Sync & ACID Ledger** | `S` | 🟩 Shipped | Cloudflare Edge-перевірка Supabase REST API (0 хв білінгу Actions), строга узгодженість сум леджера та санітизація URL у Dashboard. |
 | **39** | **Холодний архів Parquet (R2)** | `M` | 🟩 Shipped | Довгостроковий експорт котирувань у стислі Parquet-файли на Cloudflare R2 / S3 або локальне сховище перед 4-денною ротацією. |
-| **40** | **SX Bet Web3 API & Niche Auto-Staking** | `L` | 🟧 In Progress | Автоматичне виставлення ставок на DEX SX Bet (Arbitrum / SX Network, USDC) через REST API та EIP-712 підписи, відбір плюсових ніш за даними Paper Bank. |
+| **40** | **SX Bet Web3 API & Niche Auto-Staking** | `L` | 🟩 Shipped | Автоматичне виставлення ставок на DEX SX Bet (OrderBook V3, USDC) через REST API та EIP-712 підписи, відбір плюсових ніш за даними Paper Bank. |
 | **41** | **Калібрування AI & Brier Score** | `S` | 🟩 Shipped | Інтерактивна калібрувальна крива (Reliability Diagram), розрахунок Brier Score, ECE %, BSS % та гранулярний розбір оцінок 7–10 у Web UI. |
 | **42** | **Quantitative Backtest Engine** | `L` | 🟩 Shipped | Повноцінний симулятор стратегій для оптимізації порогів просідання, часток Келлі та часових вікон на історичних даних. |
