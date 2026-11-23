@@ -289,7 +289,16 @@ def fetch_and_save_odds(sports_map=None):
         cols_sql = ", ".join(c[0] for c in col_map)
         execute_values(cur, f"INSERT INTO odds_history ({cols_sql}) VALUES %s;", [tuple(x[c[1]] for c in col_map) for x in odds_raw])
 
+    # SPEC-39: Холодний архів Parquet (Cloudflare R2 / S3) перед 4-денною ротацією
     if time_col:
+        try:
+            from statmonitor.cold_archive import archive_cold_odds
+            res_arch = archive_cold_odds(cur, conn, min_age_days=3.5)
+            if res_arch.get("files_created", 0) > 0:
+                print(f"📦 [Cold Archive] Збережено {res_arch['total_records']} котирувань у {res_arch['files_created']} Parquet-файлів перед ротацією.")
+        except Exception as arch_err:
+            print(f"⚠️ [Cold Archive] Помилка архівації перед ротацією: {arch_err}")
+
         cur.execute(f"DELETE FROM odds_history WHERE {time_col} < NOW() - INTERVAL '4 days';")
     cur.execute("DELETE FROM events WHERE commence_time < NOW() - INTERVAL '4 days';")
     conn.commit()

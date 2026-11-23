@@ -50,6 +50,8 @@ flowchart TD
             ModPaper["paper_trading.py<br>Стейкінг, розрахунок, медіана БК, edit_odds"]:::pkg
             ModNoVig["novig.py<br>De-vigging, p_fair, Walkaway Odds, Real Kelly"]:::pkg
             ModRealBank["real_bankroll.py<br>Леджер, транзакції, баланс реального банку"]:::pkg
+            ModBacktest["backtest.py<br>Quantitative Backtest Engine (Grid Search, Kelly)"]:::pkg
+            ModColdArchive["cold_archive.py<br>Експорт котирувань Parquet, R2 / Local"]:::pkg
             ModChart["chart.py<br>Matplotlib тренди в пам'яті"]:::pkg
             ModNotify["notifier.py<br>Telegram HTML delivery & chunking"]:::pkg
             ModBot["bot.py<br>Двосторонній асистент /status /bank /edit_odds"]:::pkg
@@ -68,9 +70,10 @@ flowchart TD
 
     subgraph Storage["💾 6. Сховище даних (Supabase PostgreSQL)"]
         DB[("PostgreSQL 15+<br>public schema")]:::data
-        T_Migrations["schema_migrations (001-016)"]:::data
+        T_Migrations["schema_migrations (001-017)"]:::data
         T_Events["events (індекс на commence_time)"]:::data
         T_Odds["odds_history (індекси за часом та маркетом)"]:::data
+        T_Archive["cold_archive_manifest (партиції Parquet, SHA-256)"]:::data
         V_Alerts["v_odds_alerts (Optimized 96h Window View)"]:::data
         T_AI["ai_match_analysis (вердикти & Confidence Score)"]:::data
         T_Bets["paper_bets (walkaway_odds, is_shadow, shadow_status, is_real_bet, slip_meta)"]:::data
@@ -81,7 +84,10 @@ flowchart TD
         T_Beat["system_heartbeat"]:::data
     end
 
-    subgraph TestSuite["🧪 7. Шар якості та тестування (194 unit-тести)"]
+    subgraph TestSuite["🧪 7. Шар якості та тестування (217 unit-тестів)"]
+        TestColdArchive["test_cold_archive.py (5 тестів)<br>Parquet, R2 SigV4, ротація котирувань"]:::test
+        TestConfidenceCalib["test_confidence_calibration.py (8 тестів)<br>Brier score, ECE %, Reliability curve"]:::test
+        TestBacktest["test_backtest.py (10 тестів)<br>Grid search, drawdown, Kelly backtest"]:::test
         TestWalkaway["test_walkaway_odds.py (10 тестів)<br>Break-even odds, heuristic de-vig, alerts & bot warning"]:::test
         TestGuardrails["test_risk_guardrails.py (10 тестів)<br>Stop-Loss 7%, Max Exposure 20%, Anti-Correlation"]:::test
         TestSync["test_orchestration_sync.py (5 тестів)<br>Zero-cost gate, ACID ledger delta, reconciliation"]:::test
@@ -101,7 +107,7 @@ flowchart TD
         TestDashboard["test_dashboard.py (8 тестів)<br>Метрики банку, іконки спорту, Odds quota live/heartbeat"]:::test
         TestSched["test_scheduler.py<br>Кластеризація, точки, маркування EXECUTED"]:::test
         TestWatch["test_watchdog.py<br>Пульс, затримки, дедуплікація"]:::test
-        TestMigrate["test_migrate.py<br>Ідемпотентність SQL-міграцій (001-015)"]:::test
+        TestMigrate["test_migrate.py<br>Ідемпотентність SQL-міграцій (001-017)"]:::test
     end
 
     subgraph Delivery["📲 8. Рівень сповіщень та користувацького UI"]

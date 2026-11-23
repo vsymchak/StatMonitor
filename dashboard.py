@@ -3685,6 +3685,56 @@ def run_streamlit_app():
             else:
                 st.info("ℹ️ Лог опитування ліг оновлюється автоматично.")
 
+        # SPEC-39: Холодний архів котирувань Parquet (Cloudflare R2 / S3)
+        st.markdown("---")
+        st.markdown("##### 📦 Холодний архів котирувань Parquet (Cloudflare R2 / S3 - SPEC-39)")
+        try:
+            from statmonitor.cold_archive import get_cold_archive_summary, archive_cold_odds
+            arch_summary = get_cold_archive_summary(cur)
+            
+            c_arc1, c_arc2, c_arc3, c_arc4 = st.columns(4)
+            c_arc1.metric("📦 Файлів Parquet", f"{arch_summary['files_count']}")
+            c_arc2.metric("📊 Збережено записів", f"{arch_summary['total_records']:,}")
+            c_arc3.metric("💾 Обсяг архіву", f"{arch_summary['total_mb']:.2f} МБ")
+            c_arc4.metric("📅 Остання партиція", arch_summary['latest_partition'] or "—")
+            
+            if is_admin:
+                c_btn_arch1, c_btn_arch2 = st.columns([1.2, 2.8])
+                with c_btn_arch1:
+                    if st.button("⚡ Запустити архівування (>3.5 днів)", key="btn_run_cold_archive_manual", use_container_width=True):
+                        with st.spinner("Експорт котирувань у Parquet та відправка в Cloudflare R2..."):
+                            conn_arch, _ = get_db_connection(db_url)
+                            if conn_arch:
+                                cur_arch = conn_arch.cursor()
+                                try:
+                                    res_m_arch = archive_cold_odds(cur_arch, conn_arch, min_age_days=3.5)
+                                    if res_m_arch.get("files_created", 0) > 0:
+                                        st.success(f"✅ Збережено {res_m_arch['total_records']} записів у {res_m_arch['files_created']} файлів!")
+                                    else:
+                                        st.info("ℹ️ Немає записів старше 3.5 днів для архівування.")
+                                    st.rerun()
+                                finally:
+                                    cur_arch.close()
+                                    conn_arch.close()
+                with c_btn_arch2:
+                    st.caption("ℹ️ Котирування перед 4-денною ротацією пакуються в Snappy Parquet і зберігаються в Cloudflare R2 / Local.")
+
+            if arch_summary.get("recent_files"):
+                df_arch = pd.DataFrame(arch_summary["recent_files"])
+                df_arch["Партиція (Дата)"] = df_arch["partition_date"]
+                df_arch["Сховище"] = df_arch["storage_type"]
+                df_arch["Розмір"] = df_arch["file_size_kb"].apply(lambda x: f"{x:,.1f} КБ")
+                df_arch["Записів"] = df_arch["records_count"]
+                df_arch["Шлях / URI"] = df_arch["file_path"]
+                df_arch["Час архівації"] = df_arch["archived_at"].apply(format_kyiv_time)
+                
+                cols_arch_show = ["Партиція (Дата)", "Сховище", "Розмір", "Записів", "Шлях / URI", "Час архівації"]
+                st.dataframe(df_arch[cols_arch_show], use_container_width=True, hide_index=True)
+            else:
+                st.info("ℹ️ Архівні файли будуть створені автоматично перед черговою ротацією odds_history.")
+        except Exception as e_arch:
+            st.caption(f"Статус архівування: {e_arch}")
+
     # ---------------- ВКЛАДКА 4: ПОРОГИ ЛІГ (ADMIN - SPEC-25) ----------------
     if is_admin and tab_thresholds is not None:
         with tab_thresholds:

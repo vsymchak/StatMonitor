@@ -109,6 +109,11 @@ from statmonitor.real_bankroll import (
     toggle_real_bet,
     settle_real_bet_in_ledger,
 )
+from statmonitor.cold_archive import (
+    archive_cold_odds,
+    get_cold_archive_summary,
+    records_to_parquet_bytes,
+)
 
 __all__ = [
     "INITIAL_BANKROLL",
@@ -186,4 +191,7 @@ __all__ = [
     "record_real_transaction",
     "toggle_real_bet",
     "settle_real_bet_in_ledger",
+    "archive_cold_odds",
+    "get_cold_archive_summary",
+    "records_to_parquet_bytes",
 ]
