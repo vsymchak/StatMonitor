@@ -2108,37 +2108,40 @@ def run_streamlit_app():
                                     st.markdown(f"💰 **Вільний залишок реального банку:** <code>{real_bal:,.2f} ₴</code>")
                                     if proposals and "ledger_balance" in proposals[0]:
                                         st.caption(f"ℹ️ Загальний капітал: {proposals[0]['ledger_balance']:,.2f} ₴ • Вже заблоковано в грі: {proposals[0]['pending_exposure']:,.2f} ₴")
-                                    calc_configs = []
-                                    sum_calc_stakes = 0.0
+                                    with st.form(key="form_calc_real_stakes_batch"):
+                                        calc_configs = []
+                                        sum_calc_stakes = 0.0
 
-                                    for p in proposals:
-                                        c_m1, c_m2, c_m3, c_m4 = st.columns([3.0, 1.0, 1.5, 1.8])
-                                        with c_m1:
-                                            st.markdown(f"<b>#{p['id']}</b> {p['match_name']}<br><span style='font-size: 11px; color: #64748B;'>{p['pick_label']}</span>", unsafe_allow_html=True)
-                                        with c_m2:
-                                            st.markdown(f"Коеф: <b>{p['odds']:.2f}</b>", unsafe_allow_html=True)
-                                            if p.get('walkaway_odds'):
-                                                w_val = float(p['walkaway_odds'])
-                                                if p['odds'] < w_val:
-                                                    st.markdown(f"<span style='font-size: 10.5px; color: #DC2626; font-weight: 700;'>🛑 Поріг: ≥ {w_val:.2f} (-EV)</span>", unsafe_allow_html=True)
-                                                else:
-                                                    st.caption(f"Поріг: ≥ {w_val:.2f}")
-                                        with c_m3:
-                                            st.caption(f"Келлі: ~{p['recommended_pct']}% ({p['recommended_stake']:.0f} ₴)")
-                                        with c_m4:
-                                            user_stk = st.number_input(
-                                                "Сума (₴):",
-                                                min_value=10.0,
-                                                max_value=float(math.floor(max(100.0, real_bal))),
-                                                value=float(round(float(p['recommended_stake']))),
-                                                step=1.0,
-                                                format="%d",
-                                                key=f"inp_r_stk_{p['id']}",
-                                                label_visibility="collapsed"
-                                            )
-                                            user_stk_int = float(round(user_stk))
-                                            calc_configs.append({"id": p['id'], "real_stake": user_stk_int, "real_odds": p['odds']})
-                                            sum_calc_stakes += user_stk_int
+                                        for p in proposals:
+                                            c_m1, c_m2, c_m3, c_m4 = st.columns([3.0, 1.0, 1.5, 1.8])
+                                            with c_m1:
+                                                st.markdown(f"<b>#{p['id']}</b> {p['match_name']}<br><span style='font-size: 11px; color: #64748B;'>{p['pick_label']}</span>", unsafe_allow_html=True)
+                                            with c_m2:
+                                                st.markdown(f"Коеф: <b>{p['odds']:.2f}</b>", unsafe_allow_html=True)
+                                                if p.get('walkaway_odds'):
+                                                    w_val = float(p['walkaway_odds'])
+                                                    if p['odds'] < w_val:
+                                                        st.markdown(f"<span style='font-size: 10.5px; color: #DC2626; font-weight: 700;'>🛑 Поріг: ≥ {w_val:.2f} (-EV)</span>", unsafe_allow_html=True)
+                                                    else:
+                                                        st.caption(f"Поріг: ≥ {w_val:.2f}")
+                                            with c_m3:
+                                                st.caption(f"Келлі: ~{p['recommended_pct']}% ({p['recommended_stake']:.0f} ₴)")
+                                            with c_m4:
+                                                user_stk = st.number_input(
+                                                    "Сума (₴):",
+                                                    min_value=10.0,
+                                                    max_value=float(math.floor(max(100.0, real_bal))),
+                                                    value=float(round(float(p['recommended_stake']))),
+                                                    step=1.0,
+                                                    format="%d",
+                                                    key=f"inp_r_stk_{p['id']}",
+                                                    label_visibility="collapsed"
+                                                )
+                                                user_stk_int = float(round(user_stk))
+                                                calc_configs.append({"id": p['id'], "real_stake": user_stk_int, "real_odds": p['odds']})
+                                                sum_calc_stakes += user_stk_int
+
+                                        btn_sub_save_stakes = st.form_submit_button("💾 Зафіксувати ставки в Реальному банку", type="primary", use_container_width=True)
 
                                     tot_pct = round((sum_calc_stakes / real_bal) * 100.0, 1) if real_bal > 0 else 0.0
                                     exp_txt_clr = '#F8FAFC' if is_dark else '#1E293B'
@@ -2149,22 +2152,17 @@ def run_streamlit_app():
                                         </div>
                                     """, unsafe_allow_html=True)
 
-                                    # SPEC-36: Перевірка ризик-запобіжників (Circuit Breakers) перед фіксацією
-                                    from statmonitor.real_bankroll import evaluate_real_risk_guardrails
-                                    guard_eval = evaluate_real_risk_guardrails(cur_calc, candidate_configs=calc_configs)
+                                    if btn_sub_save_stakes:
+                                        # SPEC-36: Перевірка ризик-запобіжників (Circuit Breakers) перед фіксацією
+                                        from statmonitor.real_bankroll import evaluate_real_risk_guardrails
+                                        guard_eval = evaluate_real_risk_guardrails(cur_calc, candidate_configs=calc_configs)
 
-                                    if guard_eval["stop_loss"]["is_triggered"]:
-                                        st.error(f"🛑 {guard_eval['stop_loss']['message']}")
-                                    if guard_eval["correlations"]["has_correlations"]:
-                                        st.warning(f"⚠️ {guard_eval['correlations']['message']}")
-                                    if guard_eval["exposure"]["is_breached"]:
-                                        st.warning(f"⚠️ {guard_eval['exposure']['message']}")
-
-                                    col_save_stk, col_cancel_stk = st.columns([2.0, 1.0])
-                                    with col_save_stk:
-                                        btn_disabled = not guard_eval["can_place_bets"]
-                                        btn_help = "Кнопка заблокована: спрацював денний Stop-Loss" if btn_disabled else "Зафіксувати ставки"
-                                        if st.button("💾 Зафіксувати ставки в Реальному банку", key="btn_save_real_stakes_batch", type="primary", use_container_width=True, disabled=btn_disabled, help=btn_help):
+                                        if guard_eval["stop_loss"]["is_triggered"]:
+                                            st.error(f"🛑 {guard_eval['stop_loss']['message']}")
+                                        elif not guard_eval["can_place_bets"]:
+                                            err_msg = " | ".join(guard_eval.get("blocks", []))
+                                            st.error(f"🛑 Запобіжники капіталу заблокували ставки: {err_msg}")
+                                        else:
                                             ok_app, cnt_app, tot_app, msg_app = apply_real_stakes_batch(cur_calc, conn_calc, calc_configs)
                                             if ok_app:
                                                 st.success(f"✅ {msg_app}")
@@ -2173,11 +2171,11 @@ def run_streamlit_app():
                                                 st.rerun()
                                             else:
                                                 st.error(f"❌ {msg_app}")
-                                    with col_cancel_stk:
-                                        if st.button("Скасувати", key="btn_cancel_real_stake_calc", use_container_width=True):
-                                            st.session_state["show_real_stake_calc"] = False
-                                            st.session_state["target_real_calc_ids"] = []
-                                            st.rerun()
+
+                                    if st.button("Скасувати", key="btn_cancel_real_stake_calc", use_container_width=True):
+                                        st.session_state["show_real_stake_calc"] = False
+                                        st.session_state["target_real_calc_ids"] = []
+                                        st.rerun()
                             finally:
                                 cur_calc.close()
                                 conn_calc.close()
@@ -2248,8 +2246,10 @@ def run_streamlit_app():
                         sel_s_id = settle_options[sel_s_lbl]
                         cur_bet_info = pending_df[pending_df["id"] == sel_s_id].iloc[0]
 
+                        bet_box_bg = '#161F30' if is_dark else '#F8FAFC'
+                        bet_box_border = '#233044' if is_dark else '#E2E8F0'
                         st.markdown(f"""
-                            <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 10px; margin-bottom: 12px; font-size: 13px;">
+                            <div style="background: {bet_box_bg}; border: 1px solid {bet_box_border}; border-radius: 8px; padding: 10px; margin-bottom: 12px; font-size: 13px;">
                                 <b>Подія:</b> {cur_bet_info.get('match_name', '—')} &nbsp;|&nbsp;
                                 <b>Маркет:</b> {cur_bet_info.get('pick_label', '—')} &nbsp;|&nbsp;
                                 <b>Коеф:</b> {float(cur_bet_info.get('odds', 0)):.2f} &nbsp;|&nbsp;
@@ -2257,19 +2257,22 @@ def run_streamlit_app():
                             </div>
                         """, unsafe_allow_html=True)
 
-                        col_st1, col_st2, col_st3 = st.columns([2.5, 2.5, 2])
-                        with col_st1:
-                            score_val = st.text_input("Рахунок матчу (напр. 0:2, 7:6, 7:5):", placeholder="0:2", key="txt_settle_score_v3")
-                        with col_st2:
-                            status_mode = st.selectbox(
-                                "Статус результату:",
-                                ["Автоматично за рахунком", "✅ WON (Виграш)", "❌ LOST (Програш)", "🔄 VOID (Повернення)"],
-                                key="sel_settle_status_v3"
-                            )
-                        with col_st3:
-                            st.write("")
-                            st.write("")
-                            if st.button("⚖️ Розрахувати ставку", key="btn_apply_settle_v3", use_container_width=True):
+                        with st.form(key=f"form_manual_settle_paper_{sel_s_id}"):
+                            col_st1, col_st2, col_st3 = st.columns([2.5, 2.5, 2])
+                            with col_st1:
+                                score_val = st.text_input("Рахунок матчу (напр. 0:2, 7:6, 7:5):", placeholder="0:2", key="txt_settle_score_v3")
+                            with col_st2:
+                                status_mode = st.selectbox(
+                                    "Статус результату:",
+                                    ["Автоматично за рахунком", "✅ WON (Виграш)", "❌ LOST (Програш)", "🔄 VOID (Повернення)"],
+                                    key="sel_settle_status_v3"
+                                )
+                            with col_st3:
+                                st.write("")
+                                st.write("")
+                                btn_sub_settle = st.form_submit_button("⚖️ Розрахувати ставку", type="primary", use_container_width=True)
+
+                            if btn_sub_settle:
                                 forced_res = None
                                 if "WON" in status_mode:
                                     forced_res = "WON"
@@ -2935,19 +2938,22 @@ def run_streamlit_app():
                             </div>
                         """, unsafe_allow_html=True)
 
-                        col_rst1, col_rst2, col_rst3 = st.columns([2, 2, 1.5])
-                        with col_rst1:
-                            score_r_val = st.text_input("Рахунок матчу (напр. 2:1):", placeholder="2:1", key="txt_settle_score_real_v1")
-                        with col_rst2:
-                            forced_r_status = st.selectbox(
-                                "Статус результату:",
-                                ["Авто (за рахунком)", "WON (Виграш)", "LOST (Програш)", "VOID (Повернення)"],
-                                key="sel_settle_status_real_v1"
-                            )
-                        with col_rst3:
-                            st.write("")
-                            st.write("")
-                            if st.button("⚖️ Розрахувати", key="btn_apply_settle_real_v1", use_container_width=True):
+                        with st.form(key=f"form_manual_settle_real_{sel_sr_id}"):
+                            col_rst1, col_rst2, col_rst3 = st.columns([2, 2, 1.5])
+                            with col_rst1:
+                                score_r_val = st.text_input("Рахунок матчу (напр. 2:1):", placeholder="2:1", key="txt_settle_score_real_v1")
+                            with col_rst2:
+                                forced_r_status = st.selectbox(
+                                    "Статус результату:",
+                                    ["Авто (за рахунком)", "WON (Виграш)", "LOST (Програш)", "VOID (Повернення)"],
+                                    key="sel_settle_status_real_v1"
+                                )
+                            with col_rst3:
+                                st.write("")
+                                st.write("")
+                                btn_sub_r_settle = st.form_submit_button("⚖️ Розрахувати", type="primary", use_container_width=True)
+
+                            if btn_sub_r_settle:
                                 forced_r_res = None
                                 if "WON" in forced_r_status:
                                     forced_r_res = "WON"
