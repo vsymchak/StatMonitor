@@ -73,6 +73,7 @@ from statmonitor.analytics import (
     calculate_market_breakdown,
     calculate_clv_value,
     calculate_clv_metrics,
+    calculate_confidence_calibration,
 )
 from statmonitor.limiter import (
     get_budget_mode,
@@ -177,6 +178,7 @@ __all__ = [
     "calculate_market_breakdown",
     "calculate_clv_value",
     "calculate_clv_metrics",
+    "calculate_confidence_calibration",
     "build_weekly_equity_chart",
     "generate_weekly_digest",
     "ensure_real_bankroll_tables",

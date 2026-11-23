@@ -3073,25 +3073,157 @@ def run_streamlit_app():
 
             st.markdown("</div>", unsafe_allow_html=True)
 
-            # Калібраційна таблиця
-            with st.expander("🎯 Калібровка AI Confidence Score (Buckets & Brier Score)", expanded=False):
+            # SPEC-41: AI Confidence Calibration & Brier Score Dashboard
+            with st.expander("🎯 Калібрування AI Confidence Score & Brier Score Dashboard (SPEC-41)", expanded=False):
                 b_list = cal_data.get("buckets", [])
                 if b_list:
+                    # 1. Топові KPI метрики
+                    col_brier1, col_brier2, col_brier3, col_brier4 = st.columns(4)
+                    
+                    ov_brier = cal_data.get("overall_brier_score")
+                    col_brier1.metric(
+                        label="📐 Overall Brier Score",
+                        value=f"{ov_brier:.4f}" if ov_brier is not None else "—",
+                        delta="Ціль: ≤ 0.20 (Ідеал 0.0)" if ov_brier is not None else None,
+                        delta_color="off"
+                    )
+                    
+                    ece_v = cal_data.get("ece_pct")
+                    col_brier2.metric(
+                        label="🎯 Expected Cal. Error (ECE)",
+                        value=f"{ece_v:.1f}%" if ece_v is not None else "—",
+                        delta="Похибка ймовірностей" if ece_v is not None else None,
+                        delta_color="normal" if (ece_v is not None and ece_v <= 15.0) else "inverse"
+                    )
+
+                    bss_v = cal_data.get("brier_skill_score")
+                    col_brier3.metric(
+                        label="⚡ Brier Skill Score (BSS)",
+                        value=f"{bss_v:+.1f}%" if bss_v is not None else "—",
+                        delta="Краще за наївний прогноз" if (bss_v is not None and bss_v > 0) else "Без переваги над базою",
+                        delta_color="normal" if (bss_v is not None and bss_v > 0) else "inverse"
+                    )
+
+                    v_label = cal_data.get("calibration_verdict_label", "—")
+                    v_key = cal_data.get("calibration_verdict", "INSUFFICIENT_DATA")
+                    v_clr = "#34D399" if v_key in ("EXCELLENT", "GOOD") else ("#F87171" if v_key == "OVERCONFIDENT" else "#94A3B8")
+                    col_brier4.markdown(f"""
+                        <div style="background: {'rgba(16, 185, 129, 0.12)' if v_key in ('EXCELLENT', 'GOOD') else ('#1E293B' if is_dark else '#F8FAFC')}; border: 1px solid {'#10B981' if v_key in ('EXCELLENT', 'GOOD') else ('#334155' if is_dark else '#E2E8F0')}; border-radius: 8px; padding: 10px; margin-top: 4px;">
+                            <div style="font-size: 11px; color: {'#94A3B8' if is_dark else '#64748B'}; font-weight: 600;">СТАТУС КАЛІБРУВАННЯ</div>
+                            <div style="font-size: 13px; font-weight: 700; color: {v_clr}; margin-top: 3px;">{v_label}</div>
+                        </div>
+                    """, unsafe_allow_html=True)
+
+                    st.markdown("<div style='margin-top: 14px;'></div>", unsafe_allow_html=True)
+
+                    # 2. Графіки: Калібрувальна крива (Reliability Diagram) + Sharpness Histogram
+                    c_col_chart1, c_col_chart2 = st.columns([1.3, 1])
+
+                    with c_col_chart1:
+                        fig_cal = go.Figure()
+
+                        # Perfect calibration reference diagonal
+                        fig_cal.add_trace(go.Scatter(
+                            x=[0, 100],
+                            y=[0, 100],
+                            mode="lines",
+                            name="Ідеальне калібрування (y = x)",
+                            line=dict(color="#64748B", width=1.5, dash="dash"),
+                            hoverinfo="skip"
+                        ))
+
+                        # Active buckets with settled bets
+                        active_buckets = [b for b in b_list if (b["won"] + b["lost"]) > 0]
+                        if active_buckets:
+                            x_exp = [b["expected_win_rate"] for b in active_buckets]
+                            y_act = [b["win_rate"] for b in active_buckets]
+                            b_sizes = [max(12, min(36, b["won"] + b["lost"] + 10)) for b in active_buckets]
+                            b_texts = []
+                            for b in active_buckets:
+                                br_str = f"{b['brier_score']:.4f}" if b.get("brier_score") is not None else "—"
+                                b_texts.append(
+                                    f"<b>{b['label']}</b><br>Очікуваний WR: {b['expected_win_rate']:.1f}%<br>Фактичний WR: {b['win_rate']:.1f}%<br>Ставок: {b['won']}W / {b['lost']}L<br>ROI: {b['roi_pct']:+.1f}%<br>Brier: {br_str}"
+                                )
+
+                            fig_cal.add_trace(go.Scatter(
+                                x=x_exp,
+                                y=y_act,
+                                mode="lines+markers",
+                                name="Емпірична крива ШІ",
+                                line=dict(color="#3B82F6", width=2.5),
+                                marker=dict(size=b_sizes, color="#2563EB", line=dict(color="#FFFFFF" if not is_dark else "#1E293B", width=2)),
+                                hoverinfo="text",
+                                hovertext=b_texts,
+                            ))
+
+                        fig_cal.update_layout(
+                            title=dict(text="📈 Калібрувальна крива (Reliability Diagram)", font=dict(size=13, color=ai_title_clr)),
+                            xaxis=dict(title="Очікувана ймовірність (Confidence %)", range=[0, 105], showgrid=True, gridcolor="#1E293B" if is_dark else "#EEF2F6"),
+                            yaxis=dict(title="Фактичний Win Rate (%)", range=[0, 105], showgrid=True, gridcolor="#1E293B" if is_dark else "#EEF2F6"),
+                            height=270,
+                            margin=dict(l=10, r=10, t=35, b=10),
+                            template="plotly_dark" if is_dark else "plotly_white",
+                            plot_bgcolor="rgba(0,0,0,0)",
+                            paper_bgcolor="rgba(0,0,0,0)",
+                            showlegend=False,
+                        )
+                        st.plotly_chart(fig_cal, use_container_width=True, config={"displayModeBar": False})
+
+                    with c_col_chart2:
+                        b_labels = [b["label"].split(" ")[0] for b in b_list]
+                        b_counts = [b["total_bets"] for b in b_list]
+                        b_colors = ["#94A3B8", "#F59E0B", "#3B82F6", "#10B981"]
+
+                        fig_sharp = go.Figure(go.Bar(
+                            x=b_labels,
+                            y=b_counts,
+                            marker_color=b_colors,
+                            text=[f"{v} ({round(v / max(1, sum(b_counts)) * 100)}%)" if v > 0 else "0" for v in b_counts],
+                            textposition="auto",
+                        ))
+                        fig_sharp.update_layout(
+                            title=dict(text="📊 Розподіл частоти оцінок (Sharpness)", font=dict(size=13, color=ai_title_clr)),
+                            xaxis=dict(title="Бакет сили", showgrid=False),
+                            yaxis=dict(title="Кількість ставок", showgrid=True, gridcolor="#1E293B" if is_dark else "#EEF2F6"),
+                            height=270,
+                            margin=dict(l=10, r=10, t=35, b=10),
+                            template="plotly_dark" if is_dark else "plotly_white",
+                            plot_bgcolor="rgba(0,0,0,0)",
+                            paper_bgcolor="rgba(0,0,0,0)",
+                        )
+                        st.plotly_chart(fig_sharp, use_container_width=True, config={"displayModeBar": False})
+
+                    # 3. Детальна таблиця бакетів
                     cal_df = pd.DataFrame(b_list)
                     cal_df["Бакет сили"] = cal_df["label"]
                     cal_df["Ставок"] = cal_df["total_bets"]
                     cal_df["Рекорд"] = cal_df.apply(lambda r: f"{r['won']}W / {r['lost']}L" if r['total_bets'] > 0 else "—", axis=1)
-                    cal_df["Win Rate"] = cal_df["win_rate"].apply(lambda x: f"{x:.1f}%")
+                    cal_df["Очікуваний WR"] = cal_df["expected_win_rate"].apply(lambda x: f"{x:.1f}%")
+                    cal_df["Фактичний WR"] = cal_df["win_rate"].apply(lambda x: f"{x:.1f}%")
+                    cal_df["Похибка (Gap)"] = cal_df["calibration_gap"].apply(lambda x: f"{x:+.1f}%")
                     cal_df["Avg CLV"] = cal_df["avg_clv_pct"].apply(lambda x: f"{x:+.2f}%")
                     cal_df["ROI"] = cal_df["roi_pct"].apply(lambda x: f"{x:+.2f}%")
                     cal_df["Brier Score"] = cal_df["brier_score"].apply(lambda x: f"{x:.4f}" if x is not None else "—")
                     
-                    cols_cal_show = ["Бакет сили", "Ставок", "Рекорд", "Win Rate", "Avg CLV", "ROI", "Brier Score"]
+                    cols_cal_show = ["Бакет сили", "Ставок", "Рекорд", "Очікуваний WR", "Фактичний WR", "Похибка (Gap)", "Avg CLV", "ROI", "Brier Score"]
                     st.dataframe(cal_df[cols_cal_show], use_container_width=True, hide_index=True)
-                    
-                    ov_brier = cal_data.get("overall_brier_score")
-                    if ov_brier is not None:
-                        st.caption(f"📐 **Overall Brier Score:** `{ov_brier:.4f}` (чим ближче до 0, тим точніше оцінка моделі відповідає реальній ймовірності).")
+
+                    # 4. Сегментація цільових оцінок валую (7, 8, 9, 10)
+                    gran_list = [g for g in cal_data.get("granular_scores", []) if g["score"] >= 7]
+                    if gran_list:
+                        with st.expander("⭐ Деталізація прохідних оцінок валую (7/10, 8/10, 9/10, 10/10)", expanded=False):
+                            gran_df = pd.DataFrame(gran_list)
+                            gran_df["Оцінка ШІ"] = gran_df["label"]
+                            gran_df["Ставок"] = gran_df["total_bets"]
+                            gran_df["Рекорд"] = gran_df.apply(lambda r: f"{r['won']}W / {r['lost']}L" if r['total_bets'] > 0 else "—", axis=1)
+                            gran_df["Очікуваний WR"] = gran_df["expected_win_rate"].apply(lambda x: f"{x:.0f}%")
+                            gran_df["Фактичний WR"] = gran_df["win_rate"].apply(lambda x: f"{x:.1f}%")
+                            gran_df["Avg CLV"] = gran_df["avg_clv_pct"].apply(lambda x: f"{x:+.2f}%")
+                            gran_df["ROI"] = gran_df["roi_pct"].apply(lambda x: f"{x:+.2f}%")
+                            gran_df["Brier Score"] = gran_df["brier_score"].apply(lambda x: f"{x:.4f}" if x is not None else "—")
+
+                            g_cols_show = ["Оцінка ШІ", "Ставок", "Рекорд", "Очікуваний WR", "Фактичний WR", "Avg CLV", "ROI", "Brier Score"]
+                            st.dataframe(gran_df[g_cols_show], use_container_width=True, hide_index=True)
                 else:
                     st.info("ℹ️ Немає розрахованих оцінок для побудови калібровки.")
 

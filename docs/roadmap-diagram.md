@@ -86,7 +86,7 @@ flowchart LR
     subgraph Wave12["Хвиля 12: Холодний архів, Бектест & Web3"]
         39["39 · Холодний архів Parquet (R2)<br><small>Довгострокове збереження ліній</small><br><b>M</b>"]:::idea
         40["40 · SX Bet Web3 Auto-Staking<br><small>API EIP-712, нішеві ставки в USDC</small><br><b>L</b>"]:::idea
-        41["41 · Калібрування AI & Brier Score<br><small>Перевірка бакетів 7-10</small><br><b>S</b>"]:::idea
+        41["41 · Калібрування AI & Brier Score<br><small>Reliability diagram, ECE, BSS</small><br><b>S</b>"]:::shipped
         42["42 · Quantitative Backtest Engine<br><small>Симулятор сітки параметрів</small><br><b>L</b>"]:::shipped
     end
 
@@ -230,5 +230,5 @@ flowchart LR
 | **38** | **Zero-Cost Sync & ACID Ledger** | `S` | 🟩 Shipped | Cloudflare Edge-перевірка Supabase REST API (0 хв білінгу Actions), строга узгодженість сум леджера та санітизація URL у Dashboard. |
 | **39** | **Холодний архів Parquet (R2)** | `M` | 🟪 Idea | Довгостроковий експорт котирувань у стислі Parquet-файли на Cloudflare R2 перед 4-денною ротацією для накопичення бази бектесту. |
 | **40** | **SX Bet Web3 API & Niche Auto-Staking** | `L` | 🟪 Idea | Автоматичне виставлення ставок на DEX SX Bet (Arbitrum / SX Network, USDC) через REST API та EIP-712 підписи, відбір плюсових ніш за даними Paper Bank. |
-| **41** | **Калібрування AI & Brier Score** | `S` | 🟪 Idea | Емпіричний аудит точності та Brier Score для бакетів впевненості Gemini (7–10) проти реального CLV та результатів. |
+| **41** | **Калібрування AI & Brier Score** | `S` | 🟩 Shipped | Інтерактивна калібрувальна крива (Reliability Diagram), розрахунок Brier Score, ECE %, BSS % та гранулярний розбір оцінок 7–10 у Web UI. |
 | **42** | **Quantitative Backtest Engine** | `L` | 🟩 Shipped | Повноцінний симулятор стратегій для оптимізації порогів просідання, часток Келлі та часових вікон на історичних даних. |
