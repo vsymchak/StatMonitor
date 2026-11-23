@@ -3033,7 +3033,7 @@ def run_streamlit_app():
                         <span style="font-size: 11px; font-weight: 600; background: #FEF3C7; color: #92400E; padding: 2px 8px; border-radius: 9999px;">AI Value-Add & Calibration</span>
                     </div>
                     <div style="font-size: 12px; color: {ai_body_clr}; margin-bottom: 12px;">
-                        Оцінка доданої вартості ШІ: порівняння результатів допущених ставок (Confidence ≥ 7) проти відсіяних Shadow-ставок (Confidence < 7 або Skip).
+                        Оцінка доданої вартості ШІ: порівняння результатів допущених ставок (Confidence ≥ 8 · Золотий стандарт) проти відсіяних Shadow-ставок (Confidence < 8 або Skip).
                     </div>
             """, unsafe_allow_html=True)
 
@@ -3043,13 +3043,13 @@ def run_streamlit_app():
             v_add = cf_audit["value_add"]
 
             col_cf1.metric(
-                label="🟢 Допущені ШІ (≥7/10)",
+                label="🟢 Допущені ШІ (≥8/10)",
                 value=f"{live_m['roi_pct']:+.1f}% ROI",
                 delta=f"{live_m['won']}W / {live_m['lost']}L • Win: {live_m['win_rate']:.1f}%",
                 delta_color="normal" if live_m["roi_pct"] >= 0 else "inverse"
             )
             col_cf2.metric(
-                label="🟡 Відсіяні Shadow (<7/10)",
+                label="🟡 Відсіяні Shadow (<8/10)",
                 value=f"{shadow_m['roi_pct']:+.1f}% ROI",
                 delta=f"{shadow_m['won']}W / {shadow_m['lost']}L • Win: {shadow_m['win_rate']:.1f}%",
                 delta_color="normal" if shadow_m["roi_pct"] >= 0 else "inverse"
@@ -3412,7 +3412,7 @@ def run_streamlit_app():
                         sim_flat = 100.0
                         model_key = "PERCENT_BANK"
 
-                    sim_conf = st.slider("Мінімальна оцінка Gemini Confidence (0..10):", min_value=0, max_value=10, value=7, step=1, help="0 — всі ставки, 7 — стандартний робочий поріг ШІ, 8+ — елітні сигнали.")
+                    sim_conf = st.slider("Мінімальна оцінка Gemini Confidence (0..10):", min_value=0, max_value=10, value=8, step=1, help="0 — всі ставки, 7 — базовий поріг, 8 — Золотий стандарт ШІ (Win Rate 62.5%, ROI +17.42%, Max DD 2.4%), 9+ — елітні сигнали.")
                 with c_bt3:
                     sim_odds_range = st.slider("Діапазон коефіцієнтів (Min - Max Odds):", min_value=1.10, max_value=10.0, value=(1.15, 6.0), step=0.05)
                     sim_shadow = st.checkbox("🕵️ Включити Shadow-ставки (Контрфактичний No-AI)", value=False, help="Моделювання сценарію без ШІ: враховує відсіяні системою ставки (status='FILTERED').")

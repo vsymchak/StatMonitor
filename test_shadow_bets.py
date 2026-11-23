@@ -26,7 +26,7 @@ class TestShadowCounterfactualBets(unittest.TestCase):
         self.assertTrue(len(insert_calls) > 0)
         sql, params = insert_calls[0][0][0], insert_calls[0][0][1]
         self.assertIn("'FILTERED'", sql)
-        self.assertIn("LOW_CONFIDENCE (5/10 < 7)", params)
+        self.assertIn("LOW_CONFIDENCE (5/10 < 8)", params)
         conn.commit.assert_called()
 
     def test_place_shadow_bet_skip_recommendation(self):

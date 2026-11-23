@@ -346,7 +346,7 @@ def calculate_market_breakdown(settled_bets):
 def calculate_counterfactual_audit(bets):
     """
     SPEC-35: Розрахунок метрик контрфактичного аудиту для порівняння
-    активних ставок (AI Confidence >= 7) проти відсіяних Shadow-ставок (Confidence < 7 або Skip).
+    активних ставок (AI Confidence >= 8 · Золотий стандарт) проти відсіяних Shadow-ставок (Confidence < 8 або Skip).
     
     Повертає словник:
     - live: {total, won, lost, void, pending, turnover, profit, roi_pct, win_rate}
