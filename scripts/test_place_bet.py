@@ -30,6 +30,28 @@ def main():
         masked = client.api_key[:6] + "..." + client.api_key[-4:] if len(client.api_key) > 10 else "***"
         print(f"🔑 Знайдено API ключ: {masked}")
 
+    # Перевірка гаманця
+    if client.wallet_address:
+        print(f"👛 Адреса акаунту (EOA): {client.wallet_address}")
+        # Перевірка Proxy Wallet через API
+        import requests
+        try:
+            r = requests.get(f"{client.base_url}/user/proxy", headers=client.headers, timeout=10)
+            if r.status_code == 200:
+                pdata = r.json().get("data", {})
+                proxy_addr = pdata.get("obv3ProxyWalletAddress")
+                is_deployed = pdata.get("deployed")
+                print(f"📦 Proxy Wallet: {proxy_addr} (Deployed: {is_deployed})")
+                # Перевірка балансу USDC в Proxy
+                rpc = "https://rpc-rollup.sx.technology"
+                usdc = "0x6629Ce1Cf35Cc1329ebB4F63202F3f197b3F050B"
+                data = "0x70a08231" + proxy_addr[2:].lower().zfill(64)
+                rr = requests.post(rpc, json={"jsonrpc": "2.0", "id": 1, "method": "eth_call", "params": [{"to": usdc, "data": data}, "latest"]})
+                bal = int(rr.json().get("result", "0x0"), 16) / 1e6
+                print(f"💰 Баланс USDC у Proxy: {bal:.4f} USDC")
+        except Exception as e:
+            print(f"Помилка перевірки Proxy: {e}")
+
     # 2. Отримання актуального лайв-ринку
     print("\n🔍 Пошук активних Live-подій...")
     live_markets = client.get_active_markets(live_only=True)

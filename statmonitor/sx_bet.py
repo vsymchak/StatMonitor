@@ -26,8 +26,8 @@ MIN_BET_MAINNET_USDC = 1.0
 MIN_BET_TESTNET_USDC = 1.0
 
 # Відомі адреси USDC контрактів
+USDC_ADDRESS_SX_NETWORK = "0x6629Ce1Cf35Cc1329ebB4F63202F3f197b3F050B"
 USDC_ADDRESS_POLYGON = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
-USDC_ADDRESS_SX_NETWORK = "0xAA99bE3356a11eE92c3f099BB7a038309b512966"
 USDC_ADDRESS_ARBITRUM = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"
 
 
@@ -208,7 +208,7 @@ class SXBetClient:
             raise ValueError("Не вказано адресу гаманця (wallet_address або приватний ключ для виведення).")
 
         base_token = base_token_address or (
-            USDC_ADDRESS_POLYGON if not self.testnet else "0x0000000000000000000000000000000000000000"
+            USDC_ADDRESS_SX_NETWORK if not self.testnet else "0x1BC6326EA6aF2aB8E4b6Bc83418044B1923b2956"
         )
         now_ts = int(time.time())
         expiry = now_ts + expiry_seconds
@@ -224,10 +224,8 @@ class SXBetClient:
             "totalBetSize": total_bet_size_base,
             "percentageOdds": percentage_odds,
             "baseToken": base_token,
-            "apiExpiry": expiry,
             "expiry": expiry,
             "timeInForce": time_in_force,
-            "executor": "0x0000000000000000000000000000000000000000",
             "isMakerBettingOutcomeOne": is_betting_outcome_one,
             "salt": salt,
         }
@@ -235,22 +233,53 @@ class SXBetClient:
 
     def sign_order(self, order: Dict[str, Any]) -> str:
         """
-        Створює криптографічний підпис ордера через приватний ключ EVM (EIP-712).
-        Вимагає встановленої бібліотеки eth_account.
+        Створює офіційний EIP-712 криптографічний підпис ордера OrderBook V3.
+        Вимагає валідного EVM private_key гаманця maker.
         """
         if not self.private_key:
             raise ValueError("Приватний ключ (SX_BET_PRIVATE_KEY) не задано. Неможливо створити цифровий підпис.")
 
         try:
             from eth_account import Account
-            from eth_account.messages import encode_defunct
-            # Для EIP-712 підпису використовується solidityKeccak256
-            # Для спрощеного / legacy підписання підтримується повідомлення orderHash
-            from eth_utils import keccak
-            # Заглушка структурованого хешування:
-            msg_bytes = str(sorted(order.items())).encode("utf-8")
-            signable_msg = encode_defunct(keccak(msg_bytes))
-            signed = Account.sign_message(signable_msg, private_key=self.private_key)
+            from eth_account.messages import encode_typed_data
+
+            domain_data = {
+                "name": "OBv3 Escrow",
+                "version": "1",
+                "chainId": 4162 if not self.testnet else 79479957,
+                "verifyingContract": "0x890482680C3a0116aBB003B17e7D694D13a6c1eB" if not self.testnet else "0x0000000000000000000000000000000000000000",
+            }
+
+            types_data = {
+                "Order": [
+                    {"name": "marketHash", "type": "bytes32"},
+                    {"name": "baseToken", "type": "address"},
+                    {"name": "totalBetSize", "type": "uint256"},
+                    {"name": "percentageOdds", "type": "uint256"},
+                    {"name": "salt", "type": "uint256"},
+                    {"name": "expiry", "type": "uint256"},
+                    {"name": "maker", "type": "address"},
+                    {"name": "isMakerBettingOutcomeOne", "type": "bool"},
+                ]
+            }
+
+            message_data = {
+                "marketHash": order["marketHash"],
+                "baseToken": order["baseToken"],
+                "totalBetSize": int(order["totalBetSize"]),
+                "percentageOdds": int(order["percentageOdds"]),
+                "salt": int(order["salt"]),
+                "expiry": int(order["expiry"]),
+                "maker": order["maker"],
+                "isMakerBettingOutcomeOne": bool(order["isMakerBettingOutcomeOne"]),
+            }
+
+            signable = encode_typed_data(
+                domain_data=domain_data,
+                message_types=types_data,
+                message_data=message_data,
+            )
+            signed = Account.sign_message(signable, private_key=self.private_key)
             sig_hex = signed.signature.hex()
             if not sig_hex.startswith("0x"):
                 sig_hex = f"0x{sig_hex}"
@@ -260,7 +289,7 @@ class SXBetClient:
 
     def place_order(self, order: Dict[str, Any], signature: Optional[str] = None, dry_run: bool = True) -> Dict[str, Any]:
         """
-        Відправляє сформований та підписаний ордер на біржу.
+        Відправляє сформований та підписаний ордер на біржу (POST /orders-v3).
         Якщо dry_run=True, перевіряє ордер без фактичної транзакції в блокчейн.
         """
         if dry_run:
@@ -274,10 +303,9 @@ class SXBetClient:
 
         sig = signature or self.sign_order(order)
         order_with_sig = dict(order)
-        order_with_sig["signature"] = sig
+        order_with_sig["orderSignature"] = sig
 
         payload = {"orders": [order_with_sig]}
-        # У актуальній версії OBv3 використовується ендпоінт /orders-v3
         r = requests.post(f"{self.base_url}/orders-v3", json=payload, headers=self.headers, timeout=self.timeout)
         r.raise_for_status()
         return r.json()
