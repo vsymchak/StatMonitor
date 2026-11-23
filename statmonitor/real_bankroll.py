@@ -16,6 +16,7 @@ def ensure_real_bankroll_tables(cur, conn):
         ALTER TABLE paper_bets ADD COLUMN IF NOT EXISTS bookmaker_name TEXT;
         ALTER TABLE paper_bets ADD COLUMN IF NOT EXISTS slip_image_path TEXT;
         ALTER TABLE paper_bets ADD COLUMN IF NOT EXISTS slip_meta JSONB;
+        ALTER TABLE paper_bets ADD COLUMN IF NOT EXISTS real_profit_uah NUMERIC(10, 2);
 
         CREATE TABLE IF NOT EXISTS real_bankroll_ledger (
             id SERIAL PRIMARY KEY,
@@ -101,7 +102,7 @@ def get_real_bankroll_summary(cur, conn=None):
                 COUNT(*) FILTER (WHERE status = 'LOST'),
                 COUNT(*) FILTER (WHERE status = 'VOID'),
                 COALESCE(SUM(COALESCE(real_stake_uah, stake_uah)) FILTER (WHERE status IN ('WON', 'LOST', 'VOID')), 0),
-                COALESCE(SUM(profit_uah) FILTER (WHERE status IN ('WON', 'LOST', 'VOID')), 0)
+                COALESCE(SUM(COALESCE(real_profit_uah, profit_uah)) FILTER (WHERE status IN ('WON', 'LOST', 'VOID')), 0)
             FROM paper_bets
             WHERE is_real_bet = TRUE;
         """)
@@ -185,12 +186,17 @@ def toggle_real_bet(cur, conn, bet_id, is_real=True, real_stake=None, real_odds=
     При enforce_single_active=True забороняє переносити ставку, якщо вже є інша активна реальна ставка.
     """
     try:
-        cur.execute("SELECT id, match_name, odds, stake_uah FROM paper_bets WHERE id = %s;", (bet_id,))
-        row = cur.fetchone()
+        try:
+            cur.execute("SELECT id, match_name, odds, stake_uah, kelly_pct FROM paper_bets WHERE id = %s;", (bet_id,))
+            row = cur.fetchone()
+        except Exception:
+            cur.execute("SELECT id, match_name, odds, stake_uah FROM paper_bets WHERE id = %s;", (bet_id,))
+            row = cur.fetchone()
         if not row:
             return False, f"Ставку #{bet_id} не знайдено."
 
-        bid, m_name, orig_odds, orig_stake = row
+        bid, m_name, orig_odds, orig_stake = row[:4]
+        k_pct = row[4] if len(row) > 4 and row[4] is not None else None
 
         if is_real and enforce_single_active:
             cur.execute("""
@@ -213,7 +219,7 @@ def toggle_real_bet(cur, conn, bet_id, is_real=True, real_stake=None, real_odds=
                 updates.append("real_stake_uah = %s")
                 params.append(float(round(float(real_stake))))
             else:
-                # 2. Розраховуємо суму від реального балансу
+                # 2. Розраховуємо суму від реального балансу за відсотком (Kelly % або динамічний % банку)
                 from statmonitor.novig import calculate_real_stake
                 cur.execute("SELECT balance_after_uah FROM real_bankroll_ledger ORDER BY created_at DESC, id DESC LIMIT 1;")
                 row_bal = cur.fetchone()
@@ -221,12 +227,12 @@ def toggle_real_bet(cur, conn, bet_id, is_real=True, real_stake=None, real_odds=
 
                 eff_odds = float(real_odds) if (real_odds is not None and float(real_odds) > 1.0) else float(orig_odds or 1.85)
                 if real_bal > 0:
-                    rec_stk, _, _ = calculate_real_stake(eff_odds, real_bal, fraction=0.10)
+                    rec_stk, _, _ = calculate_real_stake(eff_odds, real_bal, kelly_pct=k_pct, fraction=0.10)
                     auto_stake = float(round(rec_stk)) if rec_stk > 0 else 50.0
                 else:
                     auto_stake = 50.0
 
-                updates.append("real_stake_uah = COALESCE(real_stake_uah, %s)")
+                updates.append("real_stake_uah = %s")
                 params.append(auto_stake)
 
             # Визначаємо коефіцієнт ставки

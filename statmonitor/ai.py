@@ -57,25 +57,48 @@ def analyze_gemini(match, title, c_str, drops):
 def extract_short_pick(ai_verdict, fallback):
     if not ai_verdict:
         return fallback
-    for tag in ("Коротка ставка", "Рекомендована ставка"):
-        for line in ai_verdict.splitlines():
-            if tag in line:
-                clean = re.sub(r"<[^>]+>", "", line)
-                clean = re.sub(r"[*_]", "", clean)
-                if ":" in clean:
-                    rec = clean.split(":", 1)[1].strip(" *_:;-")
-                    if any(w in rec.lower() for w in ("пропустити", "утриматися")):
-                        return "⏭ Пропустити матч"
-                    # Відсікаємо альтернативні маркети (наприклад: "Ф2 (+7.5) або П2" -> "Ф2 (+7.5)")
-                    rec = re.split(r"\s+(?:або|чи|\/)\s+", rec, maxsplit=1, flags=re.I)[0].strip(" ,;-")
-                    rec = re.split(r"\s*(?:,|\()?\s*(?:(?:з|по|за|у|в)\s+(?:поточн\w+|орієнтовн\w+)?\s*(?:коефіцієнт\w*|кеф\w*|кф\w*|@)?|(?:поточн\w+|орієнтовн\w+)?\s*(?:коефіцієнт\w*|кеф\w*|кф\w*|@))\s*(?:близько|біля|в районі|у діапазоні)?\s*[~0-9].*$", rec, maxsplit=1, flags=re.I)[0]
-                    rec = re.split(r"\.(?:\s|$)", rec, maxsplit=1)[0].strip(" ,;-")
-                    if len(rec) > 55:
-                        rec = rec[:55].rsplit(" ", 1)[0].strip(" ,;-")
-                    if rec.count("(") > rec.count(")"):
-                        rec += ")" * (rec.count("(") - rec.count(")"))
-                    if rec:
-                        return rec
+
+    # 1. Спершу шукаємо рядок з короткою ставкою за гнучкими шаблонами тегів
+    for line in ai_verdict.splitlines():
+        clean = re.sub(r"<[^>]+>", "", line)
+        clean = re.sub(r"[*_]", "", clean)
+        # Підтримуємо варіанти типу "Коротка ставка:", "Короesta ставка:", "Короткий вибір:"
+        if re.search(r"(?:коротк\w*|коро\w*)\s+(?:ставка|вибір|пік|прогноз)", clean, re.I):
+            if ":" in clean:
+                rec = clean.split(":", 1)[1].strip(" *_:;-")
+                if any(w in rec.lower() for w in ("пропустити", "утриматися")):
+                    return "⏭ Пропустити матч"
+                rec = re.split(r"\s+(?:або|чи|\/)\s+", rec, maxsplit=1, flags=re.I)[0].strip(" ,;-")
+                rec = re.split(r"\s*(?:,|\()?\s*(?:(?:з|по|за|у|в)\s+(?:поточн\w+|орієнтовн\w+)?\s*(?:коефіцієнт\w*|кеф\w*|кф\w*|@)?|(?:поточн\w+|орієнтовн\w+)?\s*(?:коефіцієнт\w*|кеф\w*|кф\w*|@))\s*(?:близько|біля|в районі|у діапазоні)?\s*[~0-9].*$", rec, maxsplit=1, flags=re.I)[0]
+                rec = re.split(r"\.(?:\s|$)", rec, maxsplit=1)[0].strip(" ,;-")
+                if len(rec) > 55:
+                    rec = rec[:55].rsplit(" ", 1)[0].strip(" ,;-")
+                if rec.count("(") > rec.count(")"):
+                    rec += ")" * (rec.count("(") - rec.count(")"))
+                if rec:
+                    return rec
+
+    # 2. Якщо окремого тегу короткої ставки не знайдено або він порожній, шукаємо в "Рекомендована ставка"
+    for line in ai_verdict.splitlines():
+        clean = re.sub(r"<[^>]+>", "", line)
+        clean = re.sub(r"[*_]", "", clean)
+        if re.search(r"рекомендован\w*\s+ставка", clean, re.I):
+            if ":" in clean:
+                rec = clean.split(":", 1)[1].strip(" *_:;-")
+                if any(w in rec.lower() for w in ("пропустити", "утриматися")):
+                    return "⏭ Пропустити матч"
+                # Якщо рядок починається з описового тексту типу "Брати, оскільки...", не повертаємо довге речення
+                if any(w in rec.lower() for w in ("брати, оскільки", "ставити, оскільки", "рекомендую, оскільки", "зважаючи на")):
+                    break
+                rec = re.split(r"\s+(?:або|чи|\/)\s+", rec, maxsplit=1, flags=re.I)[0].strip(" ,;-")
+                rec = re.split(r"\s*(?:,|\()?\s*(?:(?:з|по|за|у|в)\s+(?:поточн\w+|орієнтовн\w+)?\s*(?:коефіцієнт\w*|кеф\w*|кф\w*|@)?|(?:поточн\w+|орієнтовн\w+)?\s*(?:коефіцієнт\w*|кеф\w*|кф\w*|@))\s*(?:близько|біля|в районі|у діапазоні)?\s*[~0-9].*$", rec, maxsplit=1, flags=re.I)[0]
+                rec = re.split(r"\.(?:\s|$)", rec, maxsplit=1)[0].strip(" ,;-")
+                if len(rec) > 55:
+                    rec = rec[:55].rsplit(" ", 1)[0].strip(" ,;-")
+                if rec.count("(") > rec.count(")"):
+                    rec += ")" * (rec.count("(") - rec.count(")"))
+                if rec:
+                    return rec
     return fallback
 
 def extract_confidence_score(ai_verdict):

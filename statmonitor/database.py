@@ -5,11 +5,16 @@ def get_db(db_url=None):
     url = db_url or SUPABASE_DB_URL
     if not url:
         return None
+    # Надійне підключення з швидким таймаутом і ротацією портів (5432 / 6543)
     try:
-        return psycopg2.connect(url, connect_timeout=10)
-    except Exception as e:
-        print(f"Помилка підключення до БД: {e}")
-        return None
+        return psycopg2.connect(url, connect_timeout=5)
+    except Exception:
+        alt_url = url.replace(":5432/", ":6543/") if ":5432/" in url else url.replace(":6543/", ":5432/")
+        try:
+            return psycopg2.connect(alt_url, connect_timeout=5)
+        except Exception as e:
+            print(f"Помилка підключення до БД: {e}")
+            return None
 
 def get_cols(cur, tbl):
     try:

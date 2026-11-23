@@ -289,26 +289,25 @@ def fetch_data(db_url):
         except Exception as e_med:
             print("Auto-fix Medvedev-Tiafoe err:", e_med)
 
-        # SPEC-Real-AutoRecalc: Автоматичне коригування застряглих ставок по 30 грн відповідно до їхнього Kelly %
+        # SPEC-Real-AutoRecalc: Автоматичне заповнення реальних ставок без суми (real_stake_uah IS NULL) за відсотком (SPEC-34)
         try:
             cur.execute("""
                 SELECT id, odds, kelly_pct 
                 FROM paper_bets 
-                WHERE is_real_bet = TRUE AND status = 'PENDING' AND real_stake_uah = 30.0 AND kelly_pct > 1.0;
+                WHERE is_real_bet = TRUE AND status = 'PENDING' AND real_stake_uah IS NULL;
             """)
-            stuck_bets = cur.fetchall()
-            if stuck_bets:
+            null_bets = cur.fetchall()
+            if null_bets:
                 cur.execute("""
                     SELECT balance_after_uah FROM real_bankroll_ledger ORDER BY created_at DESC, id DESC LIMIT 1;
                 """)
                 r_bal_row = cur.fetchone()
-                cur_r_bal = float(r_bal_row[0]) if (r_bal_row and r_bal_row[0]) else 3000.0
-                for b_id, b_odds, k_val in stuck_bets:
-                    if k_val:
-                        from statmonitor.novig import calculate_real_stake
-                        c_stk, c_pct, _ = calculate_real_stake(b_odds, cur_r_bal, kelly_pct=k_val)
-                        if c_stk > 0:
-                            cur.execute("UPDATE paper_bets SET real_stake_uah = %s WHERE id = %s;", (float(c_stk), b_id))
+                cur_r_bal = float(r_bal_row[0]) if (r_bal_row and r_bal_row[0]) else 2700.0
+                for b_id, b_odds, k_val in null_bets:
+                    from statmonitor.novig import calculate_real_stake
+                    c_stk, c_pct, _ = calculate_real_stake(b_odds, cur_r_bal, kelly_pct=k_val)
+                    if c_stk > 0:
+                        cur.execute("UPDATE paper_bets SET real_stake_uah = %s WHERE id = %s;", (float(c_stk), b_id))
         except Exception as e_recalc:
             print("Auto-recalc real stakes err:", e_recalc)
 
@@ -2073,7 +2072,7 @@ def run_streamlit_app():
                                                 "Сума (₴):",
                                                 min_value=10.0,
                                                 max_value=float(math.floor(max(100.0, real_bal))),
-                                                value=float(round(float(p['current_real_stake'] or p['recommended_stake'] or 50.0))),
+                                                value=float(round(float(p['recommended_stake'] or p['current_real_stake'] or 50.0))),
                                                 step=1.0,
                                                 format="%d",
                                                 key=f"inp_r_stk_{p['id']}",
@@ -2687,10 +2686,48 @@ def run_streamlit_app():
                     rs_disp["Сума (Real)"] = rs_disp.apply(
                         lambda r: f"{float(r.get('real_stake_uah') or r.get('stake_uah') or 0):,.0f} ₴", axis=1
                     )
-                    rs_disp["Результат"] = rs_disp.apply(_format_result, axis=1)
-                    rs_disp["Чистий прибуток"] = rs_disp["profit_uah"].apply(
-                        lambda x: f"{float(x):+,.2f} ₴" if x is not None else "0.00 ₴"
-                    )
+
+                    def _format_real_res(r):
+                        st_code = str(r.get("status") or "").upper()
+                        rp = r.get("real_profit_uah")
+                        if rp is None or (pd is not None and pd.isna(rp)):
+                            stk = float(r.get("real_stake_uah") or r.get("stake_uah") or 0.0)
+                            k = float(r.get("real_odds") or r.get("odds") or 1.0)
+                            if st_code == "WON":
+                                rp = round(stk * (k - 1.0), 2)
+                            elif st_code == "LOST":
+                                rp = round(-stk, 2)
+                            elif st_code == "VOID":
+                                rp = 0.0
+                            else:
+                                rp = float(r.get("profit_uah") or 0.0)
+                        val = float(rp)
+                        if st_code == "WON":
+                            return f"🟢 +{val:,.2f} ₴"
+                        elif st_code == "LOST":
+                            return f"🔴 {val:,.2f} ₴"
+                        elif st_code == "VOID":
+                            return "⚪ 0.00 ₴"
+                        return "⏳ В грі (Pending)"
+
+                    def _format_real_profit_str(r):
+                        rp = r.get("real_profit_uah")
+                        if rp is None or (pd is not None and pd.isna(rp)):
+                            stk = float(r.get("real_stake_uah") or r.get("stake_uah") or 0.0)
+                            k = float(r.get("real_odds") or r.get("odds") or 1.0)
+                            st_code = str(r.get("status") or "").upper()
+                            if st_code == "WON":
+                                rp = round(stk * (k - 1.0), 2)
+                            elif st_code == "LOST":
+                                rp = round(-stk, 2)
+                            elif st_code == "VOID":
+                                rp = 0.0
+                            else:
+                                rp = float(r.get("profit_uah") or 0.0)
+                        return f"{float(rp):+,.2f} ₴"
+
+                    rs_disp["Результат"] = rs_disp.apply(_format_real_res, axis=1)
+                    rs_disp["Чистий прибуток"] = rs_disp.apply(_format_real_profit_str, axis=1)
                     cols_rs_show = [
                         c for c in ["ID", "Час", "Турнір", "Подія", "Рахунок", "Маркет", "Коеф.", "Сума (Real)", "Результат", "Чистий прибуток"]
                         if c in rs_disp.columns
@@ -3565,6 +3602,40 @@ def run_streamlit_app():
                         lg["key"]: bool(lg.get("enabled", True)) for lg in all_leagues_list
                     }
 
+                # ---------------- АНАЛІТИКА ВИТРАТ API ТА РЕНТАБЕЛЬНОСТІ ЛІГ ----------------
+                poll_map = {}
+                if poll_data is not None and not poll_data.empty and "sport" in poll_data.columns and "poll_count" in poll_data.columns:
+                    for _, prow in poll_data.iterrows():
+                        sp_k = str(prow["sport"])
+                        p_cnt = int(prow.get("poll_count") or 0)
+                        p_tier = str(prow.get("tier") or "")
+                        poll_map[sp_k] = {"polls": p_cnt, "tier": p_tier}
+
+                pnl_map = {}
+                if bets_data is not None and not bets_data.empty and "sport" in bets_data.columns and "status" in bets_data.columns:
+                    for sp_k, grp in bets_data.groupby("sport"):
+                        settled_grp = grp[grp["status"].isin(["WON", "LOST", "VOID"])]
+                        w_cnt = int((grp["status"] == "WON").sum())
+                        l_cnt = int((grp["status"] == "LOST").sum())
+                        pnl_val = float(settled_grp["profit_uah"].sum()) if not settled_grp.empty and "profit_uah" in settled_grp.columns else 0.0
+                        turn_val = float(settled_grp["stake_uah"].sum()) if not settled_grp.empty and "stake_uah" in settled_grp.columns else 0.0
+                        roi_val = round((pnl_val / turn_val * 100.0), 1) if turn_val > 0 else 0.0
+                        pnl_map[str(sp_k)] = {
+                            "bets": len(grp),
+                            "won": w_cnt,
+                            "lost": l_cnt,
+                            "pnl": round(pnl_val, 2),
+                            "turnover": round(turn_val, 2),
+                            "roi": roi_val,
+                        }
+
+                tot_polls = sum(p["polls"] for p in poll_map.values())
+                loss_leagues = [
+                    lg["key"] for lg in all_leagues_list 
+                    if pnl_map.get(lg["key"], {}).get("pnl", 0.0) < -10.0 and poll_map.get(lg["key"], {}).get("polls", 0) > 0
+                ]
+                wasted_api_calls = sum(poll_map.get(k, {}).get("polls", 0) for k in loss_leagues)
+
                 # KPI Смуга
                 tot_l_cnt = len(all_leagues_list)
                 act_l_cnt = sum(1 for lg in all_leagues_list if st.session_state.league_enabled_state.get(lg["key"], lg.get("enabled", True)))
@@ -3574,17 +3645,82 @@ def run_streamlit_app():
                     if tot_l_cnt > 0 else 5.0
                 )
 
-                kpi_l1, kpi_l2, kpi_l3, kpi_l4 = st.columns(4)
+                kpi_l1, kpi_l2, kpi_l3, kpi_l4, kpi_l5 = st.columns(5)
                 kpi_l1.metric("🏆 Всього чемпіонатів", f"{tot_l_cnt}")
                 kpi_l2.metric("🟢 Активних у моніторингу", f"{act_l_cnt}")
-                kpi_l3.metric("⏸️ На паузі (економія квоти)", f"{dis_l_cnt}")
-                kpi_l4.metric("📉 Сер. поріг просідання", f"{avg_drop:.1f}%")
+                kpi_l3.metric("📡 Запитів API витрачено", f"{tot_polls:,}")
+                kpi_l4.metric("🔴 Збиткових ліг з API", f"{len(loss_leagues)}")
+                kpi_l5.metric("💡 Потенційна економія", f"{wasted_api_calls:,} зап.")
 
                 st.markdown("""
                     <div style="background: #F0FDF4; border: 1px solid #BBF7D0; border-radius: 8px; padding: 8px 12px; margin-top: 8px; margin-bottom: 12px; font-size: 12px; color: #166534;">
                         💡 <b>Порада щодо оптимізації квоти (Smart Rate-Limiter):</b> залишайте увімкненими лише ті ліги, де сьогодні проходять матчі (наприклад, NBA вночі або АПЛ/Ла Ліга у вихідні). Це зберігає пул із 2500 кредитів Odds API.
                     </div>
                 """, unsafe_allow_html=True)
+
+                # Аудит витрат токенів та рентабельності ліг
+                with st.expander(f"📉 Аудит витрат API токенів та рентабельності ліг ({len(poll_map)} відстежуваних)", expanded=(len(loss_leagues) > 0)):
+                    c_rec1, c_rec2 = st.columns([3, 1.2])
+                    with c_rec1:
+                        st.markdown(
+                            f"Аналітика показує фактичне споживання API запитів The Odds API та підсумковий PnL ліг. "
+                            f"**{len(loss_leagues)} ліг** мають мінусовий PnL та вже витратили **{wasted_api_calls:,}** API запитів."
+                        )
+                    with c_rec2:
+                        if len(loss_leagues) > 0:
+                            if st.button("🛑 Вимкнути збиткові ліги", key="btn_disable_loss_leagues", use_container_width=True, help="Знімає прапорці з мінусових ліг для збереження лімітів API"):
+                                for lk in loss_leagues:
+                                    st.session_state.league_enabled_state[lk] = False
+                                    st.session_state[f"chk_lg_{lk}"] = False
+                                st.toast(f"🛑 Знято прапорці з {len(loss_leagues)} збиткових ліг! Натисніть 'Зберегти налаштування ліг' унизу.", icon="⚡")
+                                st.rerun()
+
+                    audit_rows = []
+                    for lg in all_leagues_list:
+                        k = lg["key"]
+                        p_info = poll_map.get(k, {})
+                        b_info = pnl_map.get(k, {})
+                        polls = p_info.get("polls", 0)
+                        tier = p_info.get("tier", "—")
+                        pnl = b_info.get("pnl", 0.0)
+                        bets = b_info.get("bets", 0)
+                        won = b_info.get("won", 0)
+                        lost = b_info.get("lost", 0)
+                        roi = b_info.get("roi", 0.0)
+                        is_active = st.session_state.league_enabled_state.get(k, bool(lg.get("enabled", True)))
+
+                        if pnl < -100 and polls > 25:
+                            rec = "🛑 Вимкнути терміново (великий збиток)"
+                        elif pnl < 0 and polls > 10:
+                            rec = "⚠️ Вимкнути для економії (збиток)"
+                        elif pnl < 0:
+                            rec = "⚠️ Під питанням (збиток)"
+                        elif pnl > 0 and bets >= 3:
+                            rec = "🟢 Прибуткова (зберігати)"
+                        elif polls > 30 and bets == 0:
+                            rec = "🟡 Багато запитів без сигналів"
+                        else:
+                            rec = "⚪ Норма / мало даних"
+
+                        audit_rows.append({
+                            "Ліга": lg.get("title", k),
+                            "Ключ": k,
+                            "Статус": "🟢 Активна" if is_active else "⏸️ На паузі",
+                            "📡 Запитів API": polls,
+                            "Tier": tier,
+                            "Ставок (W/L)": f"{bets} ({won}W/{lost}L)" if bets > 0 else "0",
+                            "Профіт (PnL)": f"{pnl:+,.2f} ₴",
+                            "ROI": f"{roi:+.1f}%" if bets > 0 else "—",
+                            "Рекомендація": rec,
+                            "_sort_polls": polls,
+                            "_sort_pnl": pnl,
+                        })
+
+                    if audit_rows and pd is not None:
+                        audit_df = pd.DataFrame(audit_rows)
+                        audit_df = audit_df.sort_values(by=["_sort_pnl", "_sort_polls"], ascending=[True, False])
+                        disp_cols = ["Ліга", "Ключ", "Статус", "📡 Запитів API", "Tier", "Ставок (W/L)", "Профіт (PnL)", "ROI", "Рекомендація"]
+                        st.dataframe(audit_df[disp_cols], use_container_width=True, hide_index=True)
 
                 # Групування за категоріями спорту
                 sports_groups = {
@@ -3654,12 +3790,27 @@ def run_streamlit_app():
                                 k = lg["key"]
                                 if f"chk_lg_{k}" not in st.session_state:
                                     st.session_state[f"chk_lg_{k}"] = st.session_state.league_enabled_state.get(k, bool(lg.get("enabled", True)))
+                                p_cnt = poll_map.get(k, {}).get("polls", 0)
+                                b_info = pnl_map.get(k, {})
+                                b_pnl = b_info.get("pnl", 0.0)
+                                b_bets = b_info.get("bets", 0)
+
                                 drop_info = f"Поріг: {float(lg.get('min_drop_pct', 5.0)):.1f}% | Кеф: {float(lg.get('min_odds', 1.40)):.2f}–{float(lg.get('max_odds', 4.00)):.2f}"
-                                
+
+                                stat_badges = []
+                                if p_cnt > 0:
+                                    stat_badges.append(f"📡 API: **{p_cnt}**")
+                                if b_bets > 0:
+                                    pnl_c = "🟢" if b_pnl >= 0 else "🔴"
+                                    stat_badges.append(f"{pnl_c} PnL: **{b_pnl:+,.0f} ₴**")
+
+                                stat_str = f" [{' | '.join(stat_badges)}]" if stat_badges else ""
+                                warn_icon = "⚠️ " if (b_pnl < -20 and p_cnt > 10) else ""
+
                                 val = st.checkbox(
-                                    f"**{lg.get('title', k)}** (`{k}`) — _{drop_info}_",
+                                    f"{warn_icon}**{lg.get('title', k)}** (`{k}`){stat_str} — _{drop_info}_",
                                     key=f"chk_lg_{k}",
-                                    help=f"Увімкнути/вимкнути автосканування для {lg.get('title', k)}"
+                                    help=f"Увімкнути/вимкнути автосканування для {lg.get('title', k)}. Витрата API: {p_cnt} запитів. Профіт: {b_pnl:+,.2f} грн."
                                 )
                                 st.session_state.league_enabled_state[k] = val
 

@@ -303,19 +303,15 @@ def recalculate_historical_paper_bets(cur, conn):
 
         real_k = get_market_median_odds(cur, eid, effective_pick, m_name, fallback_odds=old_k, at_time=ref_time)
 
+        stk = float(stake)
+        expected_paper_prof = round(stk * (real_k - 1.0), 2) if st == "WON" else (round(-stk, 2) if st == "LOST" else 0.0)
+
         changed = False
-        if effective_pick != pick_lbl or abs(real_k - old_k) > 0.01:
+        if effective_pick != pick_lbl or abs(real_k - old_k) > 0.01 or abs(float(old_prof or 0.0) - expected_paper_prof) > 0.01:
             changed = True
 
         if changed:
-            stk = float(stake)
-            new_prof = float(old_prof)
-            if st == "WON":
-                new_prof = round(stk * (real_k - 1.0), 2)
-            elif st == "LOST":
-                new_prof = round(-stk, 2)
-            elif st == "VOID":
-                new_prof = 0.0
+            new_prof = expected_paper_prof
 
             cur.execute("""
                 UPDATE paper_bets
@@ -892,17 +888,31 @@ def manual_settle_bet(cur, conn, bet_id, score_str, forced_status=None):
                 conn.commit()
                 return True, f"Shadow-ставку #{bid} ({m_name}) успішно розраховано як {res} ({score_str}) з гіпотетичним профітом {hypo_prof:+.2f} грн."
 
-            eff_st = float(r_stake or st) if (is_real and r_stake) else float(st)
-            eff_k = float(r_odds or odds) if (is_real and r_odds) else float(odds)
-            prof = round(eff_st * (eff_k - 1.0), 2) if res == "WON" else (round(-eff_st, 2) if res == "LOST" else 0.0)
-            cur.execute("UPDATE paper_bets SET status=%s, match_score=%s, profit_uah=%s, settled_at=NOW() WHERE id=%s;", (res, score_str, prof, bid))
+            # Розрахунок профіту для паперової ставки (ЗАВЖДИ від віртуального банку: stake_uah та odds)
+            paper_st = float(st)
+            paper_k = float(odds)
+            prof = round(paper_st * (paper_k - 1.0), 2) if res == "WON" else (round(-paper_st, 2) if res == "LOST" else 0.0)
+
+            # Розрахунок профіту для реальної ставки (якщо ставка була відмічена як реальна)
+            real_prof = None
+            if is_real:
+                eff_st = float(r_stake) if r_stake else 0.0
+                eff_k = float(r_odds) if r_odds else paper_k
+                real_prof = round(eff_st * (eff_k - 1.0), 2) if res == "WON" else (round(-eff_st, 2) if res == "LOST" else 0.0)
+
+            cur.execute("""
+                UPDATE paper_bets 
+                SET status = %s, match_score = %s, profit_uah = %s, 
+                    real_profit_uah = COALESCE(%s, real_profit_uah), settled_at = NOW() 
+                WHERE id = %s;
+            """, (res, score_str, prof, real_prof if is_real else None, bid))
             conn.commit()
 
             # SPEC-31: Якщо це реальна ставка, проводимо розрахунок у реальному леджері
-            if is_real:
+            if is_real and real_prof is not None:
                 try:
                     from statmonitor.real_bankroll import settle_real_bet_in_ledger
-                    settle_real_bet_in_ledger(cur, conn, bid, res, prof, eff_st)
+                    settle_real_bet_in_ledger(cur, conn, bid, res, real_prof, eff_st)
                 except Exception as real_err:
                     print(f"Помилка фіксації реального результату в леджері: {real_err}")
 
@@ -1026,14 +1036,26 @@ def settle_and_report(cur, conn):
                                 conn.rollback()
                             cur.execute("UPDATE paper_bets SET match_score=%s, settled_at=NOW() WHERE id=%s;", (f"{hs}:{as_}", bid))
                     else:
-                        eff_st = float(real_st or st) if (is_real and real_st) else float(st)
-                        eff_k = float(real_k or odds) if (is_real and real_k) else float(odds)
-                        prof = round(eff_st * (eff_k - 1), 2) if res == "WON" else (round(-eff_st, 2) if res == "LOST" else 0.0)
-                        cur.execute("UPDATE paper_bets SET status=%s, match_score=%s, profit_uah=%s, settled_at=NOW() WHERE id=%s;", (res, f"{hs}:{as_}", prof, bid))
-                        if is_real:
+                        paper_st = float(st)
+                        paper_k = float(odds)
+                        prof = round(paper_st * (paper_k - 1.0), 2) if res == "WON" else (round(-paper_st, 2) if res == "LOST" else 0.0)
+
+                        real_prof = None
+                        if is_real and real_st:
+                            eff_st = float(real_st)
+                            eff_k = float(real_k) if real_k else paper_k
+                            real_prof = round(eff_st * (eff_k - 1.0), 2) if res == "WON" else (round(-eff_st, 2) if res == "LOST" else 0.0)
+
+                        cur.execute("""
+                            UPDATE paper_bets 
+                            SET status = %s, match_score = %s, profit_uah = %s, 
+                                real_profit_uah = COALESCE(%s, real_profit_uah), settled_at = NOW() 
+                            WHERE id = %s;
+                        """, (res, f"{hs}:{as_}", prof, real_prof if is_real else None, bid))
+                        if is_real and real_prof is not None:
                             try:
                                 from statmonitor.real_bankroll import settle_real_bet_in_ledger
-                                settle_real_bet_in_ledger(cur, conn, bid, res, prof, eff_st)
+                                settle_real_bet_in_ledger(cur, conn, bid, res, real_prof, eff_st)
                             except Exception as real_err:
                                 print(f"settle_real_bet_in_ledger err: {real_err}")
             conn.commit()

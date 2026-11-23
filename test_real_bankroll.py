@@ -223,6 +223,23 @@ class TestRealBankroll(unittest.TestCase):
         self.assertNotEqual(params[1], 185.0)
         self.assertEqual(params[1], 30.0)
 
+    def test_toggle_real_bet_calculates_with_kelly_pct(self):
+        # Ставка з kelly_pct = 2.5% при реальному банку 3000 ₴ має дати 75 ₴ (відсотком, а не 25 або 30 грн)
+        cur = MockCursor()
+        def mock_fetchone():
+            if len(cur.queries) == 1:
+                return (77, "Carlos Alcaraz - Ben Shelton", 1.82, 203.46, 2.5) # 5 elements with kelly_pct=2.5%
+            elif len(cur.queries) == 2:
+                return (3000.0,) # real_balance
+            return None
+        cur.fetchone = mock_fetchone
+        conn = MockConn()
+
+        ok, msg = toggle_real_bet(cur, conn, 77, is_real=True, real_stake=None)
+        self.assertTrue(ok)
+        q, params = cur.queries[2]
+        self.assertEqual(params[1], 75.0) # 2.5% of 3000 = 75 ₴
+
     def test_toggle_real_bet_enforce_single_active(self):
         # Якщо вже є ставка на реальні гроші в грі, забороняємо вмикати другу
         cur = MockCursor()
