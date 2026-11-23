@@ -103,6 +103,77 @@ class TestSXBetClient(unittest.TestCase):
         self.assertEqual(dry_result["status"], "DRY_RUN_SUCCESS")
         self.assertTrue(dry_result["has_signature"])
 
+    def test_get_user_positions_parsing(self):
+        from unittest.mock import patch, MagicMock
+        client = SXBetClient(api_key="test_api_key", testnet=False)
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "status": "success",
+            "data": {
+                "positions": [
+                    {
+                        "marketHash": "0x903d6db8019c9778f8d82d1e07f63000af0d1cb67188a028fbd917e7554e5db1",
+                        "totalStake": "1000000",
+                        "maxWin": "1247191",
+                        "market": {
+                            "teamOneName": "Dallas Cowboys",
+                            "teamTwoName": "Philadelphia Eagles",
+                            "outcomeOneName": "Over 49.5",
+                            "outcomeTwoName": "Under 49.5",
+                            "status": "ACTIVE",
+                        }
+                    }
+                ]
+            }
+        }
+        with patch("requests.get", return_value=mock_resp):
+            positions = client.get_user_positions(["MATCHED"])
+            self.assertEqual(len(positions), 1)
+            self.assertEqual(positions[0]["marketHash"], "0x903d6db8019c9778f8d82d1e07f63000af0d1cb67188a028fbd917e7554e5db1")
+
+    def test_team_normalization_and_matching(self):
+        from statmonitor.sx_bet import match_paper_bet_to_sx_market, normalize_team_text
+
+        # 1. Нормалізація
+        self.assertEqual(normalize_team_text("FC Barcelona"), "barcelona")
+        self.assertEqual(normalize_team_text("Manchester City FC"), "manchester")
+
+        # 2. Метчинг
+        active_markets = [
+            {
+                "marketHash": "0x123",
+                "teamOneName": "Dallas Cowboys",
+                "teamTwoName": "Philadelphia Eagles",
+                "outcomeOneName": "Over 49.5",
+                "outcomeTwoName": "Under 49.5",
+            },
+            {
+                "marketHash": "0x456",
+                "teamOneName": "Arsenal FC",
+                "teamTwoName": "Chelsea FC",
+                "outcomeOneName": "Arsenal",
+                "outcomeTwoName": "Chelsea",
+            }
+        ]
+
+        paper_bet_match = {
+            "match_name": "Dallas Cowboys vs Philadelphia Eagles",
+            "pick_label": "Over 49.5",
+            "odds": 2.25,
+        }
+        res = match_paper_bet_to_sx_market(paper_bet_match, active_markets)
+        self.assertIsNotNone(res)
+        self.assertEqual(res["marketHash"], "0x123")
+
+        # Не знайдено
+        paper_bet_none = {
+            "match_name": "Real Madrid vs Juventus",
+            "pick_label": "Real Madrid",
+        }
+        self.assertIsNone(match_paper_bet_to_sx_market(paper_bet_none, active_markets))
+
 
 if __name__ == "__main__":
     unittest.main()

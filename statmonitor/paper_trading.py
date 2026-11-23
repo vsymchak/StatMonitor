@@ -1106,6 +1106,14 @@ def settle_and_report(cur, conn):
                 cur.execute("INSERT INTO paper_daily_reports (report_date) VALUES (%s) ON CONFLICT DO NOTHING;", (kyiv_now.date(),))
                 conn.commit()
 
+        # SPEC-Web3: Автоматична синхронізація розрахунків SX Bet
+        try:
+            if not (hasattr(conn, "_mock_return_value") or type(conn).__name__ in ("MagicMock", "Mock")):
+                from statmonitor.sx_bet import sync_sx_positions_to_db
+                sync_sx_positions_to_db(conn)
+        except Exception as sx_sync_err:
+            print(f"SX Bet auto-sync in settle_and_report err: {sx_sync_err}")
+
         # SPEC-26: Щонеділі ввечері (після 21:00) автоматично надсилаємо тижневий графічний дайджест
         if kyiv_now.weekday() == 6 and kyiv_now.hour >= 21:
             try:

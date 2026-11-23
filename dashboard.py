@@ -440,6 +440,47 @@ def fetch_data(db_url):
             conn.close()
         return None, None, None, None, None, {}, None, str(e)
 
+def get_sx_bet_dashboard_data(db_url):
+    """
+    Завантажує актуальні агреговані дані SX Bet для відображення на дашборді:
+    - Фінансовий стан (Portfolio, Free Balance, Risked, PnL, Deposits)
+    - Список активних (Unsettled) ставок
+    - Історію розрахованих (Settled) ставок
+    - Історію транзакцій біржі (Ledger)
+    - Дані ончейн проксі-гаманця
+    """
+    conn, _ = get_db_connection(db_url)
+    if not conn:
+        return {}, pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), {}
+    try:
+        from statmonitor.sx_bet import SXBetClient, fetch_sx_summary, fetch_sx_bets, fetch_sx_transactions
+        client = SXBetClient()
+        summary = fetch_sx_summary(conn, client)
+        all_bets = fetch_sx_bets(conn)
+        txs = fetch_sx_transactions(conn)
+        proxy_info = client.get_proxy_info()
+
+        b_df = pd.DataFrame(all_bets) if all_bets else pd.DataFrame()
+        t_df = pd.DataFrame(txs) if txs else pd.DataFrame()
+
+        pending_df = (
+            b_df[b_df["status"] == "PENDING"].copy()
+            if not b_df.empty and "status" in b_df.columns
+            else pd.DataFrame()
+        )
+        settled_df = (
+            b_df[b_df["status"].isin(["WON", "LOST", "VOID", "SETTLED"])].copy()
+            if not b_df.empty and "status" in b_df.columns
+            else pd.DataFrame()
+        )
+
+        return summary, pending_df, settled_df, t_df, proxy_info
+    except Exception as e:
+        print(f"Помилка завантаження даних SX Bet: {e}")
+        return {}, pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), {}
+    finally:
+        conn.close()
+
 def run_streamlit_app():
     import streamlit as st
     import plotly.graph_objects as go
@@ -1021,6 +1062,8 @@ def run_streamlit_app():
         st.error(f"❌ Помилка з'єднання з базою Supabase:\n\n`{db_err}`")
         return
 
+    sx_summary, sx_pending_df, sx_settled_df, sx_tx_df, sx_proxy_info = get_sx_bet_dashboard_data(db_url)
+
     if not real_summary or not isinstance(real_summary, dict):
         real_summary = {
             "current_balance": 0.0,
@@ -1426,10 +1469,38 @@ def run_streamlit_app():
             </div>
         """, unsafe_allow_html=True)
 
+    # SPEC-40: Банер стану SX Bet Web3
+    if sx_summary and (sx_summary.get("portfolio_value_usdc", 0) > 0 or sx_summary.get("total_bets", 0) > 0):
+        sx_p_val = float(sx_summary.get("portfolio_value_usdc", 0.0) or 0.0)
+        sx_f_bal = float(sx_summary.get("free_balance_usdc", 0.0) or 0.0)
+        sx_r_val = float(sx_summary.get("total_risked_usdc", 0.0) or 0.0)
+        sx_pnl_val = float(sx_summary.get("total_profit_usdc", 0.0) or 0.0)
+        sx_p_sign = "+" if sx_pnl_val > 0 else ""
+        sx_bg = "rgba(59, 130, 246, 0.12)" if is_dark else "#EFF6FF"
+        sx_border = "rgba(59, 130, 246, 0.25)" if is_dark else "#BFDBFE"
+        sx_clr = "#60A5FA" if is_dark else "#1D4ED8"
+        st.markdown(f"""
+            <div style="font-size: 11.5px; color: {sx_clr}; background: {sx_bg}; border: 1px solid {sx_border}; border-radius: 8px; padding: 4px 12px; margin-top: 4px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <span>🌐</span>
+                    <b>SX Bet Web3 Portfolio:</b> <code>${sx_p_val:,.2f} USDC</code> &nbsp;(<code>~{sx_p_val * 41.6:,.0f} ₴</code>) &nbsp;|&nbsp; 
+                    <b>Вільний баланс:</b> <code>${sx_f_bal:,.2f} USDC</code> &nbsp;|&nbsp; 
+                    <b>У грі:</b> <code>${sx_r_val:,.2f} USDC</code> &nbsp;|&nbsp; 
+                    <b>Чистий PnL:</b> <b><code>{sx_p_sign}${sx_pnl_val:,.2f} USDC</code></b> &nbsp;|&nbsp; 
+                    <b>Win Rate:</b> <code>{sx_summary.get('win_rate', 0.0):.1f}%</code>
+                </div>
+                <div>
+                    <b>Ставок на біржі:</b> <b>{sx_summary.get('total_bets', 0)}</b> &nbsp;(⏳ в грі: <b>{sx_summary.get('pending_cnt', 0)}</b> &nbsp;|&nbsp; 🟢 {sx_summary.get('won_cnt', 0)}W &nbsp;|&nbsp; 🔴 {sx_summary.get('lost_cnt', 0)}L)
+                    &nbsp;👉 <i>Детальніше у вкладці «🌐 SX Bet Web3 (USDC)»</i>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+
     # 4. ВКЛАДКИ НАВІГАЦІЇ
     tab_titles = ["📊 Paper Bank (Теорія)"]
     if is_admin:
         tab_titles.append("🟢 Реальний банк (Real Money)")
+    tab_titles.append("🌐 SX Bet Web3 (USDC)")
     tab_titles.extend([
         "🧠 AI-аналітика Gemini",
         "🔬 Квантитативний Бектест (SPEC-42)",
@@ -1444,6 +1515,7 @@ def run_streamlit_app():
     tab_real = all_tabs[t_idx] if is_admin else None
     if is_admin:
         t_idx += 1
+    tab_sx = all_tabs[t_idx]; t_idx += 1
     tab_ai = all_tabs[t_idx]; t_idx += 1
     tab_backtest = all_tabs[t_idx]; t_idx += 1
     tab_pulse = all_tabs[t_idx]; t_idx += 1
@@ -2960,6 +3032,284 @@ def run_streamlit_app():
                                             conn_rset.close()
                     else:
                         st.info("ℹ️ Немає активних реальних ставок для розрахунку.")
+
+    # ---------------- ВКЛАДКА: SX BET WEB3 (DECENTRALIZED EXCHANGE) ----------------
+    with tab_sx:
+        sx_title_clr = '#60A5FA' if is_dark else '#1D4ED8'
+        sx_sub_clr = '#94A3B8' if is_dark else '#64748B'
+        st.markdown(f"""
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 10px;">
+                <div>
+                    <h3 style="margin: 0; padding: 0; color: {sx_title_clr}; font-size: 20px; font-weight: 700;">🌐 SX Bet Web3 (Decentralized Sports Exchange)</h3>
+                    <div style="font-size: 12.5px; color: {sx_sub_clr}; margin-top: 2px;">
+                        Автономний стейкінг через OrderBook V3 API: EIP-712 підпис, ончейн Proxy Wallet на SX Network Rollup, розрахунок у USDC.
+                    </div>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        # Блок інформації про акаунт та смарт-контракти
+        acc_card_bg = "#161F30" if is_dark else "#F8FAFC"
+        acc_card_border = "#233044" if is_dark else "#E2E8F0"
+        acc_t_clr = "#F8FAFC" if is_dark else "#0F172A"
+        acc_s_clr = "#94A3B8" if is_dark else "#64748B"
+
+        prx_addr = (sx_proxy_info.get("obv3ProxyWalletAddress") if sx_proxy_info else None) or os.environ.get("SX_BET_PROXY_ADDRESS", "0x5ef7F65D6c810fF8Ce4CEdcffcfeb53e0bD1c043")
+        safe_addr = os.environ.get("SX_BET_SAFE_ADDRESS", "0xf7466D286A0Fe1Cbd55E2925d5b7399E4990f503")
+        wallet_addr = os.environ.get("SX_BET_WALLET_ADDRESS", "0xd4689DEE01C14Eb75688DF439f5aFb13dfD11071")
+
+        c_info_left, c_info_right = st.columns([8, 4])
+        with c_info_left:
+            st.markdown(f"""
+                <div style="background: {acc_card_bg}; border: 1px solid {acc_card_border}; border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; font-size: 12px; color: {acc_t_clr};">
+                    <div style="display: flex; gap: 16px; flex-wrap: wrap; align-items: center;">
+                        <div>👤 <b>Акаунт:</b> <code>symchak</code></div>
+                        <div>🦊 <b>EOA Гаманець:</b> <code title="{wallet_addr}">{wallet_addr[:6]}...{wallet_addr[-4:]}</code></div>
+                        <div>📜 <b>Proxy Wallet:</b> <code title="{prx_addr}" style="color: #10B981;">{prx_addr[:6]}...{prx_addr[-4:]}</code> (Active)</div>
+                        <div>🛡️ <b>Safe Multisig:</b> <code title="{safe_addr}">{safe_addr[:6]}...{safe_addr[-4:]}</code></div>
+                        <div>⛓️ <b>Мережа:</b> <code>SX Network Rollup (ID 4162)</code></div>
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+        with c_info_right:
+            c_btn_sync, c_btn_link = st.columns([1.2, 1.2])
+            with c_btn_sync:
+                if st.button("🔄 Оновити API", use_container_width=True, help="Синхронізувати позиції та ончейн баланс"):
+                    conn_sync_act, _ = get_db_connection(db_url)
+                    if conn_sync_act:
+                        try:
+                            from statmonitor.sx_bet import sync_sx_positions_to_db
+                            up_c = sync_sx_positions_to_db(conn_sync_act)
+                            st.toast(f"✅ Синхронізовано {up_c} позицій з SX Bet!", icon="🔄")
+                            st.rerun()
+                        finally:
+                            conn_sync_act.close()
+            with c_btn_link:
+                st.markdown(
+                    '<a href="https://sx.bet/my-bets/unsettled" target="_blank" style="text-decoration: none;">'
+                    '<div style="background: #2563EB; color: white; text-align: center; border-radius: 6px; padding: 8px 10px; font-size: 12px; font-weight: 600;">'
+                    '↗️ Відкрити sx.bet</div></a>',
+                    unsafe_allow_html=True
+                )
+
+        # 1. KPI-МЕТРИКИ SX BET
+        cs1, cs2, cs3, cs4, cs5, cs6 = st.columns(6)
+
+        sx_port_val = float(sx_summary.get("portfolio_value_usdc", 0.0) or 0.0)
+        sx_free_bal = float(sx_summary.get("free_balance_usdc", 0.0) or 0.0)
+        sx_risked = float(sx_summary.get("total_risked_usdc", 0.0) or 0.0)
+        sx_pnl = float(sx_summary.get("total_profit_usdc", 0.0) or 0.0)
+        sx_roi = float(sx_summary.get("roi_pct", 0.0) or 0.0)
+        sx_turnover = float(sx_summary.get("turnover_usdc", 0.0) or 0.0)
+        sx_dep = float(sx_summary.get("deposits_usdc", 0.0) or 0.0)
+        sx_with = float(sx_summary.get("withdrawals_usdc", 0.0) or 0.0)
+        sx_wr = float(sx_summary.get("win_rate", 0.0) or 0.0)
+        sx_p_cnt = int(sx_summary.get("pending_cnt", 0) or 0)
+        sx_w_cnt = int(sx_summary.get("won_cnt", 0) or 0)
+        sx_l_cnt = int(sx_summary.get("lost_cnt", 0) or 0)
+        sx_v_cnt = int(sx_summary.get("void_cnt", 0) or 0)
+        sx_tot_cnt = int(sx_summary.get("total_bets", 0) or 0)
+
+        cs1.metric(
+            label="🌐 Портфель (Portfolio)",
+            value=f"${sx_port_val:,.2f}",
+            delta=f"~{sx_port_val * 41.6:,.0f} ₴",
+            delta_color="off",
+        )
+        cs2.metric(
+            label="💵 Вільний Proxy USDC",
+            value=f"${sx_free_bal:,.2f}",
+            delta=f"~{sx_free_bal * 41.6:,.0f} ₴",
+            delta_color="off",
+        )
+        cs3.metric(
+            label="🔒 У грі (Risked)",
+            value=f"${sx_risked:,.2f}",
+            delta=f"{sx_p_cnt} активних",
+            delta_color="off",
+        )
+        cs4.metric(
+            label="📈 Чистий PnL",
+            value=f"${sx_pnl:+,.2f}",
+            delta=f"ROI: {sx_roi:+.1f}%",
+            delta_color="normal" if sx_pnl >= 0 else "inverse",
+        )
+        cs5.metric(
+            label="💰 Депозити / Зняття",
+            value=f"${sx_dep:,.2f}",
+            delta=f"-${sx_with:,.2f}" if sx_with > 0 else "Капітал",
+            delta_color="off",
+        )
+        cs6.metric(
+            label="🎯 Вінрейт",
+            value=f"{sx_wr:.1f}%",
+            delta=f"🟢 {sx_w_cnt}W • 🔴 {sx_l_cnt}L • ⚪ {sx_v_cnt}V",
+            delta_color="normal" if sx_wr >= 50 else ("inverse" if sx_wr > 0 else "off"),
+        )
+
+        # 2. ВНУТРІШНІ ВКЛАДКИ SX BET
+        sx_sub1, sx_sub2, sx_sub3, sx_sub4 = st.tabs([
+            f"⏳ Активні ставки ({len(sx_pending_df)})",
+            f"📜 Історія розрахованих ({len(sx_settled_df)})",
+            f"💸 Транзакції біржі ({len(sx_tx_df)})",
+            "🤖 Авто-стейкінг (Paper ➔ SX API)",
+        ])
+
+        with sx_sub1:
+            st.markdown(f"##### ⏳ Активні ставки на децентралізованій біржі ({len(sx_pending_df)})")
+            if not sx_pending_df.empty:
+                p_show = sx_pending_df.copy()
+                p_show["ID"] = p_show["id"].apply(lambda x: f"#{x}")
+                if "game_time" in p_show.columns:
+                    p_show["Час гри"] = p_show["game_time"].apply(format_kyiv_time)
+                p_show["Подія"] = p_show["event_name"]
+                p_show["Маркет"] = p_show["market_name"]
+                p_show["Вибір (Pick)"] = p_show["bet_side"]
+                p_show["Коеф."] = p_show["odds"].apply(lambda x: f"{float(x or 0):.2f}")
+                p_show["Сума (USDC)"] = p_show["stake_usdc"].apply(lambda x: f"${float(x or 0):.2f}")
+                p_show["Екв. (₴)"] = p_show["stake_usdc"].apply(lambda x: f"{float(x or 0) * 41.6:,.0f} ₴")
+                p_show["Потенц. виплата"] = p_show["potential_payout_usdc"].apply(lambda x: f"${float(x or 0):.2f}")
+                p_show["Макс. прибуток"] = p_show.apply(
+                    lambda r: f"+${float(r.get('potential_payout_usdc') or 0) - float(r.get('stake_usdc') or 0):.2f}", axis=1
+                )
+                p_show["Статус"] = "⏳ В грі (Active)"
+                p_show["Order ID"] = p_show["order_id"].apply(lambda x: f"{x[:10]}...{x[-6:]}" if x else "—")
+                cols_ps = ["ID", "Час гри", "Подія", "Маркет", "Вибір (Pick)", "Коеф.", "Сума (USDC)", "Екв. (₴)", "Потенц. виплата", "Макс. прибуток", "Статус", "Order ID"]
+                cols_ps_exist = [c for c in cols_ps if c in p_show.columns]
+                st.dataframe(p_show[cols_ps_exist], use_container_width=True, hide_index=True)
+            else:
+                st.info("ℹ️ На даний момент немає активних ставок на SX Bet. Вони будуть створені автоматично при появі подібних подій у Paper Bank.")
+
+        with sx_sub2:
+            st.markdown(f"##### 📜 Історія закритих ставок SX Bet ({len(sx_settled_df)})")
+            if not sx_settled_df.empty:
+                s_show = sx_settled_df.copy()
+                s_show["ID"] = s_show["id"].apply(lambda x: f"#{x}")
+                if "settled_at" in s_show.columns:
+                    s_show["Час розрахунку"] = s_show["settled_at"].apply(format_kyiv_time)
+                s_show["Подія"] = s_show["event_name"]
+                s_show["Вибір"] = s_show["bet_side"]
+                s_show["Коеф."] = s_show["odds"].apply(lambda x: f"{float(x or 0):.2f}")
+                s_show["Ставка"] = s_show["stake_usdc"].apply(lambda x: f"${float(x or 0):.2f}")
+
+                def _fmt_sx_res(r):
+                    st_val = str(r.get("status") or "").upper()
+                    prof = float(r.get("profit_usdc") or 0.0)
+                    if st_val == "WON":
+                        return f"🟢 Виграш (+${prof:.2f})"
+                    elif st_val == "LOST":
+                        return f"🔴 Програш (${prof:.2f})"
+                    elif st_val == "VOID":
+                        return "⚪ Повернення ($0.00)"
+                    return f"⏳ {st_val}"
+
+                s_show["Результат"] = s_show.apply(_fmt_sx_res, axis=1)
+                s_show["PnL (USDC)"] = s_show["profit_usdc"].apply(lambda x: f"${float(x or 0):+,.2f}")
+                s_show["PnL (₴)"] = s_show["profit_usdc"].apply(lambda x: f"{float(x or 0) * 41.6:+,.0f} ₴")
+                cols_ss = ["ID", "Час розрахунку", "Подія", "Вибір", "Коеф.", "Ставка", "Результат", "PnL (USDC)", "PnL (₴)"]
+                cols_ss_exist = [c for c in cols_ss if c in s_show.columns]
+                st.dataframe(s_show[cols_ss_exist], use_container_width=True, hide_index=True)
+            else:
+                st.info("ℹ️ Історія закритих ставок поки що порожня. Щойно зіграє перший матч, результати будуть розраховані автоматично.")
+
+        with sx_sub3:
+            st.markdown(f"##### 💸 Каса та рух капіталу (SX Transactions Ledger)")
+            col_tx_m1, col_tx_m2, col_tx_m3 = st.columns(3)
+            col_tx_m1.metric("📥 Всього депозитів", f"${sx_dep:,.2f} USDC", f"~{sx_dep * 41.6:,.0f} ₴")
+            col_tx_m2.metric("📤 Всього виведено", f"${sx_with:,.2f} USDC", "0.00 USDC")
+            col_tx_m3.metric("🏦 Поточний портфель", f"${sx_port_val:,.2f} USDC", f"~{sx_port_val * 41.6:,.0f} ₴")
+
+            if not sx_tx_df.empty:
+                tx_show = sx_tx_df.copy()
+                tx_show["ID"] = tx_show["id"].apply(lambda x: f"#{x}")
+                if "created_at" in tx_show.columns:
+                    tx_show["Дата"] = tx_show["created_at"].apply(format_kyiv_time)
+
+                def _fmt_tx_type(t):
+                    t_str = str(t or "").upper()
+                    if "DEP" in t_str: return "📥 Депозит"
+                    if "WITH" in t_str: return "📤 Виведення"
+                    if "WON" in t_str: return "🏆 Виграш"
+                    if "BET" in t_str: return "🎯 Ставка"
+                    return t_str
+
+                tx_show["Тип"] = tx_show["type"].apply(_fmt_tx_type)
+                tx_show["Сума (USDC)"] = tx_show["amount_usdc"].apply(lambda x: f"${float(x or 0):,.2f}")
+                tx_show["Сума (₴)"] = tx_show["amount_usdc"].apply(lambda x: f"{float(x or 0) * 41.6:,.0f} ₴")
+                tx_show["Залишок"] = tx_show["balance_after_usdc"].apply(
+                    lambda x: f"${float(x):,.2f}" if (x is not None and not (pd is not None and pd.isna(x))) else "—"
+                )
+                tx_show["Опис"] = tx_show.get("notes", "—")
+                tx_show["Tx Hash"] = tx_show["tx_hash"].apply(lambda x: f"{x[:12]}..." if x else "—")
+                cols_tx = ["ID", "Дата", "Тип", "Сума (USDC)", "Сума (₴)", "Залишок", "Опис", "Tx Hash"]
+                cols_tx_exist = [c for c in cols_tx if c in tx_show.columns]
+                st.dataframe(tx_show[cols_tx_exist], use_container_width=True, hide_index=True)
+            else:
+                st.info("ℹ️ Немає записів транзакцій.")
+
+        with sx_sub4:
+            st.markdown("##### 🤖 Автономний стейкінг (Paper ➔ SX Bet API Engine)")
+
+            st.markdown(f"""
+                <div style="background: {"rgba(16, 185, 129, 0.12)" if is_dark else "#F0FDF4"}; border: 1px solid {"rgba(16, 185, 129, 0.25)" if is_dark else "#BBF7D0"}; border-radius: 8px; padding: 12px; margin-bottom: 14px; font-size: 12.5px; color: {"#34D399" if is_dark else "#166534"};">
+                    <div style="font-weight: 700; font-size: 13.5px; margin-bottom: 6px;">🟢 Стан: ПОВНА АВТОНОМІЯ (Адміністратор нічого не робить вручну)</div>
+                    <div><b>Як працює автономний алгоритм:</b></div>
+                    <div style="margin-top: 4px;">1. <b>Сканування:</b> Коли система знаходить валуйні події у <code>paper_bets</code> із високою впевненістю (Confidence ≥ 8.0), вона автоматично надсилає запит до SX Bet API (<code>GET /markets/active</code>).</div>
+                    <div style="margin-top: 2px;">2. <b>Метчинг:</b> Спеціальний алгоритм нормалізації назв команд шукає відповідний ринок на біржі.</div>
+                    <div style="margin-top: 2px;">3. <b>Odds Ladder & Підпис:</b> Ймовірність розраховується та коригується відповідно до обов'язкового кроку лінійки (Odds Ladder Step = 125 * 10^15), після чого офчейн-ордер EIP-712 підписується приватним ключем безпосередньо в середовищі бота.</div>
+                    <div style="margin-top: 2px;">4. <b>Виконання:</b> Підписаний ордер публікується в стакан біржі (<code>POST /orders-v3</code>) і миттєво списує USDC з розгорнутого ончейн Proxy Wallet.</div>
+                    <div style="margin-top: 2px;">5. <b>Розрахунок:</b> Результати матчів та PnL автоматично опитуються з <code>GET /positions-v3</code> та зараховуються на баланс без втручання людини.</div>
+                </div>
+            """, unsafe_allow_html=True)
+
+            c_rule1, c_rule2, c_rule3, c_rule4 = st.columns(4)
+            c_rule1.metric("⚖️ Мін. ставка", "1.00 USDC", "OrderBook V3")
+            c_rule2.metric("⭐ Поріг впевненості", "≥ 8 / 10", "AI Confidence")
+            c_rule3.metric("💱 Валюта біржі", "USDC (Native)", "SX Network Rollup")
+            c_rule4.metric("✍️ Тип підпису", "EIP-712 Typed", "Off-chain / Zero Gas")
+
+            if is_admin:
+                st.markdown("##### ⚡ Ручний запуск сканера ринків")
+                if st.button("🚀 Запустити сканування та синхронізацію зараз", type="primary", use_container_width=True):
+                    conn_auto, _ = get_db_connection(db_url)
+                    if conn_auto:
+                        try:
+                            from statmonitor.sx_bet import auto_sync_and_stake_from_paper, sync_sx_positions_to_db
+                            up_sync = sync_sx_positions_to_db(conn_auto)
+                            placed_bets = auto_sync_and_stake_from_paper(conn_auto, min_confidence=8, stake_usdc=1.0)
+                            if placed_bets:
+                                st.success(f"🎉 Успішно розміщено {len(placed_bets)} авто-ставок на SX Bet!")
+                            else:
+                                st.info("ℹ️ Сканування завершено: активні відкриті ринки на біржі SX Bet зіставлено. Нових підходящих подій на цей момент немає.")
+                            st.rerun()
+                        finally:
+                            conn_auto.close()
+
+            # Кандидати для авто-стейкінгу з paper_bets
+            st.markdown("##### 🔍 Кандидати з Paper Bank для авто-стейкінгу (Confidence ≥ 8)")
+            if bets_df is not None and not bets_df.empty:
+                cand_df = bets_df[
+                    (bets_df["status"] == "PENDING") &
+                    (bets_df.get("confidence_score", 0) >= 8)
+                ].copy() if "status" in bets_df.columns and "confidence_score" in bets_df.columns else pd.DataFrame()
+
+                if not cand_df.empty:
+                    c_disp = cand_df.copy()
+                    c_disp["ID"] = c_disp["id"].apply(lambda x: f"#{x}")
+                    if "commence_time" in c_disp.columns:
+                        c_disp["Час"] = c_disp["commence_time"].apply(format_kyiv_time)
+                    c_disp["Подія"] = c_disp.get("match_name", "")
+                    c_disp["Маркет"] = c_disp.get("pick_label", "").apply(_clean_pick_label)
+                    c_disp["Коеф."] = c_disp["odds"].apply(lambda x: f"{float(x or 0):.2f}")
+                    c_disp["Впевненість"] = c_disp["confidence_score"].apply(lambda x: f"⭐ {x}/10" if x else "—")
+                    c_disp["Стан SX Bet"] = c_disp["id"].apply(
+                        lambda pid: "🟢 Уже на біржі" if (not sx_pending_df.empty and "paper_bet_id" in sx_pending_df.columns and pid in sx_pending_df["paper_bet_id"].values) else "⏳ Очікує появи маркету"
+                    )
+                    cols_cd = ["ID", "Час", "Подія", "Маркет", "Коеф.", "Впевненість", "Стан SX Bet"]
+                    cols_cd_exist = [c for c in cols_cd if c in c_disp.columns]
+                    st.dataframe(c_disp[cols_cd_exist], use_container_width=True, hide_index=True)
+                else:
+                    st.info("ℹ️ На даний момент немає очікуючих paper-ставок з впевненістю ≥ 8/10. Алгоритм підключиться автоматично, щойно з'явиться новий валуйний прогноз.")
 
     # ---------------- ВКЛАДКА 3: AI-АНАЛІТИКА GEMINI ----------------
     with tab_ai:
