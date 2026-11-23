@@ -2770,32 +2770,62 @@ def run_streamlit_app():
                 col_rb4.metric("📊 Real ROI", f"{real_roi:+.2f}%")
 
                 if is_admin:
-                    st.markdown("##### 📝 Внесення транзакції в леджер (Депозит / Виведення)")
+                    st.markdown("##### 📝 Внесення транзакції в леджер (Депозит / Виведення / Коригування)")
                     with st.form("form_ledger_tx"):
-                        col_tx1, col_tx2, col_tx3, col_tx4 = st.columns([2, 1.5, 3, 1.5])
+                        col_tx1, col_tx2, col_tx3, col_tx4 = st.columns([2.5, 1.8, 3, 1.5])
                         with col_tx1:
                             tx_type_sel = st.selectbox(
                                 "Тип транзакції:",
-                                ["📥 Депозит (DEPOSIT)", "📤 Виведення (WITHDRAWAL)", "⚙️ Коригування (ADJUSTMENT)"],
+                                [
+                                    "📥 Депозит (DEPOSIT)",
+                                    "📤 Виведення (WITHDRAWAL)",
+                                    "⚙️ Коригування (ADJUSTMENT)",
+                                    "🎯 Встановити точний баланс (SET_BALANCE)",
+                                ],
                                 key="sel_tx_type_v2"
                             )
                         with col_tx2:
-                            tx_amt = st.number_input("Сума (грн):", min_value=1.0, max_value=1000000.0, value=1000.0, step=100.0, key="num_tx_amt_v2")
+                            tx_amt = st.number_input(
+                                "Сума (грн):",
+                                min_value=-1000000.00,
+                                max_value=1000000.00,
+                                value=0.00,
+                                step=1.00,
+                                format="%.2f",
+                                key="num_tx_amt_v2",
+                                help="Для коригування дозволені як додатні (+), так і від'ємні (-) суми з копійками."
+                            )
                         with col_tx3:
-                            tx_comment = st.text_input("Коментар / Призначення:", placeholder="Поповнення банкролу", key="txt_tx_desc_v2")
+                            tx_comment = st.text_input("Коментар / Призначення:", placeholder="Поповнення / Коригування банкролу", key="txt_tx_desc_v2")
                         with col_tx4:
                             st.write("")
                             st.write("")
                             btn_tx_sub = st.form_submit_button("💾 Провести", type="primary", use_container_width=True)
 
                     if btn_tx_sub:
-                        raw_tx_type = "DEPOSIT" if "DEPOSIT" in tx_type_sel else ("WITHDRAWAL" if "WITHDRAWAL" in tx_type_sel else "ADJUSTMENT")
+                        if "DEPOSIT" in tx_type_sel:
+                            raw_tx_type = "DEPOSIT"
+                            is_delta_tx = False
+                        elif "WITHDRAWAL" in tx_type_sel:
+                            raw_tx_type = "WITHDRAWAL"
+                            is_delta_tx = False
+                        elif "SET_BALANCE" in tx_type_sel:
+                            raw_tx_type = "ADJUSTMENT"
+                            is_delta_tx = False
+                        else:
+                            raw_tx_type = "ADJUSTMENT"
+                            is_delta_tx = True
+
                         conn_tx, err_tx = get_db_connection(db_url)
                         if conn_tx:
                             cur_tx = conn_tx.cursor()
                             try:
                                 from statmonitor.real_bankroll import record_real_transaction
-                                ok_tx, new_b, msg_tx = record_real_transaction(cur_tx, conn_tx, raw_tx_type, tx_amt, description=tx_comment or tx_type_sel)
+                                ok_tx, new_b, msg_tx = record_real_transaction(
+                                    cur_tx, conn_tx, raw_tx_type, tx_amt,
+                                    description=tx_comment or tx_type_sel,
+                                    is_delta=is_delta_tx
+                                )
                                 if ok_tx:
                                     st.success(f"✅ {msg_tx}")
                                     st.rerun()

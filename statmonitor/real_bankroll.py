@@ -128,11 +128,12 @@ def get_real_bankroll_summary(cur, conn=None):
     return summary
 
 
-def record_real_transaction(cur, conn, tx_type, amount, description="", bet_id=None):
+def record_real_transaction(cur, conn, tx_type, amount, description="", bet_id=None, is_delta=False):
     """
     Записує фінансову транзакцію в журнал реального банку з гарантією атомарності (SPEC-38):
     - tx_type: 'INITIAL', 'DEPOSIT', 'WITHDRAWAL', 'BET_RESULT', 'ADJUSTMENT'
     - amount: сума транзакції (позитивна або від'ємна)
+    - is_delta: чи є сума дельтою (+/- до балансу) при коригуванні ADJUSTMENT
     - Гарантує SUM(amount_uah) == balance_after_uah для будь-якої транзакції.
     """
     try:
@@ -153,8 +154,12 @@ def record_real_transaction(cur, conn, tx_type, amount, description="", bet_id=N
             amt_signed = amt
             new_balance = round(current_b + amt, 2)
         elif tx_type_upper == "ADJUSTMENT":
-            new_balance = round(amt, 2)
-            amt_signed = round(new_balance - current_b, 2)
+            if is_delta or amt < 0:
+                new_balance = round(max(0.0, current_b + amt), 2)
+                amt_signed = round(new_balance - current_b, 2)
+            else:
+                new_balance = round(amt, 2)
+                amt_signed = round(new_balance - current_b, 2)
         elif tx_type_upper == "INITIAL":
             new_balance = round(amt, 2)
             amt_signed = amt
