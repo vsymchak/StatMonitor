@@ -50,7 +50,6 @@ flowchart TD
             ModPaper["paper_trading.py<br>Стейкінг, розрахунок, медіана БК, edit_odds"]:::pkg
             ModNoVig["novig.py<br>De-vigging, p_fair, Walkaway Odds, Real Kelly"]:::pkg
             ModRealBank["real_bankroll.py<br>Леджер, транзакції, баланс реального банку"]:::pkg
-            ModSlipOCR["slip_ocr.py<br>Gemini Vision OCR, зіставлення купонів"]:::pkg
             ModChart["chart.py<br>Matplotlib тренди в пам'яті"]:::pkg
             ModNotify["notifier.py<br>Telegram HTML delivery & chunking"]:::pkg
             ModBot["bot.py<br>Двосторонній асистент /status /bank /edit_odds"]:::pkg
@@ -89,7 +88,6 @@ flowchart TD
         TestShadow["test_shadow_bets.py (7 тестів)<br>Shadow bets, FILTERED статус, Counterfactual audit, Brier Score"]:::test
         TestNoVig["test_novig_edge.py (7 тестів)<br>Pinnacle de-vig, p_fair, independent real staking"]:::test
         TestRealBank["test_real_bankroll.py (12 тестів)<br>Депозити, леджер, ROI, маркування ставок"]:::test
-        TestSlipOCR["test_slip_ocr.py (7 тестів)<br>Gemini Vision OCR, зіставлення та прив'язка купонів"]:::test
         TestEval["test_eval_picks.py (33 тести)<br>format_pick, eval_outcome, median_odds, edit_odds"]:::test
         TestBot["test_bot.py (17 тестів)<br>Команди /bank /status /bets /edit_odds, RBAC"]:::test
         TestAnalytics["test_analytics.py (8 тестів)<br>Max Drawdown, Streaks, сегментація ліг"]:::test
@@ -108,7 +106,7 @@ flowchart TD
 
     subgraph Delivery["📲 8. Рівень сповіщень та користувацького UI"]
         Telegram["Telegram Bot API<br>Канал/Чат користувача<br>Команди: /bank /bets /edit_odds /settle<br>Анти-спам фільтрація"]:::notify
-        StreamlitUI["Streamlit Cloud Dashboard<br>(dashboard.py)<br>RBAC: Admin vs Read-Only<br>Графік капіталу Plotly, AI-картки<br>Банер Real Bank & Інлайн-чекбокс Real<br>OCR купонів БК & Ручний розрахунок"]:::ui
+        StreamlitUI["Streamlit Cloud Dashboard<br>(dashboard.py)<br>RBAC: Admin vs Read-Only<br>Графік капіталу Plotly, AI-картки<br>Банер Real Bank & Інлайн-вибір Real<br>Каса леджера & Ручний розрахунок"]:::ui
     end
 
     %% Потоки тригерів
@@ -309,10 +307,6 @@ erDiagram
     - Інтерактивна колонка `🟢 Real` у таблиці активних ставок на Dashboard (`st.data_editor`) для миттєвого маркування парі, укладених на реальні гроші.
     - Всі ставки завжди паралельно зберігаються у Paper-трейдингу для повноти аналітичної вибірки алгоритму.
     - Автоматичне проведення результатів розрахунку (`settle_real_bet_in_ledger`) у фінансовий леджер.
-  - **AI Bet Slip OCR через Gemini Multimodal Vision (`statmonitor.slip_ocr`, Крок 31)**:
-    - Завантаження фото / скріншота купона ставки з букмекерської контори через адмін-кабінет Streamlit.
-    - Розпізнавання через Gemini Vision (`gemini-2.5-flash` / `gemini-2.5-pro`): витягнення матчу, виду спорту, маркету, коефіцієнта, суми та ID квитанції у структурований JSON.
-    - Алгоритм розумного зіставлення `match_slip_with_pending_bets` з активними ставками системи та автоматична прив'язка купона до бази.
   - **Відстеження Closing Line Value (CLV) та Beat the Line % (Крок 20)**: автоматична фіксація лінії закриття за Pinnacle/Betfair (`capture_closing_lines`), розрахунок $CLV\% = ((k_{\text{bet}} / k_{\text{closing}}) - 1) \times 100\%$ та статусу `beat_closing_line`. Відображення в Web Dashboard (стовпець `CLV (+EV)` і блок Breakdown), Telegram-боті (`/bank`) та щоденному звіті.
   - **Підтримка ринку «Обидві заб'ють» (BTTS) та фільтрація чистих тоталів (Крок 23)**: обробка ринку BTTS у футбольних лігах, розрахунок результатів `WON`/`LOST` у `eval_outcome`, інтеграція в медіанні коефіцієнти бенчмарків та математичне відсікання азіатських четвертних тоталів (`.25`/`.75`).
   - **Walkaway Odds у Telegram-алертах та Dashboard (SPEC-37, Крок 37)**:
@@ -349,7 +343,7 @@ erDiagram
 
 ### Рівень 4: Надійність, Watchdog, міграції та планувальник (Reliability Layer)
 * **Модульна архітектура пакету `statmonitor/`**:
-  - Чітке розділення обов'язків: `config`, `database`, `notifier`, `fetcher`, `chart`, `ai`, `paper_trading`, `real_bankroll`, `slip_ocr`, `pipeline`.
+  - Чітке розділення обов'язків: `config`, `database`, `notifier`, `fetcher`, `chart`, `ai`, `paper_trading`, `real_bankroll`, `novig`, `pipeline`.
   - Зворотна сумісність: `main.py` залишається центральною точкою входу.
 * **Версіоновані міграції БД (`migrate.py`)**:
   - Каталог `migrations/` (`001_base_schema.sql` ... `015_shadow_counterfactual_bets.sql`).
@@ -379,7 +373,7 @@ erDiagram
   - **RBAC безпека**: Гостьовий режим (Read-Only) без кнопок керування проти режиму адміністратора (`?key=...` або форма входу).
   - **5 спеціалізованих вкладок архітектури UI**:
     1. `📊 Paper Bank (Теорія)`: базова алгоритмічна модель (10 000 ₴), графік зростання банку Plotly, сегментація по лігах і маркетах, активні ставки з прапорцем `🟢 Real` та кнопкою пакетного переносу `⚡ Перенести в Реальні ставки & Розрахувати банк`, історія ставок.
-    2. `🟢 Реальний банк (Real Money)`: автономний облік реального капіталу з повною ізоляцією від віртуальної моделі. 6 KPI-карток (баланс, депозити, PnL, Real ROI, оборот, вінрейт), графік динаміки балансу леджера Plotly у смарагдових тонах (`#16A34A`), картка експозиції та ризик-лімітів (макс. 5% на 1 ставку, No-Vig Kelly $0.10 \times \text{Kelly}$), таблиця активних реальних ставок, історія закритих ставок, Каса (депозити/виведення/коригування), OCR купонів (Gemini Multimodal Vision) та ручний розрахунок реальних результатів.
+    2. `🟢 Реальний банк (Real Money)`: автономний облік реального капіталу з повною ізоляцією від віртуальної моделі. 6 KPI-карток (баланс, депозити, PnL, Real ROI, оборот, вінрейт), графік динаміки балансу леджера Plotly у смарагдових тонах (`#16A34A`), картка експозиції та ризик-лімітів (макс. 5% на 1 ставку, No-Vig Kelly $0.10 \times \text{Kelly}$), таблиця активних реальних ставок, історія закритих ставок, Каса (депозити/виведення/коригування) та ручний розрахунок реальних результатів.
     3. `🧠 AI-аналітика Gemini`: картки глибокого аналізу матчів, Confidence Score (1–10) та обґрунтування валуйних сигналів із Markdown-розміткою.
     4. `⚙️ Розклад та Пульс`: статус пайплайну, моніторинг квот The Odds API (5 ключів, пул 2500 запитів) та журнал перевірок пульсу.
     5. `🎛️ Пороги ліг (Admin)`: інтерактивне налаштування порогів просідання ліг у режимі реального часу.

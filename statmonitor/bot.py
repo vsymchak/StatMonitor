@@ -44,7 +44,6 @@ def cmd_start_help():
         "  • <b>/digest</b> — Тижневий графічний дайджест ефективності та ROI\n"
         "  • <b>/schedule</b> — Контрольні точки найближчих перевірок\n"
         "  • <b>/run_now</b> — Негайний позачерговий запуск сканування\n"
-        "  • 📷 <b>Фото купона БК</b> — Надішліть фото або скріншот ставки для Gemini Vision OCR\n"
         "  • <b>/help</b> — Показати це меню підказки\n\n"
         f"🌐 <b>Веб-дашборд:</b> <a href='{DASHBOARD_URL}'>Відкрити гостьовий дашборд</a>"
     )
@@ -185,8 +184,7 @@ def cmd_real_bank(cur, conn=None):
         f"🔄 <b>Реальний оборот:</b> <code>{turn:,.2f} грн</code>\n",
         f"🎯 <b>Реальних ставок у системі ({tot}):</b>",
         f"  🟢 Виграно: <b>{won}</b> | 🔴 Програно: <b>{lost}</b>",
-        f"  ⚪ Повернень: <b>{void}</b> | ⏳ В грі: <b>{pend}</b>\n",
-        "💡 <i>Надішліть фото або скріншот купона БК (Favbet/Vbet) для автоматичного розпізнавання через Gemini OCR.</i>",
+        f"  ⚪ Повернень: <b>{void}</b> | ⏳ В грі: <b>{pend}</b>",
     ]
     return "\n".join(lines)
 
@@ -530,72 +528,6 @@ def process_telegram_update(update, cur, conn):
     chat_id = msg.get("chat", {}).get("id")
     if not chat_id:
         return None
-
-    # SPEC-31: Обробка фотографій купонів БК (Gemini Bet Slip OCR)
-    if msg.get("photo"):
-        if not is_authorized(chat_id):
-            send_tg("⛔ <b>Доступ обмежено.</b>", chat_id=chat_id)
-            return "UNAUTHORIZED"
-        photos = msg.get("photo", [])
-        if photos and TG_BOT_TOKEN:
-            try:
-                best_photo = photos[-1]
-                file_id = best_photo.get("file_id")
-                fi_resp = requests.get(f"https://api.telegram.org/bot{TG_BOT_TOKEN}/getFile?file_id={file_id}", timeout=10).json()
-                if fi_resp.get("ok"):
-                    f_path = fi_resp["result"]["file_path"]
-                    d_url = f"https://api.telegram.org/file/bot{TG_BOT_TOKEN}/{f_path}"
-                    img_resp = requests.get(d_url, timeout=25)
-                    if img_resp.status_code == 200:
-                        send_tg("🔍 <b>Обробка купона БК через Gemini Vision API...</b>\nЗачекайте декілька секунд.", chat_id=chat_id)
-                        from statmonitor.slip_ocr import parse_bet_slip_with_gemini, match_slip_with_pending_bets, apply_slip_to_bet
-                        slip_data = parse_bet_slip_with_gemini(img_resp.content)
-                        if not slip_data.get("success"):
-                            err_m = slip_data.get("error", "Невідома помилка розпізнавання.")
-                            send_tg(f"⚠️ <b>Не вдалося розпізнати купон:</b>\n<code>{esc(err_m)}</code>", chat_id=chat_id)
-                            return "OCR_ERROR"
-
-                        cur.execute("SELECT id, match_name, pick_label, odds, stake_uah FROM paper_bets WHERE status='PENDING';")
-                        pending_rows = [{"id": r[0], "match_name": r[1], "pick_label": r[2], "odds": r[3], "stake_uah": r[4]} for r in cur.fetchall()]
-
-                        matched_id, conf, match_info = match_slip_with_pending_bets(slip_data, pending_rows)
-
-                        bm = slip_data.get("bookmaker", "Невідомо")
-                        m_name = slip_data.get("match_name", "—")
-                        pick = slip_data.get("pick_label", "—")
-                        k = slip_data.get("odds", 0.0)
-                        stk = slip_data.get("stake_uah", 0.0)
-                        pot = slip_data.get("potential_win_uah", 0.0)
-                        tid = slip_data.get("ticket_id")
-                        tid_str = f" [Квиток #{tid}]" if tid else ""
-
-                        if matched_id:
-                            ok_apply, apply_msg = apply_slip_to_bet(cur, conn, matched_id, slip_data)
-                            resp_ocr = (
-                                f"🧾 <b>КУПОН БК УСПІШНО РОЗПІЗНАНО ТА ПРИВ'ЯЗАНО!</b>\n\n"
-                                f"🏢 <b>Букмекер:</b> <code>{esc(bm)}</code>{esc(tid_str)}\n"
-                                f"⚽ <b>Подія:</b> <b>{esc(m_name)}</b>\n"
-                                f"🎯 <b>Маркет:</b> <code>{esc(pick)}</code>\n"
-                                f"📉 <b>Коефіцієнт:</b> <code>{float(k):.2f}</code>\n"
-                                f"💵 <b>Реальна ставка:</b> <code>{float(stk):,.2f} грн</code> (Виграш: <code>+{float(pot):,.2f} грн</code>)\n\n"
-                                f"🔗 <b>Прив'язано до ставки:</b> <code>#ID {matched_id}</code> (Збіг: <b>{conf}%</b>)\n"
-                                f"🟢 Ставку переведено в статус: <b>Реальна (Real Money)</b>"
-                            )
-                        else:
-                            resp_ocr = (
-                                f"🧾 <b>КУПОН РОЗПІЗНАНО (БЕЗ АВТОМАТИЧНОГО ЗБІГУ)</b>\n\n"
-                                f"🏢 <b>Букмекер:</b> <code>{esc(bm)}</code>{esc(tid_str)}\n"
-                                f"⚽ <b>Подія:</b> {esc(m_name)}\n"
-                                f"🎯 <b>Маркет:</b> <code>{esc(pick)}</code>\n"
-                                f"📉 <b>Коефіцієнт:</b> <code>{float(k):.2f}</code> | 💵 <b>Сума:</b> <code>{float(stk):,.2f} грн</code>\n\n"
-                                f"ℹ️ <i>Серед активних ставок (PENDING) не знайдено точного збігу. Перевірте список /bets або внесіть зміни через веб-дашборд.</i>"
-                            )
-
-                        send_tg(resp_ocr, chat_id=chat_id, reply_markup=DEFAULT_KEYBOARD)
-                        return resp_ocr
-            except Exception as e:
-                send_tg(f"⚠️ <b>Помилка обробки фото:</b> {esc(e)}", chat_id=chat_id)
-                return "PHOTO_ERROR"
 
     text = msg.get("text")
     if not text:

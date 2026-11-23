@@ -2411,7 +2411,7 @@ def run_streamlit_app():
                     <div>
                         <h3 style="margin: 0; padding: 0; color: {real_title_clr}; font-size: 20px; font-weight: 700;">🟢 Реальний банк (Real Money Trading)</h3>
                         <div style="font-size: 12.5px; color: {real_sub_clr}; margin-top: 2px;">
-                            Автономний облік реального капіталу: депозити, фактичні ставки з No-Vig Kelly стейкінгом, верифікація через Gemini Vision OCR та розрахунок результатів.
+                            Автономний облік реального капіталу: депозити, фактичні ставки з No-Vig Kelly стейкінгом та розрахунок результатів.
                         </div>
                     </div>
                 </div>
@@ -2847,103 +2847,8 @@ def run_streamlit_app():
                     cols_l_show = [c for c in ["id", "Час", "Тип", "Сума", "Баланс після", "Опис"] if c in disp_ledger.columns]
                     st.dataframe(disp_ledger[cols_l_show], use_container_width=True, hide_index=True)
 
-            # 6. OCR КУПОНА БК ЧЕРЕЗ GEMINI VISION
+            # 6. РУЧНИЙ РОЗРАХУНОК РЕЗУЛЬТАТУ РЕАЛЬНОЇ СТАВКИ
             if is_admin:
-                with st.expander("🧾 Завантаження та OCR купона БК (Gemini Vision)", expanded=False):
-                    st.markdown("""
-                        <div style="font-size: 12px; color: #475569; margin-bottom: 8px;">
-                            📸 Завантажте фотографію або скріншот купона ставки з букмекерської контори.
-                            ШІ Gemini Vision автоматично розпізнає подію, маркет, коефіцієнт та суму і зіставить купон з активними ставками системи.
-                        </div>
-                    """, unsafe_allow_html=True)
-                    upl_slip = st.file_uploader(
-                        "Оберіть файл зображення купона:",
-                        type=["png", "jpg", "jpeg", "webp"],
-                        key="ocr_slip_uploader_v2"
-                    )
-                    if upl_slip is not None:
-                        col_img_prev, col_img_ocr = st.columns([1, 1.3])
-                        with col_img_prev:
-                            st.image(upl_slip, caption="Завантажений купон ставки", use_container_width=True)
-                        with col_img_ocr:
-                            if st.button("🔍 Розпізнати купон через Gemini Vision", key="btn_run_gemini_ocr_v2", use_container_width=True):
-                                with st.spinner("Аналіз зображення купона через Gemini Vision..."):
-                                    from statmonitor.slip_ocr import parse_bet_slip_with_gemini
-                                    res_ocr = parse_bet_slip_with_gemini(upl_slip.getvalue(), mime_type=upl_slip.type)
-                                    st.session_state["last_bet_slip_ocr_v2"] = res_ocr
-
-                            last_ocr = st.session_state.get("last_bet_slip_ocr_v2")
-                            if last_ocr:
-                                if last_ocr.get("success"):
-                                    m_n = last_ocr.get("match_name", "—")
-                                    pk = last_ocr.get("pick_label", "—")
-                                    k_val = float(last_ocr.get("odds", 0.0) or 0.0)
-                                    stk_val = float(last_ocr.get("stake_uah", 0.0) or 0.0)
-                                    pot_val = float(last_ocr.get("potential_win_uah", 0.0) or 0.0)
-                                    tid = last_ocr.get("ticket_id")
-
-                                    st.markdown(f"""
-                                        <div style="background: #F0FDF4; border: 1px solid #BBF7D0; border-radius: 8px; padding: 10px; margin-bottom: 10px; font-size: 12.5px;">
-                                            <div>⚽ <b>Подія:</b> <b>{m_n}</b> {f"(Квиток #{tid})" if tid else ""}</div>
-                                            <div>🎯 <b>Маркет:</b> <code>{pk}</code></div>
-                                            <div>📉 <b>Коефіцієнт:</b> <code>{k_val:.2f}</code> &nbsp;|&nbsp; 💵 <b>Ставка:</b> <code>{stk_val:,.2f} ₴</code></div>
-                                            <div>🏆 <b>Потенційний виграш:</b> <code>+{pot_val:,.2f} ₴</code></div>
-                                        </div>
-                                    """, unsafe_allow_html=True)
-
-                                    from statmonitor.slip_ocr import match_slip_with_pending_bets, apply_slip_to_bet
-                                    cand_list = bets_df[bets_df["status"] == "PENDING"].to_dict("records") if (bets_df is not None and not bets_df.empty and "status" in bets_df.columns) else []
-                                    matched_id, conf_pct, m_info = match_slip_with_pending_bets(last_ocr, cand_list)
-
-                                    if matched_id:
-                                        st.success(f"🎯 Знайдено збіг зі ставкою #{matched_id} (впевненість: {conf_pct}%): {m_info.get('match_name')} ({m_info.get('pick_label')})")
-                                        if st.button(f"🔗 Прив'язати купон до ставки #{matched_id} та активувати Real", key=f"btn_apply_ocr_match_v2_{matched_id}", use_container_width=True):
-                                            conn_apply, err_apply = get_db_connection(db_url)
-                                            if conn_apply:
-                                                cur_apply = conn_apply.cursor()
-                                                try:
-                                                    ok_app, msg_app = apply_slip_to_bet(cur_apply, conn_apply, matched_id, last_ocr)
-                                                    if ok_app:
-                                                        st.success(f"✅ {msg_app}")
-                                                        try:
-                                                            from statmonitor.notifier import send_tg
-                                                            send_tg(f"🧾 <b>Купон БК успішно прив'язано до реальної ставки #{matched_id}:</b>\n" + f"{m_info.get('match_name')} — {pk}\nСтавка: {stk_val:,.2f} ₴ @ {k_val:.2f}")
-                                                        except Exception:
-                                                            pass
-                                                        st.session_state["last_bet_slip_ocr_v2"] = None
-                                                        st.rerun()
-                                                    else:
-                                                        st.error(f"❌ {msg_app}")
-                                                finally:
-                                                    cur_apply.close()
-                                                    conn_apply.close()
-                                    else:
-                                        st.warning("⚠️ Автоматичний збіг не знайдено з високою точністю. Ви можете обрати ставку вручну:")
-                                        man_opts = {f"ID #{b['id']} | {b.get('match_name')} ({b.get('pick_label')})": b["id"] for b in cand_list}
-                                        if man_opts:
-                                            sel_man_lbl = st.selectbox("Оберіть активну ставку для прив'язки:", list(man_opts.keys()), key="sel_man_ocr_bet_v2")
-                                            sel_man_id = man_opts[sel_man_lbl]
-                                            if st.button(f"🔗 Прив'язати купон до обраної ставки #{sel_man_id}", key="btn_apply_man_ocr_v2", use_container_width=True):
-                                                conn_apply, err_apply = get_db_connection(db_url)
-                                                if conn_apply:
-                                                    cur_apply = conn_apply.cursor()
-                                                    try:
-                                                        ok_app, msg_app = apply_slip_to_bet(cur_apply, conn_apply, sel_man_id, last_ocr)
-                                                        if ok_app:
-                                                            st.success(f"✅ {msg_app}")
-                                                            st.session_state["last_bet_slip_ocr_v2"] = None
-                                                            st.rerun()
-                                                        else:
-                                                            st.error(f"❌ {msg_app}")
-                                                    finally:
-                                                        cur_apply.close()
-                                                        conn_apply.close()
-                                        else:
-                                            st.warning("⚠️ Немає активних ставок у системі для прив'язки купона.")
-                                else:
-                                    st.error(f"❌ Помилка розпізнавання: {last_ocr.get('error', 'Невідома помилка')}")
-
-                # 7. РУЧНИЙ РОЗРАХУНОК РЕЗУЛЬТАТУ РЕАЛЬНОЇ СТАВКИ
                 with st.expander("⚖️ Ручний розрахунок результату реальної ставки (Manual Settle)", expanded=False):
                     if not real_pending_df.empty:
                         settle_real_opts = {}

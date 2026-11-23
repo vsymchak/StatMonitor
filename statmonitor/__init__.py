@@ -108,11 +108,6 @@ from statmonitor.real_bankroll import (
     toggle_real_bet,
     settle_real_bet_in_ledger,
 )
-from statmonitor.slip_ocr import (
-    parse_bet_slip_with_gemini,
-    match_slip_with_pending_bets,
-    apply_slip_to_bet,
-)
 
 __all__ = [
     "INITIAL_BANKROLL",
@@ -189,7 +184,4 @@ __all__ = [
     "record_real_transaction",
     "toggle_real_bet",
     "settle_real_bet_in_ledger",
-    "parse_bet_slip_with_gemini",
-    "match_slip_with_pending_bets",
-    "apply_slip_to_bet",
 ]
