@@ -194,10 +194,11 @@ class SXBetClient:
         is_betting_outcome_one: bool,
         base_token_address: Optional[str] = None,
         expiry_seconds: int = 3600,
+        time_in_force: str = "GTC",
     ) -> Dict[str, Any]:
         """
-        Формує структуру ордера для подання в SX Bet.
-        total_bet_size передається в базових одиницях USDC (6 десяткових знаків, e.g. 5 USDC = 5_000_000).
+        Формує структуру ордера для подання в SX Bet (OrderBook V3).
+        total_bet_size передається в базових одиницях USDC (6 десяткових знаків, e.g. 1 USDC = 1_000_000).
         """
         validation = self.validate_bet_parameters(total_bet_size_usdc, "USDC")
         if not validation["valid"]:
@@ -225,6 +226,7 @@ class SXBetClient:
             "baseToken": base_token,
             "apiExpiry": expiry,
             "expiry": expiry,
+            "timeInForce": time_in_force,
             "executor": "0x0000000000000000000000000000000000000000",
             "isMakerBettingOutcomeOne": is_betting_outcome_one,
             "salt": salt,
@@ -275,6 +277,7 @@ class SXBetClient:
         order_with_sig["signature"] = sig
 
         payload = {"orders": [order_with_sig]}
-        r = requests.post(f"{self.base_url}/orders/new", json=payload, headers=self.headers, timeout=self.timeout)
+        # У актуальній версії OBv3 використовується ендпоінт /orders-v3
+        r = requests.post(f"{self.base_url}/orders-v3", json=payload, headers=self.headers, timeout=self.timeout)
         r.raise_for_status()
         return r.json()
