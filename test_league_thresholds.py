@@ -141,5 +141,41 @@ class TestLeagueThresholds(unittest.TestCase):
         self.assertTrue(ok)
         mock_conn.commit.assert_called()
 
+    def test_global_defaults_and_fallback(self):
+        from statmonitor.league_config import get_global_defaults, save_global_defaults
+        mock_cur = MagicMock()
+        mock_conn = MagicMock()
+
+        # 1. Читання дефолтів за замовчуванням
+        mock_cur.fetchone.return_value = None
+        d = get_global_defaults(cur=mock_cur)
+        self.assertIn("min_drop_pct", d)
+        self.assertIn("min_odds", d)
+        self.assertIn("max_odds", d)
+        self.assertIn("min_confidence", d)
+        self.assertEqual(d["min_confidence"], 8)
+
+        # 2. Збереження дефолтів у БД
+        ok, msg = save_global_defaults(
+            cur=mock_cur, conn=mock_conn,
+            min_drop_pct=5.5, min_odds=1.50, max_odds=2.40, min_confidence=8,
+            markets=["h2h", "totals", "spreads", "btts"], enabled=True
+        )
+        self.assertTrue(ok)
+        mock_conn.commit.assert_called()
+
+        # 3. Перевірка повернення збережених дефолтів
+        mock_cur.fetchone.return_value = (5.5, 1.50, 2.40, '["h2h", "totals", "btts"]', True)
+        d_saved = get_global_defaults(cur=mock_cur)
+        self.assertEqual(d_saved["min_drop_pct"], 5.5)
+        self.assertEqual(d_saved["min_odds"], 1.50)
+        self.assertEqual(d_saved["max_odds"], 2.40)
+        self.assertIn("btts", d_saved["markets"])
+
+        # 4. Невідома ліга без специфічного налаштування наслідує глобальний дефолт
+        th_unknown = get_league_thresholds("some_random_new_league", cur=mock_cur)
+        self.assertEqual(th_unknown["min_odds"], 1.50)
+        self.assertEqual(th_unknown["max_odds"], 2.40)
+
 if __name__ == "__main__":
     unittest.main()

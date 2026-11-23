@@ -98,6 +98,8 @@ from statmonitor.league_config import (
     save_all_leagues_batch,
     ensure_league_thresholds_table,
     reset_league_thresholds_to_default,
+    get_global_defaults,
+    save_global_defaults,
 )
 from statmonitor.digest import (
     generate_weekly_digest,
@@ -170,6 +172,8 @@ __all__ = [
     "sync_leagues_to_db",
     "save_league_threshold",
     "reset_league_thresholds_to_default",
+    "get_global_defaults",
+    "save_global_defaults",
     "parse_pick_label",
     "resolve_alert_from_history",
     "get_market_median_odds",

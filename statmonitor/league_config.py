@@ -376,16 +376,140 @@ def get_active_target_sports(config=None, cur=None):
     cfg = config or load_leagues_config(cur=cur)
     return [item["key"] for item in cfg.get("leagues", []) if item.get("enabled", True)]
 
+DEFAULT_GLOBAL_THRESHOLDS = {
+    "min_drop_pct": 5.0,
+    "min_odds": 1.40,
+    "max_odds": 4.00,
+    "min_confidence": 8,
+    "markets": ["h2h", "totals", "spreads", "btts"],
+    "enabled": True,
+}
+
+def get_global_defaults(config=None, cur=None):
+    """
+    Повертає загальні (дефолтні) налаштування системи.
+    Якщо налаштування збережено в БД (sport_key = '__default__') або у config/leagues.json, бере їх.
+    """
+    defaults = dict(DEFAULT_GLOBAL_THRESHOLDS)
+
+    # 1. Читання з БД (sport_key = '__default__')
+    if cur is not None:
+        try:
+            cur.execute("""
+                SELECT min_drop_pct, min_odds, max_odds, markets, enabled
+                FROM league_thresholds
+                WHERE sport_key = '__default__';
+            """)
+            r = cur.fetchone()
+            if r:
+                if r[0] is not None:
+                    defaults["min_drop_pct"] = float(r[0])
+                if r[1] is not None:
+                    defaults["min_odds"] = float(r[1])
+                if r[2] is not None:
+                    defaults["max_odds"] = float(r[2])
+                if r[3] is not None:
+                    mkts = r[3]
+                    if isinstance(mkts, str):
+                        try:
+                            mkts = json.loads(mkts)
+                        except Exception:
+                            mkts = defaults["markets"]
+                    if isinstance(mkts, list) and mkts:
+                        defaults["markets"] = mkts
+                if r[4] is not None:
+                    defaults["enabled"] = bool(r[4])
+                return defaults
+        except Exception:
+            pass
+
+    # 2. Читання з JSON-файлу
+    cfg = config or load_leagues_config(cur=cur)
+    if isinstance(cfg, dict) and "defaults" in cfg and isinstance(cfg["defaults"], dict):
+        d = cfg["defaults"]
+        if "min_drop_pct" in d and d["min_drop_pct"] is not None:
+            defaults["min_drop_pct"] = float(d["min_drop_pct"])
+        if "min_odds" in d and d["min_odds"] is not None:
+            defaults["min_odds"] = float(d["min_odds"])
+        if "max_odds" in d and d["max_odds"] is not None:
+            defaults["max_odds"] = float(d["max_odds"])
+        if "min_confidence" in d and d["min_confidence"] is not None:
+            defaults["min_confidence"] = int(d["min_confidence"])
+        if "markets" in d and isinstance(d["markets"], list) and d["markets"]:
+            defaults["markets"] = d["markets"]
+        if "enabled" in d and d["enabled"] is not None:
+            defaults["enabled"] = bool(d["enabled"])
+
+    return defaults
+
+def save_global_defaults(cur, conn, min_drop_pct=5.0, min_odds=1.50, max_odds=2.40, min_confidence=8, markets=None, enabled=True, config_path=None):
+    """
+    Зберігає загальні дефолтні налаштування системи в БД (sport_key = '__default__')
+    та оновлює файл config/leagues.json у секції 'defaults'.
+    """
+    mkts = markets or ["h2h", "totals", "spreads", "btts"]
+    mkts_json = json.dumps(mkts)
+
+    # 1. Запис у файл конфігурації
+    path = resolve_config_path(config_path)
+    try:
+        data = {}
+        if path.exists():
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        if not isinstance(data, dict):
+            data = {"version": "2.0", "leagues": []}
+        data["defaults"] = {
+            "min_drop_pct": float(min_drop_pct),
+            "min_odds": float(min_odds),
+            "max_odds": float(max_odds),
+            "min_confidence": int(min_confidence),
+            "markets": mkts,
+            "enabled": bool(enabled)
+        }
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as fe:
+        print(f"Warning: Failed to save global defaults to file: {fe}")
+
+    # 2. Запис у базу даних PostgreSQL
+    if cur and conn:
+        try:
+            ensure_league_thresholds_table(cur, conn)
+            cur.execute("""
+                INSERT INTO league_thresholds (sport_key, title, category, enabled, min_drop_pct, min_odds, max_odds, markets, updated_at)
+                VALUES ('__default__', 'Загальні системні налаштування (Дефолт)', 'system', %s, %s, %s, %s, %s::jsonb, NOW())
+                ON CONFLICT (sport_key) DO UPDATE SET
+                    title = EXCLUDED.title,
+                    category = EXCLUDED.category,
+                    enabled = EXCLUDED.enabled,
+                    min_drop_pct = EXCLUDED.min_drop_pct,
+                    min_odds = EXCLUDED.min_odds,
+                    max_odds = EXCLUDED.max_odds,
+                    markets = EXCLUDED.markets,
+                    updated_at = NOW();
+            """, (bool(enabled), float(min_drop_pct), float(min_odds), float(max_odds), mkts_json))
+            conn.commit()
+            return True, "Загальні системні налаштування успішно збережено в базі даних."
+        except Exception as dbe:
+            if conn:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+            return False, f"Помилка збереження дефолтних налаштувань у БД: {dbe}"
+
+    return True, "Загальні системні налаштування збережено локально."
+
 def get_league_thresholds(sport_key, config=None, cur=None):
     """
-    Повертає налаштування порогів для конкретної ліги:
-    - min_drop_pct: мінімальне просідання (%)
-    - min_odds: мінімальний коефіцієнт
-    - max_odds: максимальний коефіцієнт
-    - markets: перелік маркетів
-    - enabled: статус активності
+    Повертає налаштування порогів для конкретної ліги.
+    Якщо для окремої ліги не встановлено індивідуальних параметрів,
+    система автоматично використовує глобальні дефолтні налаштування.
     """
-    if cur is not None:
+    glob = get_global_defaults(config=config, cur=cur)
+
+    if cur is not None and sport_key != '__default__':
         try:
             cur.execute("""
                 SELECT min_drop_pct, min_odds, max_odds, markets, enabled
@@ -399,13 +523,13 @@ def get_league_thresholds(sport_key, config=None, cur=None):
                     try:
                         mkts = json.loads(mkts)
                     except Exception:
-                        mkts = ["h2h", "totals", "spreads"]
+                        mkts = glob["markets"]
                 return {
-                    "min_drop_pct": float(r[0]),
-                    "min_odds": float(r[1]),
-                    "max_odds": float(r[2]),
-                    "markets": mkts if isinstance(mkts, list) else ["h2h", "totals", "spreads"],
-                    "enabled": bool(r[4]),
+                    "min_drop_pct": float(r[0]) if r[0] is not None else glob["min_drop_pct"],
+                    "min_odds": float(r[1]) if r[1] is not None else glob["min_odds"],
+                    "max_odds": float(r[2]) if r[2] is not None else glob["max_odds"],
+                    "markets": mkts if isinstance(mkts, list) and mkts else glob["markets"],
+                    "enabled": bool(r[4]) if r[4] is not None else glob["enabled"],
                 }
         except Exception:
             pass
@@ -413,12 +537,13 @@ def get_league_thresholds(sport_key, config=None, cur=None):
     cfg = config or load_leagues_config(cur=cur)
     for item in cfg.get("leagues", []):
         if item.get("key") == sport_key:
+            mkts = item.get("markets")
             return {
-                "min_drop_pct": float(item.get("min_drop_pct", 5.0)),
-                "min_odds": float(item.get("min_odds", 1.40)),
-                "max_odds": float(item.get("max_odds", 4.00)),
-                "markets": item.get("markets", ["h2h", "totals", "spreads"]),
-                "enabled": bool(item.get("enabled", True)),
+                "min_drop_pct": float(item.get("min_drop_pct", glob["min_drop_pct"])),
+                "min_odds": float(item.get("min_odds", glob["min_odds"])),
+                "max_odds": float(item.get("max_odds", glob["max_odds"])),
+                "markets": mkts if isinstance(mkts, list) and mkts else glob["markets"],
+                "enabled": bool(item.get("enabled", glob["enabled"])),
             }
 
     # Значення за замовчуванням для тенісу (динамічні турніри)
@@ -431,11 +556,5 @@ def get_league_thresholds(sport_key, config=None, cur=None):
             "enabled": True,
         }
 
-    # Значення за замовчуванням
-    return {
-        "min_drop_pct": 5.0,
-        "min_odds": 1.40,
-        "max_odds": 4.00,
-        "markets": ["h2h", "totals", "spreads"],
-        "enabled": True,
-    }
+    # Якщо для ліги немає запису — повертаємо глобальні системні налаштування
+    return glob

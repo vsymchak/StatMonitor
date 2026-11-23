@@ -3758,6 +3758,8 @@ def run_streamlit_app():
                     save_all_leagues_batch,
                     save_all_leagues_to_file,
                     reset_league_thresholds_to_default,
+                    get_global_defaults,
+                    save_global_defaults,
                 )
 
                 # Миттєве та надійне зчитування конфігурації ліг (з DB як єдиного джерела істини)
@@ -3790,6 +3792,62 @@ def run_streamlit_app():
                         💡 <b>Порада щодо оптимізації квоти (Smart Rate-Limiter):</b> залишайте увімкненими лише ті ліги, де сьогодні проходять матчі (наприклад, NBA вночі або АПЛ/Ла Ліга у вихідні). Це зберігає пул із 2500 кредитів Odds API.
                     </div>
                 """, unsafe_allow_html=True)
+
+                # ---------------- БЛОК: ЗАГАЛЬНІ НАЛАШТУВАННЯ СИСТЕМИ (ДЕФОЛТИ) ----------------
+                glob_cur = None
+                conn_g, _ = get_db_connection(db_url)
+                if conn_g:
+                    glob_cur = conn_g.cursor()
+                try:
+                    global_cfg = get_global_defaults(config=cfg_leagues, cur=glob_cur)
+                finally:
+                    if glob_cur:
+                        glob_cur.close()
+                    if conn_g:
+                        conn_g.close()
+
+                with st.expander("🌐 Загальні системні налаштування (Дефолтні пороги та Золотий стандарт)", expanded=True):
+                    st.markdown(f"<div style='font-size: 12.5px; color: {lg_sub_clr}; margin-bottom: 10px;'>Ці параметри діють для всіх ліг і ринків за замовчуванням. Якщо для певної ліги нижче не встановлено індивідуального порогу — система автоматично бере ці глобальні дефолти.</div>", unsafe_allow_html=True)
+                    with st.form("form_global_defaults"):
+                        c_gd1, c_gd2, c_gd3 = st.columns(3)
+                        with c_gd1:
+                            gd_drop = st.slider("Мін. просідання коефіцієнта (%):", min_value=1.0, max_value=20.0, value=float(global_cfg.get("min_drop_pct", 5.0)), step=0.1, format="%.1f%%", key="gd_drop_slider")
+                            gd_conf = st.slider("Мін. оцінка Gemini Confidence (0..10):", min_value=0, max_value=10, value=int(global_cfg.get("min_confidence", 8)), step=1, help="8 — Золотий стандарт якості ШІ (Win Rate 62.5%, ROI +17.42%, Max DD 2.4%).", key="gd_conf_slider")
+                        with c_gd2:
+                            gd_min_k = st.number_input("Мін. коефіцієнт (Min Odds):", min_value=1.01, max_value=10.0, value=float(global_cfg.get("min_odds", 1.50)), step=0.05, format="%.2f", help="Оптимальний діапазон за бектестом: від 1.50 (відсікає збиткові мікрокефи < 1.50).", key="gd_min_k_input")
+                            gd_max_k = st.number_input("Макс. коефіцієнт (Max Odds):", min_value=1.10, max_value=50.0, value=float(global_cfg.get("max_odds", 2.40)), step=0.05, format="%.2f", help="Оптимальний діапазон за бектестом: до 2.40 (зрізає високу дисперсію).", key="gd_max_k_input")
+                        with c_gd3:
+                            all_mkts = ["h2h", "totals", "spreads", "btts"]
+                            cur_g_mkts = global_cfg.get("markets", all_mkts)
+                            if not isinstance(cur_g_mkts, list):
+                                cur_g_mkts = all_mkts
+                            gd_mkts = st.multiselect("Дозволені ринки за замовчуванням:", all_mkts, default=[m for m in cur_g_mkts if m in all_mkts], key="gd_mkts_select")
+                            gd_en = st.checkbox("Увімкнено за замовчуванням для нових ліг", value=bool(global_cfg.get("enabled", True)), key="gd_en_chk")
+
+                        btn_save_gd = st.form_submit_button("💾 Зберегти загальні дефолтні налаштування", type="primary", use_container_width=True)
+                        if btn_save_gd:
+                            conn_save_g, _ = get_db_connection(db_url)
+                            cur_save_g = conn_save_g.cursor() if conn_save_g else None
+                            try:
+                                ok_gd, msg_gd = save_global_defaults(
+                                    cur=cur_save_g, conn=conn_save_g,
+                                    min_drop_pct=gd_drop,
+                                    min_odds=gd_min_k,
+                                    max_odds=gd_max_k,
+                                    min_confidence=gd_conf,
+                                    markets=gd_mkts or all_mkts,
+                                    enabled=gd_en
+                                )
+                                if ok_gd:
+                                    st.toast("✅ Загальні дефолтні налаштування збережено!", icon="🌐")
+                                else:
+                                    st.error(f"❌ {msg_gd}")
+                            finally:
+                                if cur_save_g:
+                                    cur_save_g.close()
+                                if conn_save_g:
+                                    conn_save_g.close()
+                            st.rerun()
 
                 # Групування за категоріями спорту
                 sports_groups = {

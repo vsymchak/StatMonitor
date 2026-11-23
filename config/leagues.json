@@ -1504,5 +1504,18 @@
         "spreads"
       ]
     }
-  ]
+  ],
+  "defaults": {
+    "min_drop_pct": 5.5,
+    "min_odds": 1.5,
+    "max_odds": 2.4,
+    "min_confidence": 8,
+    "markets": [
+      "h2h",
+      "totals",
+      "spreads",
+      "btts"
+    ],
+    "enabled": true
+  }
 }
