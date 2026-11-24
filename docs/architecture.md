@@ -28,9 +28,11 @@ flowchart TD
         CFWorker["Cloudflare Worker<br>(deploy/cloudflare_webhook.js)<br>Edge Zero-Cost Gate (Supabase REST)"]:::gw
     end
 
-    subgraph GitHubInfra["⚙️ 2. Інфраструктура виконання"]
+    subgraph ExecutionInfra["⚙️ 2. Інфраструктура виконання (Hybrid Cloud Execution)"]
+        RenderService["Render.com 24/7 Web Service<br>(render_service.py)<br>Автономний хмарний демон (Free $0/mo)"]:::core
         GHAPI["GitHub REST API<br>/workflows/scheduler.yml/dispatches"]:::gw
-        GHRunner["GitHub Actions Runner (Ubuntu)<br>python -u main.py"]:::core
+        GHRunner["GitHub Actions Runner (Ubuntu)<br>Резервний cron (кожні 30 хв)"]:::core
+        LocalDaemon["Local / VPS Daemon<br>(daemon.py / statmonitor.service)"]:::core
     end
 
     subgraph Ingestion["📡 3. Збір даних (Data Ingestion)"]
@@ -120,9 +122,12 @@ flowchart TD
     GHFallbackCron -->|Scheduled Cron| GHRunner
     ManualAdmin -->|Direct API| GHAPI
     DashboardTrigger -->|HTTP Webhook| CFWorker
+    DashboardTrigger -.->|HTTP GET /trigger| RenderService
     CFWorker -->|POST workflow_dispatch| GHAPI
     GHAPI --> GHRunner
     GHRunner --> MainPy
+    RenderService --> MainPy
+    LocalDaemon --> MainPy
 
     %% Оркестрація
     MainPy --> ModPipeline
@@ -278,6 +283,16 @@ erDiagram
 ## 3. Детальний опис рівнів системи
 
 ### Рівень 1: Високоточний гібридний запуск (Execution Orchestration)
+* **Автономний хмарний воркер 24/7 (Render.com Web Service Adapter — `render_service.py`)**:
+  - **Повна хмарна автономність ($0/міс Free)**: сервіс розгорнуто на платформі Render.com як Web Service, що дозволяє працювати 24/7 безкоштовно без витрат лімітів GitHub Actions і без потреби тримати увімкненим локальний ПК.
+  - **Вбудований HTTP Health Server**: підтримує стандартний порт `$PORT` для успішного проходження перевірок доступності (Health Checks) Render (`GET /healthz` $\rightarrow$ `200 OK`).
+  - **Фоновий цикл опитування**: у фоновому потоці запущено `run_daemon(interval_minutes=30)`, що кожні 30 хвилин виконує повний пайплайн моніторингу, AI-аналітики, розміщення ставок SX Bet та розрахунку результатів.
+  - **Миттєвий вебхук (`GET /trigger` або `GET /run`)**: дозволяє викликати позачерговий запуск через зовнішній пінг або кнопку в інтерфейсі без перезапуску сервісу.
+  - **Захист конфіденційності**: репозиторій залишається 100% приватним (Private), а всі чутливі змінні (`SUPABASE_DB_URL`, `SX_BET_PRIVATE_KEY`, тощо) захищені в зашифрованому сховищі Render Environment Variables.
+* **Автономний серверний демон (`daemon.py` та `deploy/statmonitor.service`)**:
+  - Спеціалізований CLI-демон для запуску на будь-якому Linux VPS (Ubuntu/Debian) або локальному комп'ютері: `python daemon.py --interval 30`.
+  - Повна стійкість до збоїв: автоматичне логування помилок у таблицю `system_errors` без аварійного завершення процесу при збоях мережі або API.
+  - Готовий конфіг системної служби `systemd` з автоматичним перезапуском при аваріях (`Restart=always`).
 * **Зовнішній сервіс (Cron-job.org)**: викликає Webhook секунда в секунду за розкладом.
 * **Шлюз Cloudflare Worker (`deploy/cloudflare_webhook.js`)**:
   - Перевіряє секрет `?secret=***`.
@@ -285,7 +300,7 @@ erDiagram
   - Жодних секретів не зберігається у відкритому вигляді (Cloudflare Encrypted Secrets).
 * **Кнопка Web Dashboard**: запуск сканування безпосередньо з інтерфейсу Streamlit в один клік (для користувачів з роллю Admin).
 * **Резервний GitHub Actions Cron (`.github/workflows/scheduler.yml`)**:
-  - Активовано `schedule: - cron: '15,45 * * * *'` (кожні 30 хв у пікові хвилини) як надійний fallback-захист на випадок збоїв зовнішніх пінгерів.
+  - Оптимізовано на інтервал `schedule: - cron: '*/30 * * * *'` (кожні 30 хв: 1 440 хв/місяць), що на 100% вкладається в безкоштовний ліміт 2 000 хв для приватних репозиторіїв GitHub.
 * **GitHub Actions Runner**: без черг стартує контейнер Ubuntu з Python 3.10+ і запускає `main.py`.
 
 ### Рівень 2: Збір та адаптація котирувань (Ingestion Engine)
