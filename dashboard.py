@@ -4450,15 +4450,15 @@ def run_streamlit_app():
                             gd_min_k = st.number_input("Мін. коефіцієнт (Min Odds):", min_value=1.01, max_value=10.0, value=float(global_cfg.get("min_odds", 1.50)), step=0.05, format="%.2f", help="Оптимальний діапазон за бектестом: від 1.50 (відсікає збиткові мікрокефи < 1.50).", key="gd_min_k_input")
                             gd_max_k = st.number_input("Макс. коефіцієнт (Max Odds):", min_value=1.10, max_value=50.0, value=float(global_cfg.get("max_odds", 2.40)), step=0.05, format="%.2f", help="Оптимальний діапазон за бектестом: до 2.40 (зрізає високу дисперсію).", key="gd_max_k_input")
                         with c_gd3:
-                            all_mkts = ["h2h", "totals", "spreads", "btts"]
+                            all_mkts = ["h2h", "totals", "spreads"]
                             cur_g_mkts = global_cfg.get("markets", all_mkts)
                             if not isinstance(cur_g_mkts, list):
                                 cur_g_mkts = all_mkts
+                            cur_g_mkts = [m for m in cur_g_mkts if m in all_mkts]
                             market_labels_ua = {
                                 "h2h": "h2h (Переможець 1X2 / П1, Х, П2)",
                                 "totals": "totals (Тотали / Більше, Менше)",
                                 "spreads": "spreads (Фори / Гандикапи)",
-                                "btts": "btts (Обидві заб'ють / Так, Ні)"
                             }
                             gd_mkts = st.multiselect(
                                 "Дозволені ринки за замовчуванням:",
@@ -4664,11 +4664,18 @@ def run_streamlit_app():
                         # 1. Оновлюємо список у пам'яті
                         updated_list = []
                         for lg in all_leagues_list:
+                            if lg.get("key") == "__default__":
+                                continue
                             item = dict(lg)
                             k = item["key"]
                             is_en = bool(st.session_state.get(f"chk_lg_{k}", st.session_state.league_enabled_state.get(k, item.get("enabled", True))))
                             item["enabled"] = is_en
                             st.session_state.league_enabled_state[k] = is_en
+                            st.session_state[f"chk_lg_{k}"] = is_en
+                            if "markets" in item and isinstance(item["markets"], list):
+                                item["markets"] = [m for m in item["markets"] if m != "btts"]
+                                if not item["markets"]:
+                                    item["markets"] = ["h2h", "totals", "spreads"]
                             updated_list.append(item)
 
                         # 2. Зберігаємо у файл leagues.json
@@ -4716,7 +4723,7 @@ def run_streamlit_app():
 
                 # Додатковий блок тонкого тюнінгу порогів коефіцієнтів
                 with st.expander("⚙️ Тонке налаштування порогів чутливості та ринків для окремої ліги"):
-                    league_options = {f"{lg.get('title', lg['key'])} ({lg['key']})": lg for lg in all_leagues_list}
+                    league_options = {f"{lg.get('title', lg['key'])} ({lg['key']})": lg for lg in all_leagues_list if lg.get('key') != '__default__'}
                     if league_options:
                         sel_lg_lbl = st.selectbox("Оберіть лігу для точкового тюнінгу:", list(league_options.keys()), key="sel_single_tune_v3")
                         if sel_lg_lbl and sel_lg_lbl in league_options:
@@ -4726,53 +4733,62 @@ def run_streamlit_app():
                             c_f1, c_f2 = st.columns(2)
                             with c_f1:
                                 cur_ch = st.session_state.league_enabled_state.get(cur_key, bool(cur_obj.get("enabled", True)))
-                                tune_en = st.toggle("🟢 Ліга активна для авто-сканування", value=cur_ch, key="tune_en_toggle_v3")
-                                tune_drop = st.slider("Мін. просідання коефіцієнта (%):", min_value=1.0, max_value=20.0, value=float(cur_obj.get("min_drop_pct", 5.0)), step=0.1, format="%.1f%%", key="tune_drop_v3")
+                                tune_en = st.toggle("🟢 Ліга активна для авто-сканування", value=cur_ch, key=f"tune_en_{cur_key}")
+                                tune_drop = st.slider("Мін. просідання коефіцієнта (%):", min_value=1.0, max_value=20.0, value=float(cur_obj.get("min_drop_pct", 5.0)), step=0.1, format="%.1f%%", key=f"tune_drop_{cur_key}")
                             with c_f2:
-                                tune_min_k = st.number_input("Мін. коефіцієнт:", min_value=1.01, max_value=10.0, value=float(cur_obj.get("min_odds", 1.40)), step=0.01, format="%.2f", key="tune_min_k_v3")
-                                tune_max_k = st.number_input("Макс. коефіцієнт:", min_value=1.20, max_value=50.0, value=float(cur_obj.get("max_odds", 4.00)), step=0.05, format="%.2f", key="tune_max_k_v3")
+                                tune_min_k = st.number_input("Мін. коефіцієнт:", min_value=1.01, max_value=10.0, value=float(cur_obj.get("min_odds", 1.40)), step=0.01, format="%.2f", key=f"tune_min_k_{cur_key}")
+                                tune_max_k = st.number_input("Макс. коефіцієнт:", min_value=1.20, max_value=50.0, value=float(cur_obj.get("max_odds", 4.00)), step=0.05, format="%.2f", key=f"tune_max_k_{cur_key}")
 
                             cur_mkts = cur_obj.get("markets", ["h2h", "totals", "spreads"])
                             if not isinstance(cur_mkts, list):
                                 cur_mkts = ["h2h", "totals", "spreads"]
-                            all_mkts = ["h2h", "totals", "spreads", "btts"]
+                            all_mkts = ["h2h", "totals", "spreads"]
                             tune_sel_mkts = st.multiselect(
                                 "Дозволені маркети:",
                                 all_mkts,
                                 default=[m for m in cur_mkts if m in all_mkts],
                                 format_func=lambda x: market_labels_ua.get(x, x),
-                                key="tune_mkts_v3"
+                                key=f"tune_mkts_{cur_key}"
                             )
 
-                            if st.button(f"💾 Застосувати для {cur_obj.get('title', cur_key)}", key="btn_apply_tune_v3"):
+                            if st.button(f"💾 Застосувати для {cur_obj.get('title', cur_key)}", key=f"btn_apply_tune_{cur_key}"):
+                                clean_sel = [m for m in tune_sel_mkts if m != "btts"] if tune_sel_mkts else ["h2h", "totals", "spreads"]
                                 st.session_state.league_enabled_state[cur_key] = tune_en
+                                st.session_state[f"chk_lg_{cur_key}"] = tune_en
                                 for item in all_leagues_list:
                                     if item["key"] == cur_key:
                                         item["enabled"] = tune_en
                                         item["min_drop_pct"] = tune_drop
                                         item["min_odds"] = tune_min_k
                                         item["max_odds"] = tune_max_k
-                                        item["markets"] = tune_sel_mkts or ["h2h", "totals", "spreads"]
+                                        item["markets"] = clean_sel
                                 save_all_leagues_to_file(all_leagues_list)
 
                                 conn_t, err_t = get_db_connection(db_url)
                                 if conn_t:
                                     cur_t = conn_t.cursor()
                                     try:
-                                        save_league_threshold(
+                                        ok_t, msg_t = save_league_threshold(
                                             cur_t, conn_t,
                                             sport_key=cur_key,
                                             enabled=tune_en,
                                             min_drop_pct=tune_drop,
                                             min_odds=tune_min_k,
                                             max_odds=tune_max_k,
-                                            markets=tune_sel_mkts or ["h2h", "totals", "spreads"],
+                                            markets=clean_sel,
                                         )
+                                        if ok_t:
+                                            st.toast(f"✅ Параметри {cur_obj.get('title', cur_key)} оновлено!", icon="💾")
+                                        else:
+                                            st.error(f"❌ {msg_t}")
+                                    except Exception as te:
+                                        st.error(f"❌ Помилка запису в БД: {te}")
                                     finally:
                                         cur_t.close()
                                         conn_t.close()
+                                else:
+                                    st.toast(f"✅ Параметри {cur_obj.get('title', cur_key)} оновлено локально!", icon="💾")
 
-                                st.toast(f"✅ Параметри {cur_obj.get('title', cur_key)} оновлено!", icon="💾")
                                 st.rerun()
 
             except Exception as e:

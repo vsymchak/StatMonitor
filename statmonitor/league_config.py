@@ -16,17 +16,17 @@ def _load_default_leagues():
     return {
         "version": "2.0",
         "leagues": [
-            {"key": "soccer_epl", "title": "Англія (Прем'єр-ліга / АПЛ)", "category": "soccer", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.40, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads", "btts"]},
-            {"key": "soccer_spain_la_liga", "title": "Іспанія (Ла Ліга)", "category": "soccer", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.40, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads", "btts"]},
-            {"key": "soccer_italy_serie_a", "title": "Італія (Серія А)", "category": "soccer", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.40, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads", "btts"]},
-            {"key": "soccer_germany_bundesliga", "title": "Німеччина (Бундесліга)", "category": "soccer", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.40, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads", "btts"]},
-            {"key": "soccer_france_ligue_one", "title": "Франція (Ліга 1)", "category": "soccer", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.40, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads", "btts"]},
-            {"key": "soccer_ukraine_premier_league", "title": "Україна (УПЛ)", "category": "soccer", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.40, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads", "btts"]},
-            {"key": "soccer_poland_ekstraklasa", "title": "Польща (Екстракласа)", "category": "soccer", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.40, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads", "btts"]},
-            {"key": "soccer_uefa_champs_league", "title": "Ліга Чемпіонів УЄФА", "category": "soccer", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.40, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads", "btts"]},
-            {"key": "soccer_uefa_europa_league", "title": "Ліга Європи УЄФА", "category": "soccer", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.40, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads", "btts"]},
-            {"key": "soccer_uefa_conference_league", "title": "Ліга Конференцій УЄФА", "category": "soccer", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.40, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads", "btts"]},
-            {"key": "soccer_uefa_nations_league", "title": "Ліга Націй УЄФА", "category": "soccer", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.40, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads", "btts"]},
+            {"key": "soccer_epl", "title": "Англія (Прем'єр-ліга / АПЛ)", "category": "soccer", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.40, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads"]},
+            {"key": "soccer_spain_la_liga", "title": "Іспанія (Ла Ліга)", "category": "soccer", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.40, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads"]},
+            {"key": "soccer_italy_serie_a", "title": "Італія (Серія А)", "category": "soccer", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.40, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads"]},
+            {"key": "soccer_germany_bundesliga", "title": "Німеччина (Бундесліга)", "category": "soccer", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.40, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads"]},
+            {"key": "soccer_france_ligue_one", "title": "Франція (Ліга 1)", "category": "soccer", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.40, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads"]},
+            {"key": "soccer_ukraine_premier_league", "title": "Україна (УПЛ)", "category": "soccer", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.40, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads"]},
+            {"key": "soccer_poland_ekstraklasa", "title": "Польща (Екстракласа)", "category": "soccer", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.40, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads"]},
+            {"key": "soccer_uefa_champs_league", "title": "Ліга Чемпіонів УЄФА", "category": "soccer", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.40, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads"]},
+            {"key": "soccer_uefa_europa_league", "title": "Ліга Європи УЄФА", "category": "soccer", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.40, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads"]},
+            {"key": "soccer_uefa_conference_league", "title": "Ліга Конференцій УЄФА", "category": "soccer", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.40, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads"]},
+            {"key": "soccer_uefa_nations_league", "title": "Ліга Націй УЄФА", "category": "soccer", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.40, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads"]},
             {"key": "basketball_nba", "title": "США (NBA)", "category": "basketball", "enabled": True, "min_drop_pct": 4.0, "min_odds": 1.35, "max_odds": 4.20, "markets": ["h2h", "totals", "spreads"]},
             {"key": "tennis_atp", "title": "Теніс (ATP Tour)", "category": "tennis", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.35, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads"]},
             {"key": "tennis_wta", "title": "Теніс (WTA Tour)", "category": "tennis", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.35, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads"]},
@@ -60,6 +60,7 @@ def fetch_db_leagues(cur):
         cur.execute("""
             SELECT sport_key, title, category, enabled, min_drop_pct, min_odds, max_odds, markets
             FROM league_thresholds
+            WHERE sport_key != '__default__'
             ORDER BY category ASC, title ASC;
         """)
         rows = cur.fetchall()
@@ -124,7 +125,14 @@ def save_all_leagues_batch(cur, conn, leagues_list):
         return False, "Відсутнє підключення до БД"
     try:
         ensure_league_thresholds_table(cur, conn)
-        for item in leagues_list:
+        clean_list = [lg for lg in leagues_list if lg.get("key") != "__default__"]
+        for item in clean_list:
+            mkts = item.get("markets", ["h2h", "totals", "spreads"])
+            if isinstance(mkts, list):
+                mkts = [m for m in mkts if m != "btts"]
+            if not mkts:
+                mkts = ["h2h", "totals", "spreads"]
+
             cur.execute("""
                 INSERT INTO league_thresholds (sport_key, title, category, enabled, min_drop_pct, min_odds, max_odds, markets, updated_at)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, NOW())
@@ -145,10 +153,10 @@ def save_all_leagues_batch(cur, conn, leagues_list):
                 float(item.get("min_drop_pct", 5.0)),
                 float(item.get("min_odds", 1.40)),
                 float(item.get("max_odds", 4.00)),
-                json.dumps(item.get("markets", ["h2h", "totals", "spreads"]))
+                json.dumps(mkts)
             ))
         conn.commit()
-        return True, f"Успішно збережено {len(leagues_list)} ліг у базі даних."
+        return True, f"Успішно збережено {len(clean_list)} ліг у базі даних."
     except Exception as e:
         if conn:
             try:
@@ -182,7 +190,7 @@ def sync_leagues_to_db(cur, conn, config=None, force=False):
         """)
 
         if not force:
-            cur.execute("SELECT COUNT(*) FROM league_thresholds;")
+            cur.execute("SELECT COUNT(*) FROM league_thresholds WHERE sport_key != '__default__';")
             cnt = cur.fetchone()[0]
             if cnt > 0:
                 conn.commit()
@@ -193,7 +201,14 @@ def sync_leagues_to_db(cur, conn, config=None, force=False):
         if not leagues:
             leagues = DEFAULT_LEAGUES_CONFIG.get("leagues", [])
 
-        for item in leagues:
+        clean_leagues = [lg for lg in leagues if lg.get("key") != "__default__"]
+        for item in clean_leagues:
+            mkts = item.get("markets", ["h2h", "totals", "spreads"])
+            if isinstance(mkts, list):
+                mkts = [m for m in mkts if m != "btts"]
+            if not mkts:
+                mkts = ["h2h", "totals", "spreads"]
+
             cur.execute("""
                 INSERT INTO league_thresholds (sport_key, title, category, enabled, min_drop_pct, min_odds, max_odds, markets, updated_at)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, NOW())
@@ -214,10 +229,10 @@ def sync_leagues_to_db(cur, conn, config=None, force=False):
                 float(item.get("min_drop_pct", 5.0)),
                 float(item.get("min_odds", 1.40)),
                 float(item.get("max_odds", 4.00)),
-                json.dumps(item.get("markets", ["h2h", "totals", "spreads"]))
+                json.dumps(mkts)
             ))
         conn.commit()
-        return True, f"Успішно синхронізовано {len(leagues)} ліг у БД."
+        return True, f"Успішно синхронізовано {len(clean_leagues)} ліг у БД."
     except Exception as e:
         if conn:
             try:
@@ -270,15 +285,36 @@ def save_league_threshold(cur, conn, sport_key, title=None, category=None, enabl
         return False, f"Помилка збереження ліги {sport_key}: {e}"
 
 def save_all_leagues_to_file(leagues_list, config_path=None):
-    """Зберігає конфігурацію ліг у файл JSON (якщо він доступний для запису)."""
+    """Зберігає конфігурацію ліг у файл JSON (якщо він доступний для запису), зберігаючи defaults та version."""
     path = resolve_config_path(config_path)
     try:
-        data = {
-            "version": "1.0",
-            "leagues": leagues_list
-        }
+        existing = {}
+        if path.exists():
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    existing = json.load(f)
+            except Exception:
+                existing = {}
+        if not isinstance(existing, dict):
+            existing = {}
+
+        existing["version"] = existing.get("version", "2.0")
+        clean_leagues = [dict(lg) for lg in leagues_list if lg.get("key") != "__default__"]
+        for lg in clean_leagues:
+            if "markets" in lg and isinstance(lg["markets"], list):
+                lg["markets"] = [m for m in lg["markets"] if m != "btts"]
+                if not lg["markets"]:
+                    lg["markets"] = ["h2h", "totals", "spreads"]
+        existing["leagues"] = clean_leagues
+
+        if "defaults" in existing and isinstance(existing["defaults"], dict):
+            if "markets" in existing["defaults"] and isinstance(existing["defaults"]["markets"], list):
+                existing["defaults"]["markets"] = [m for m in existing["defaults"]["markets"] if m != "btts"]
+                if not existing["defaults"]["markets"]:
+                    existing["defaults"]["markets"] = ["h2h", "totals", "spreads"]
+
         with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+            json.dump(existing, f, ensure_ascii=False, indent=2)
         return True, f"Збережено у {path}"
     except Exception as e:
         return False, str(e)
@@ -316,6 +352,15 @@ def load_leagues_config(config_path=None, cur=None, db_url=None):
                     base_data = data
         except Exception as e:
             print(f"Warning: Failed to load leagues config from {path}: {e}. Using fallback defaults.")
+            if config_path is not None and cur is None and db_url is None:
+                return DEFAULT_LEAGUES_CONFIG
+    elif config_path is not None:
+        return DEFAULT_LEAGUES_CONFIG
+
+    # Якщо користувач передав окремий тестовий чи локальний config_path і не надав cur/db_url,
+    # не підключаємося до глобальної віддаленої БД Supabase
+    if config_path is not None and cur is None and db_url is None:
+        return base_data
 
     # 2. Якщо передано cur або можна з'єднатися через db_url чи SUPABASE_DB_URL
     db_cur = cur
@@ -339,6 +384,8 @@ def load_leagues_config(config_path=None, cur=None, db_url=None):
                 seen_keys = set()
                 for base_lg in base_data.get("leagues", []):
                     k = base_lg["key"]
+                    if k == "__default__":
+                        continue
                     seen_keys.add(k)
                     if k in db_map:
                         item = dict(base_lg)
@@ -347,9 +394,11 @@ def load_leagues_config(config_path=None, cur=None, db_url=None):
                     else:
                         merged_leagues.append(base_lg)
                 for k, db_lg in db_map.items():
-                    if k not in seen_keys:
+                    if k not in seen_keys and k != "__default__":
                         merged_leagues.append(db_lg)
-                base_data = {"version": "2.0", "leagues": merged_leagues}
+                res = dict(base_data)
+                res["leagues"] = merged_leagues
+                base_data = res
         except Exception as e:
             print(f"Warning: Failed to merge leagues from DB: {e}")
         finally:
@@ -381,7 +430,7 @@ DEFAULT_GLOBAL_THRESHOLDS = {
     "min_odds": 1.40,
     "max_odds": 4.00,
     "min_confidence": 8,
-    "markets": ["h2h", "totals", "spreads", "btts"],
+    "markets": ["h2h", "totals", "spreads"],
     "enabled": True,
 }
 
@@ -447,7 +496,10 @@ def save_global_defaults(cur, conn, min_drop_pct=5.0, min_odds=1.50, max_odds=2.
     Зберігає загальні дефолтні налаштування системи в БД (sport_key = '__default__')
     та оновлює файл config/leagues.json у секції 'defaults'.
     """
-    mkts = markets or ["h2h", "totals", "spreads", "btts"]
+    mkts = markets or ["h2h", "totals", "spreads"]
+    mkts = [m for m in mkts if m != "btts"]
+    if not mkts:
+        mkts = ["h2h", "totals", "spreads"]
     mkts_json = json.dumps(mkts)
 
     # 1. Запис у файл конфігурації
