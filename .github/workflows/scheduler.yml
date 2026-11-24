@@ -30,7 +30,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests psycopg2-binary matplotlib
+          pip install -r requirements.txt
 
       - name: Run StatMonitor script
         env:
@@ -43,6 +43,11 @@ jobs:
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          SX_BET_API_KEY: ${{ secrets.SX_BET_API_KEY || secrets.MY_GEM_BOT }}
+          SX_BET_PRIVATE_KEY: ${{ secrets.SX_BET_PRIVATE_KEY }}
+          SX_BET_WALLET_ADDRESS: ${{ secrets.SX_BET_WALLET_ADDRESS }}
+          SX_BET_PROXY_ADDRESS: ${{ secrets.SX_BET_PROXY_ADDRESS }}
+          SX_BET_SAFE_ADDRESS: ${{ secrets.SX_BET_SAFE_ADDRESS }}
           TRIGGER_SOURCE: ${{ github.event.inputs.trigger_source || (github.event_name == 'schedule' && 'cron_5m' || 'manual') }}
         run: |
           python -u main.py

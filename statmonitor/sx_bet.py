@@ -72,6 +72,8 @@ class SXBetClient:
         api_key: Optional[str] = None,
         private_key: Optional[str] = None,
         wallet_address: Optional[str] = None,
+        proxy_address: Optional[str] = None,
+        safe_address: Optional[str] = None,
         testnet: bool = False,
         timeout: int = 15,
     ):
@@ -111,12 +113,14 @@ class SXBetClient:
             or DEFAULT_SX_WALLET_ADDRESS
         )
         self.proxy_address = (
-            os.getenv("SX_BET_PROXY_ADDRESS")
+            proxy_address
+            or os.getenv("SX_BET_PROXY_ADDRESS")
             or st_sec.get("SX_BET_PROXY_ADDRESS")
             or DEFAULT_SX_PROXY_ADDRESS
         )
         self.safe_address = (
-            os.getenv("SX_BET_SAFE_ADDRESS")
+            safe_address
+            or os.getenv("SX_BET_SAFE_ADDRESS")
             or st_sec.get("SX_BET_SAFE_ADDRESS")
             or DEFAULT_SX_SAFE_ADDRESS
         )
@@ -399,19 +403,21 @@ class SXBetClient:
 
         # Fallback до надійних ончейн адрес користувача
         return {
-            "obv3ProxyWalletAddress": getattr(self, "proxy_address", DEFAULT_SX_PROXY_ADDRESS),
-            "multisigSafeAddress": getattr(self, "safe_address", DEFAULT_SX_SAFE_ADDRESS),
+            "obv3ProxyWalletAddress": getattr(self, "proxy_address", None) or DEFAULT_SX_PROXY_ADDRESS,
+            "multisigSafeAddress": getattr(self, "safe_address", None) or DEFAULT_SX_SAFE_ADDRESS,
             "deployed": True,
         }
 
     def get_proxy_usdc_balance(self, proxy_address: Optional[str] = None) -> float:
         """Отримати актуальний баланс USDC у Proxy Wallet через ончейн RPC (SX Network)."""
-        proxy = proxy_address
-        if not proxy:
+        proxy = (
+            proxy_address
+            or getattr(self, "proxy_address", None)
+            or DEFAULT_SX_PROXY_ADDRESS
+        )
+        if not proxy or proxy == DEFAULT_SX_PROXY_ADDRESS:
             info = self.get_proxy_info()
-            proxy = info.get("obv3ProxyWalletAddress")
-        if not proxy:
-            proxy = getattr(self, "proxy_address", DEFAULT_SX_PROXY_ADDRESS)
+            proxy = info.get("obv3ProxyWalletAddress") or proxy
 
         rpc_urls = [
             "https://rpc-rollup.sx.technology",
@@ -421,12 +427,19 @@ class SXBetClient:
         usdc_contract = USDC_ADDRESS_SX_NETWORK if not self.testnet else "0x1BC6326EA6aF2aB8E4b6Bc83418044B1923b2956"
         data = "0x70a08231" + proxy[2:].lower().zfill(64)
 
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+
         for rpc_url in rpc_urls:
             try:
                 r = requests.post(
                     rpc_url,
                     json={"jsonrpc": "2.0", "id": 1, "method": "eth_call", "params": [{"to": usdc_contract, "data": data}, "latest"]},
-                    timeout=10,
+                    headers=headers,
+                    timeout=8,
                 )
                 if r.status_code == 200:
                     resp_json = r.json()
@@ -664,6 +677,18 @@ def fetch_sx_summary(conn, client: Optional[SXBetClient] = None) -> Dict[str, An
 
     # 1. Ончейн вільний баланс
     free_balance = sx_client.get_proxy_usdc_balance()
+
+    # Якщо ончейн RPC повернув 0.0 (через тимчасовий таймаут чи сетеві затримки),
+    # використовуємо останній зафіксований баланс із бази даних sx_transactions
+    if free_balance == 0.0 and conn:
+        try:
+            with conn.cursor() as cur_fb:
+                cur_fb.execute("SELECT balance_after_usdc FROM sx_transactions WHERE balance_after_usdc IS NOT NULL ORDER BY created_at DESC, id DESC LIMIT 1")
+                row_last = cur_fb.fetchone()
+                if row_last and row_last[0] is not None and float(row_last[0]) > 0.0:
+                    free_balance = float(row_last[0])
+        except Exception:
+            pass
 
     # 2. Метрики з бази даних
     with conn.cursor() as cur:

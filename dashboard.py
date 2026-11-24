@@ -3265,9 +3265,20 @@ def run_streamlit_app():
                     conn_sync_act, _ = get_db_connection(db_url)
                     if conn_sync_act:
                         try:
-                            from statmonitor.sx_bet import sync_sx_positions_to_db
+                            from statmonitor.sx_bet import SXBetClient, sync_sx_positions_to_db, fetch_sx_summary
                             up_c = sync_sx_positions_to_db(conn_sync_act)
-                            st.toast(f"✅ Синхронізовано {up_c} позицій з SX Bet!", icon="🔄")
+                            cl = SXBetClient()
+                            up_bal = cl.get_proxy_usdc_balance()
+                            if up_bal > 0:
+                                with conn_sync_act.cursor() as cur_ub:
+                                    cur_ub.execute("""
+                                        UPDATE sx_transactions
+                                        SET balance_after_usdc = %s
+                                        WHERE id = (SELECT id FROM sx_transactions ORDER BY created_at DESC, id DESC LIMIT 1)
+                                    """, (up_bal,))
+                                conn_sync_act.commit()
+                            st.cache_data.clear()
+                            st.toast(f"✅ Баланс: ${up_bal:.2f} USDC | Синхронізовано {up_c} позицій!", icon="🔄")
                             st.rerun()
                         finally:
                             conn_sync_act.close()
