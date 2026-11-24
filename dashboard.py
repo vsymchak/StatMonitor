@@ -3054,9 +3054,10 @@ def run_streamlit_app():
         acc_t_clr = "#F8FAFC" if is_dark else "#0F172A"
         acc_s_clr = "#94A3B8" if is_dark else "#64748B"
 
-        prx_addr = (sx_proxy_info.get("obv3ProxyWalletAddress") if sx_proxy_info else None) or os.environ.get("SX_BET_PROXY_ADDRESS", "0x5ef7F65D6c810fF8Ce4CEdcffcfeb53e0bD1c043")
-        safe_addr = os.environ.get("SX_BET_SAFE_ADDRESS", "0xf7466D286A0Fe1Cbd55E2925d5b7399E4990f503")
-        wallet_addr = os.environ.get("SX_BET_WALLET_ADDRESS", "0xd4689DEE01C14Eb75688DF439f5aFb13dfD11071")
+        st_sec = getattr(st, "secrets", {}) if hasattr(st, "secrets") else {}
+        prx_addr = (sx_proxy_info.get("obv3ProxyWalletAddress") if sx_proxy_info else None) or os.environ.get("SX_BET_PROXY_ADDRESS") or st_sec.get("SX_BET_PROXY_ADDRESS", "0x5ef7F65D6c810fF8Ce4CEdcffcfeb53e0bD1c043")
+        safe_addr = os.environ.get("SX_BET_SAFE_ADDRESS") or st_sec.get("SX_BET_SAFE_ADDRESS", "0xf7466D286A0Fe1Cbd55E2925d5b7399E4990f503")
+        wallet_addr = os.environ.get("SX_BET_WALLET_ADDRESS") or st_sec.get("SX_BET_WALLET_ADDRESS", "0xd4689DEE01C14Eb75688DF439f5aFb13dfD11071")
 
         c_info_left, c_info_right = st.columns([8, 4])
         with c_info_left:

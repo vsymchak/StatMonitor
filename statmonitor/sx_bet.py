@@ -47,15 +47,38 @@ class SXBetClient:
     ):
         self.testnet = testnet
         self.base_url = SX_TESTNET_API if testnet else SX_MAINNET_API
-        # Читаємо API ключ із переданих параметрів або змінних оточення (підтримуємо MY_GEM_BOT)
+
+        # Перевірка Streamlit Secrets (якщо запущено у хмарі Streamlit Cloud)
+        st_sec = {}
+        try:
+            import streamlit as st
+            if hasattr(st, "secrets"):
+                st_sec = st.secrets
+        except Exception:
+            pass
+
+        # Читаємо API ключ із переданих параметрів, змінних оточення або Streamlit Secrets (підтримуємо MY_GEM_BOT)
         self.api_key = (
             api_key
             or os.getenv("SX_BET_API_KEY")
             or os.getenv("MY_GEM_BOT")
             or os.getenv("SX_API_KEY")
+            or st_sec.get("MY_GEM_BOT")
+            or st_sec.get("SX_BET_API_KEY")
+            or st_sec.get("SX_API_KEY")
         )
-        self.private_key = private_key or os.getenv("SX_BET_PRIVATE_KEY") or os.getenv("ETH_PRIVATE_KEY")
-        self.wallet_address = wallet_address or os.getenv("SX_BET_WALLET_ADDRESS")
+        self.private_key = (
+            private_key
+            or os.getenv("SX_BET_PRIVATE_KEY")
+            or os.getenv("ETH_PRIVATE_KEY")
+            or st_sec.get("SX_BET_PRIVATE_KEY")
+            or st_sec.get("ETH_PRIVATE_KEY")
+        )
+        self.wallet_address = (
+            wallet_address
+            or os.getenv("SX_BET_WALLET_ADDRESS")
+            or st_sec.get("SX_BET_WALLET_ADDRESS")
+        )
         self.timeout = timeout
 
         if self.private_key and not self.wallet_address:
