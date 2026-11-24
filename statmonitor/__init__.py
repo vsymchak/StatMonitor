@@ -26,6 +26,9 @@ from statmonitor.database import (
     pick,
     pick_v,
     ensure_tables,
+    log_system_error,
+    fetch_system_errors,
+    resolve_system_errors,
 )
 from statmonitor.notifier import (
     send_tg,
@@ -137,6 +140,9 @@ __all__ = [
     "pick",
     "pick_v",
     "ensure_tables",
+    "log_system_error",
+    "fetch_system_errors",
+    "resolve_system_errors",
     "send_tg",
     "send_photo",
     "esc",

@@ -481,6 +481,22 @@ def get_sx_bet_dashboard_data(db_url):
     finally:
         conn.close()
 
+def get_dashboard_system_errors(db_url):
+    """
+    Завантажує актуальні системні помилки та інциденти для діагностики в дашборді.
+    """
+    conn, _ = get_db_connection(db_url)
+    if not conn:
+        return []
+    try:
+        from statmonitor.database import fetch_system_errors
+        return fetch_system_errors(conn, limit=20, unresolved_only=True)
+    except Exception as e:
+        print(f"Помилка завантаження system_errors: {e}")
+        return []
+    finally:
+        conn.close()
+
 def run_streamlit_app():
     import streamlit as st
     import plotly.graph_objects as go
@@ -1063,6 +1079,7 @@ def run_streamlit_app():
         return
 
     sx_summary, sx_pending_df, sx_settled_df, sx_tx_df, sx_proxy_info = get_sx_bet_dashboard_data(db_url)
+    sys_errors_list = get_dashboard_system_errors(db_url)
 
     if not real_summary or not isinstance(real_summary, dict):
         real_summary = {
@@ -1123,16 +1140,31 @@ def run_streamlit_app():
 
     is_admin = st.session_state.is_admin
 
-    # Час останнього чек-поінту пульсу
-    hb_time = "10:13"
+    # Час останнього чек-поінту пульсу та аналіз стану воркера
+    hb_time = "—"
     hb_status_clean = "OK"
+    wd_state = "OK"
+    wd_mins_diff = 0
+    now_utc = datetime.now(timezone.utc)
     if heartbeat_df is not None and not heartbeat_df.empty:
         hb_row = heartbeat_df.iloc[0]
         t_raw = hb_row.get("last_ping_at")
         if t_raw:
             hb_time = format_kyiv_time(t_raw)
-        st_val = hb_row.get("last_status", "OK")
-        hb_status_clean = "OK" if st_val in ("OK", "ONLINE") else st_val
+            try:
+                t_dt = pd.to_datetime(t_raw, utc=True)
+                wd_mins_diff = max(0, int((now_utc - t_dt).total_seconds() / 60))
+            except Exception:
+                wd_mins_diff = 0
+        st_val = str(hb_row.get("last_status", "OK")).upper()
+        if st_val not in ("OK", "ONLINE"):
+            wd_state = "ERROR"
+        elif wd_mins_diff > 90:
+            wd_state = "STALLED"
+        elif wd_mins_diff > 45:
+            wd_state = "DELAYED"
+        else:
+            wd_state = "OK"
 
     # 1. КОМПАКТНА ВЕРХНЯ ПАНЕЛЬ (NAVBAR v2.0)
     col_nav_left, col_nav_right = st.columns([5.5, 6.5])
@@ -1227,14 +1259,36 @@ def run_streamlit_app():
                     pass
                 st.rerun()
 
-        wd_bg = "rgba(16, 185, 129, 0.15)" if is_dark else "#ECFDF5"
-        wd_border = "rgba(16, 185, 129, 0.35)" if is_dark else "#A7F3D0"
-        wd_clr = "#34D399" if is_dark else "#047857"
+        if wd_state == "OK":
+            wd_bg = "rgba(16, 185, 129, 0.15)" if is_dark else "#ECFDF5"
+            wd_border = "rgba(16, 185, 129, 0.35)" if is_dark else "#A7F3D0"
+            wd_clr = "#34D399" if is_dark else "#047857"
+            wd_dot = "#10B981"
+            wd_lbl = f"Watchdog OK ({hb_time})"
+        elif wd_state == "DELAYED":
+            wd_bg = "rgba(245, 158, 11, 0.15)" if is_dark else "#FFFBEB"
+            wd_border = "rgba(245, 158, 11, 0.35)" if is_dark else "#FDE68A"
+            wd_clr = "#F59E0B" if is_dark else "#B45309"
+            wd_dot = "#F59E0B"
+            wd_lbl = f"Watchdog: Затримка {wd_mins_diff}хв"
+        elif wd_state == "STALLED":
+            wd_bg = "rgba(239, 68, 68, 0.15)" if is_dark else "#FEF2F2"
+            wd_border = "rgba(239, 68, 68, 0.35)" if is_dark else "#FECACA"
+            wd_clr = "#EF4444" if is_dark else "#B91C1C"
+            wd_dot = "#EF4444"
+            hours_stall = max(1, wd_mins_diff // 60)
+            wd_lbl = f"Watchdog: Зупинено ({hours_stall}г)"
+        else:
+            wd_bg = "rgba(239, 68, 68, 0.15)" if is_dark else "#FEF2F2"
+            wd_border = "rgba(239, 68, 68, 0.35)" if is_dark else "#FECACA"
+            wd_clr = "#EF4444" if is_dark else "#B91C1C"
+            wd_dot = "#EF4444"
+            wd_lbl = f"Watchdog: Збій ({hb_status_clean})"
+
         wd_html = f"""
-            <div style="display: flex; align-items: center; gap: 6px; background: {wd_bg}; border: 1px solid {wd_border}; color: {wd_clr}; font-size: 11px; font-weight: 600; padding: 5px 10px; border-radius: 9999px; margin-top: 4px;">
-                <span style="width: 7px; height: 7px; background: #10B981; border-radius: 9999px; display: inline-block;"></span>
-                <span>Watchdog OK</span>
-                <span style="opacity: 0.85; font-weight: 500;">({hb_time})</span>
+            <div style="display: flex; align-items: center; gap: 6px; background: {wd_bg}; border: 1px solid {wd_border}; color: {wd_clr}; font-size: 11px; font-weight: 600; padding: 5px 10px; border-radius: 9999px; margin-top: 4px;" title="Останній чекпоінт: {hb_time} (затримка {wd_mins_diff} хв)">
+                <span style="width: 7px; height: 7px; background: {wd_dot}; border-radius: 9999px; display: inline-block;"></span>
+                <span>{wd_lbl}</span>
             </div>
         """
 
@@ -1495,6 +1549,111 @@ def run_streamlit_app():
                 </div>
             </div>
         """, unsafe_allow_html=True)
+
+    # SPEC-43: СИСТЕМНИЙ ЦЕНТР ДІАГНОСТИКИ ТА СПОВІЩЕНЬ ПРО ПОМИЛКИ
+    active_issues = []
+    if wd_state == "STALLED":
+        active_issues.append({
+            "severity": "CRITICAL",
+            "source": "Watchdog Daemon",
+            "title": f"Фоновий процес (Watchdog Daemon) зупинено ({max(1, wd_mins_diff // 60)} год без запуску)",
+            "desc": f"Останній чекпоінт зафіксовано о {hb_time}. Сканування ринків та автоматичний розрахунок ставок призупинено.",
+            "action": "restart_worker"
+        })
+    elif wd_state == "DELAYED":
+        active_issues.append({
+            "severity": "WARNING",
+            "source": "Watchdog Daemon",
+            "title": f"Затримка фонового процесу ({wd_mins_diff} хв)",
+            "desc": f"Останній чекпоінт о {hb_time}. Очікується наступний цикл опитування коефіцієнтів.",
+            "action": None
+        })
+    elif wd_state == "ERROR":
+        active_issues.append({
+            "severity": "CRITICAL",
+            "source": "Watchdog Daemon",
+            "title": f"Збій воркера пульсу (статус: {hb_status_clean})",
+            "desc": f"Воркер повідомив про помилку під час останнього виконання о {hb_time}.",
+            "action": "restart_worker"
+        })
+
+    if sys_errors_list:
+        for err in sys_errors_list[:5]:
+            active_issues.append({
+                "severity": err.get("severity", "ERROR"),
+                "source": str(err.get("source", "system")).upper(),
+                "title": f"{err.get('error_code') or 'Помилка'}: {err.get('message', '')}",
+                "desc": f"Час інциденту: {format_kyiv_time(err.get('occurred_at'))}" + (f" | Деталі: {err.get('details')}" if err.get("details") else ""),
+                "action": "resolve"
+            })
+
+    if sx_summary and float(sx_summary.get("free_balance_usdc", 0.0) or 0.0) < 1.0 and float(sx_summary.get("portfolio_value_usdc", 0.0) or 0.0) > 0:
+        active_issues.append({
+            "severity": "WARNING",
+            "source": "SX Bet Web3",
+            "title": f"Низький вільний баланс (${float(sx_summary.get('free_balance_usdc', 0.0)):.2f} USDC)",
+            "desc": "На Proxy Wallet недостатньо вільного USDC для розміщення наступної ставки мінімального розміру $1.00.",
+            "action": None
+        })
+
+    if active_issues:
+        has_critical = any(i["severity"] in ("CRITICAL", "ERROR") for i in active_issues)
+        alert_bg = "rgba(239, 68, 68, 0.12)" if has_critical else ("rgba(245, 158, 11, 0.12)" if is_dark else "#FFFBEB")
+        alert_border = "rgba(239, 68, 68, 0.4)" if has_critical else ("rgba(245, 158, 11, 0.4)" if is_dark else "#FDE68A")
+        alert_title_clr = "#F87171" if (has_critical and is_dark) else ("#DC2626" if has_critical else ("#FBBF24" if is_dark else "#D97706"))
+        alert_icon = "🚨" if has_critical else "⚠️"
+        alert_title = f"{alert_icon} Системний центр діагностики: виявлено {len(active_issues)} активних попереджень / помилок"
+
+        with st.container():
+            st.markdown(f"""
+                <div style="background: {alert_bg}; border: 1.5px solid {alert_border}; border-radius: 10px; padding: 10px 14px; margin-top: 6px; margin-bottom: 10px;">
+                    <div style="font-size: 13.5px; font-weight: 700; color: {alert_title_clr}; display: flex; align-items: center; justify-content: space-between;">
+                        <span>{alert_title}</span>
+                        <span style="font-size: 11px; opacity: 0.85;">Перевірено: {format_kyiv_time(datetime.now(timezone.utc))}</span>
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+
+            with st.expander("🔍 Переглянути список активних системних інцидентів та помилок", expanded=True):
+                for idx, iss in enumerate(active_issues):
+                    sev = iss["severity"]
+                    tag_bg = "#EF4444" if sev in ("CRITICAL", "ERROR") else "#F59E0B"
+                    tag_txt = "ПОМИЛКА" if sev in ("CRITICAL", "ERROR") else "УВАГА"
+                    st.markdown(f"""
+                        <div style="display: flex; align-items: flex-start; gap: 8px; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px dashed {'#334155' if is_dark else '#E2E8F0'}; font-size: 12px;">
+                            <span style="background: {tag_bg}; color: white; padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; margin-top: 2px;">{tag_txt}</span>
+                            <div>
+                                <b>[{iss['source']}]</b> <span style="font-weight: 600;">{iss['title']}</span>
+                                <div style="font-size: 11px; opacity: 0.85; margin-top: 2px;">{iss['desc']}</div>
+                            </div>
+                        </div>
+                    """, unsafe_allow_html=True)
+
+                if is_admin:
+                    col_err_act1, col_err_act2 = st.columns([1.5, 2.5])
+                    with col_err_act1:
+                        if sys_errors_list and st.button("✅ Позначити помилки як вирішені", key="btn_resolve_sys_errs_top", use_container_width=True):
+                            c_err_conn, _ = get_db_connection(db_url)
+                            if c_err_conn:
+                                from statmonitor.database import resolve_system_errors
+                                resolve_system_errors(c_err_conn)
+                                c_err_conn.close()
+                                st.success("Системні помилки успішно позначено як вирішені!")
+                                st.rerun()
+                    with col_err_act2:
+                        if wd_state in ("STALLED", "ERROR") and st.button("⚡ Перезапустити моніторинг зараз", key="btn_restart_worker_alert", use_container_width=True):
+                            try:
+                                import requests
+                                trigger_url = "https://statmonitor.symchak.workers.dev"
+                                if secret_key:
+                                    resp = requests.get(f"{trigger_url}/?secret={secret_key}&source=dashboard_error_alert", timeout=12)
+                                    if resp.status_code == 200:
+                                        st.toast("🚀 Запуск моніторингу надіслано успішно!", icon="✅")
+                                        st.rerun()
+                                    else:
+                                        st.error(f"Помилка воркера [{resp.status_code}]: {resp.text[:100]}")
+                            except Exception as ex_tr:
+                                st.error(f"Помилка запиту перезапуску: {ex_tr}")
 
     # 4. ВКЛАДКИ НАВІГАЦІЇ
     tab_titles = ["📊 Paper Bank (Теорія)"]
@@ -3955,34 +4114,84 @@ def run_streamlit_app():
     # ---------------- ВКЛАДКА 4: РОЗКЛАД ТА ПУЛЬС ----------------
     with tab_pulse:
         # 4 статусні картки воркерів
-        st.markdown("""
+        c_bg = "#161F30" if is_dark else "#FFFFFF"
+        c_bdr = "#233044" if is_dark else "#E2E8F0"
+        c_txt = "#F8FAFC" if is_dark else "#0F172A"
+        c_sub = "#94A3B8" if is_dark else "#64748B"
+
+        has_api_err = any(e.get("source") == "odds_api" for e in (sys_errors_list or []))
+        if has_api_err:
+            api_status_html = '<span style="color: #F59E0B;">▲ Зафіксовано збої</span>'
+        else:
+            api_status_html = '<span style="color: #10B981;">● Online</span>'
+
+        if wd_state == "OK":
+            wd_card_html = f'<span style="color: #10B981;">● Online ({hb_time})</span>'
+        elif wd_state == "DELAYED":
+            wd_card_html = f'<span style="color: #F59E0B;">▲ Затримка ({wd_mins_diff} хв)</span>'
+        elif wd_state == "STALLED":
+            wd_card_html = f'<span style="color: #EF4444; font-weight: 700;">✖ Зупинено ({max(1, wd_mins_diff // 60)} год)</span>'
+        else:
+            wd_card_html = f'<span style="color: #EF4444; font-weight: 700;">✖ Збій ({hb_status_clean})</span>'
+
+        st.markdown(f"""
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-bottom: 14px;">
-                <div style="background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 10px; padding: 10px;">
-                    <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 600;">
-                        <span>Odds Scanner API</span><span style="color: #10B981;">● Online</span>
+                <div style="background: {c_bg}; border: 1px solid {c_bdr}; border-radius: 10px; padding: 10px;">
+                    <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; color: {c_txt};">
+                        <span>Odds Scanner API</span>{api_status_html}
                     </div>
-                    <div style="font-size: 11px; color: #64748B; margin-top: 4px;">Пул з 5 API ключів</div>
+                    <div style="font-size: 11px; color: {c_sub}; margin-top: 4px;">Пул з 5 API ключів • Квота: {quota_data.get('total_remaining', '—') if quota_data else '—'}</div>
                 </div>
-                <div style="background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 10px; padding: 10px;">
-                    <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 600;">
-                        <span>Watchdog Daemon</span><span style="color: #10B981;">● Online</span>
+                <div style="background: {c_bg}; border: 1px solid {c_bdr}; border-radius: 10px; padding: 10px;">
+                    <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; color: {c_txt};">
+                        <span>Watchdog Daemon</span>{wd_card_html}
                     </div>
-                    <div style="font-size: 11px; color: #64748B; margin-top: 4px;">Контроль затримок крону</div>
+                    <div style="font-size: 11px; color: {c_sub}; margin-top: 4px;">Контроль затримок крону та збоїв</div>
                 </div>
-                <div style="background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 10px; padding: 10px;">
-                    <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 600;">
+                <div style="background: {c_bg}; border: 1px solid {c_bdr}; border-radius: 10px; padding: 10px;">
+                    <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; color: {c_txt};">
                         <span>Auto-Settler Bot</span><span style="color: #10B981;">● Online</span>
                     </div>
-                    <div style="font-size: 11px; color: #64748B; margin-top: 4px;">Розрахунок завершених ігор</div>
+                    <div style="font-size: 11px; color: {c_sub}; margin-top: 4px;">Розрахунок завершених ігор</div>
                 </div>
-                <div style="background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 10px; padding: 10px;">
-                    <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 600;">
+                <div style="background: {c_bg}; border: 1px solid {c_bdr}; border-radius: 10px; padding: 10px;">
+                    <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; color: {c_txt};">
                         <span>Telegram Notifier</span><span style="color: #10B981;">● Ready</span>
                     </div>
-                    <div style="font-size: 11px; color: #64748B; margin-top: 4px;">Тихі сповіщення v3.4.1</div>
+                    <div style="font-size: 11px; color: {c_sub}; margin-top: 4px;">Тихі сповіщення v3.4.1</div>
                 </div>
             </div>
         """, unsafe_allow_html=True)
+
+        # SPEC-43: Журнал системних помилок та інцидентів (System Error Log)
+        st.markdown("##### 🚨 Журнал системних помилок та інцидентів (System Error Log)")
+        if sys_errors_list:
+            df_errors = pd.DataFrame(sys_errors_list)
+            df_errors["Час (Київ)"] = df_errors["occurred_at"].apply(format_kyiv_time)
+            df_errors["Джерело"] = df_errors["source"].str.upper()
+            df_errors["Рівень"] = df_errors["severity"]
+            df_errors["Код помилки"] = df_errors["error_code"].fillna("—")
+            df_errors["Повідомлення"] = df_errors["message"]
+
+            cols_err_show = [c for c in ["Час (Київ)", "Джерело", "Рівень", "Код помилки", "Повідомлення"] if c in df_errors.columns]
+            st.dataframe(df_errors[cols_err_show], use_container_width=True, hide_index=True)
+
+            if is_admin:
+                col_res1, col_res2 = st.columns([1.6, 3.4])
+                with col_res1:
+                    if st.button("✅ Позначити всі помилки як вирішені", key="btn_resolve_sys_errors_pulse", use_container_width=True):
+                        conn_res, _ = get_db_connection(db_url)
+                        if conn_res:
+                            from statmonitor.database import resolve_system_errors
+                            resolve_system_errors(conn_res)
+                            conn_res.close()
+                            st.success("Всі системні помилки позначено як вирішені!")
+                            st.rerun()
+                with col_res2:
+                    st.caption("ℹ️ Позначення помилок очищає індикатори на головній панелі.")
+        else:
+            st.success("✅ Активних системних помилок не виявлено. Усі воркери та сервіси працюють стабільно.")
+        st.markdown("---")
 
         col_s1, col_s2 = st.columns(2)
         df_sched = pd.DataFrame(sched_df) if (pd is not None and not isinstance(sched_df, pd.DataFrame)) else sched_df

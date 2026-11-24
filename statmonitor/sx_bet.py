@@ -806,6 +806,11 @@ def auto_sync_and_stake_from_paper(
             logger.info(f"Авто-ставка SX Bet розміщена для paper #{pb['id']}: order {order_id}")
         except Exception as e:
             logger.error(f"Помилка розміщення авто-ставки для #{pb['id']}: {e}")
+            try:
+                from statmonitor.database import log_system_error
+                log_system_error(conn, "sx_bet", f"Помилка авто-ставки SX Bet (Paper #{pb['id']} {pb.get('match_name')}): {e}", severity="ERROR", error_code="STAKE_FAILED", details={"paper_id": pb['id'], "match": pb.get("match_name"), "error": str(e)})
+            except Exception:
+                pass
 
     return placed_results
 

@@ -114,5 +114,24 @@ class TestDashboard(unittest.TestCase):
                 self.assertEqual(quota["total_remaining"], 2420)
                 self.assertEqual(quota["total_limit"], 2500)
 
+    def test_get_dashboard_system_errors(self):
+        from dashboard import get_dashboard_system_errors
+        # Тестуємо поведінку при відсутності БД або mock-з'єднанні
+        with patch("dashboard.get_db_connection", return_value=(None, None)):
+            res = get_dashboard_system_errors("fake_url")
+            self.assertEqual(res, [])
+
+        mock_conn = MagicMock()
+        mock_cur = MagicMock(spec=["execute", "fetchall", "fetchone", "description", "close"])
+        mock_cur.fetchall.return_value = [
+            (1, "odds_api", "ERROR", "HTTP_422", "Invalid market btts", None, datetime.now(timezone.utc))
+        ]
+        mock_conn.cursor.return_value = mock_cur
+        with patch("dashboard.get_db_connection", return_value=(mock_conn, None)):
+            res = get_dashboard_system_errors("fake_url")
+            self.assertEqual(len(res), 1)
+            self.assertEqual(res[0]["source"], "odds_api")
+            self.assertEqual(res[0]["error_code"], "HTTP_422")
+
 if __name__ == "__main__":
     unittest.main()

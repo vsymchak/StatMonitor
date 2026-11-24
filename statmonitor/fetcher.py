@@ -215,7 +215,14 @@ def fetch_and_save_odds(sports_map=None):
                 rem_int = int(float(rem_credits)) if str(rem_credits).replace(".", "").isdigit() else 999
 
             if r.status_code != 200:
-                print(f"⚠️ Помилка The Odds API для {sp} [{r.status_code}]: {r.text[:120]}")
+                err_msg = f"The Odds API повернув помилку для {sp} [HTTP {r.status_code}]: {r.text[:150]}"
+                print(f"⚠️ {err_msg}")
+                if conn and cur:
+                    try:
+                        from statmonitor.database import log_system_error
+                        log_system_error(cur, "odds_api", err_msg, severity="ERROR", error_code=f"HTTP_{r.status_code}", details={"sport": sp, "status": r.status_code, "text": r.text[:200]})
+                    except Exception:
+                        pass
                 continue
             polled_sports_success.append(sp)
             for ev in r.json():
@@ -239,7 +246,14 @@ def fetch_and_save_odds(sports_map=None):
                                     "price": out["price"], "time": now_utc
                                 })
         except Exception as e:
+            err_msg = f"Помилка запиту котирувань для {sp}: {e}"
             print(f"API err {sp}: {e}")
+            if conn and cur:
+                try:
+                    from statmonitor.database import log_system_error
+                    log_system_error(cur, "odds_api", err_msg, severity="ERROR", error_code="FETCH_ERROR", details={"sport": sp, "error": str(e)})
+                except Exception:
+                    pass
 
     print(f"2. Залишок кредитів: {rem_credits}")
     if not conn or not cur:

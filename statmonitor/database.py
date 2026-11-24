@@ -93,5 +93,87 @@ def ensure_tables(cur, conn):
                 markets JSONB NOT NULL DEFAULT '["h2h", "totals", "spreads"]'::jsonb,
                 updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             );
+            CREATE TABLE IF NOT EXISTS system_errors (
+                id SERIAL PRIMARY KEY,
+                source TEXT NOT NULL,
+                severity TEXT NOT NULL DEFAULT 'ERROR',
+                error_code TEXT,
+                message TEXT NOT NULL,
+                details JSONB,
+                occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                resolved_at TIMESTAMPTZ
+            );
+            CREATE INDEX IF NOT EXISTS idx_system_errors_occurred ON system_errors (occurred_at DESC);
         """)
         conn.commit()
+
+
+def _extract_cur_conn(conn_or_cur):
+    if hasattr(conn_or_cur, "cursor") and callable(getattr(conn_or_cur, "cursor", None)):
+        try:
+            c = conn_or_cur.cursor()
+            if c is not None and c is not conn_or_cur:
+                return c, conn_or_cur, True
+        except Exception:
+            pass
+    return conn_or_cur, None, False
+
+
+def log_system_error(conn_or_cur, source: str, message: str, severity: str = "ERROR", error_code: str = None, details: dict = None):
+    """
+    Записує системну помилку або попередження в таблицю system_errors.
+    """
+    try:
+        import json
+        cur, conn, is_new_cur = _extract_cur_conn(conn_or_cur)
+        det_json = json.dumps(details) if details else None
+        cur.execute("""
+            INSERT INTO system_errors (source, severity, error_code, message, details, occurred_at)
+            VALUES (%s, %s, %s, %s, %s, NOW());
+        """, (source, severity, error_code, message[:500], det_json))
+        if is_new_cur and conn:
+            conn.commit()
+            cur.close()
+    except Exception as e:
+        print(f"Помилка запису в system_errors: {e}")
+
+
+def fetch_system_errors(conn_or_cur, limit: int = 15, unresolved_only: bool = True):
+    """
+    Повертає останні зафіксовані помилки для відображення в дашборді.
+    """
+    try:
+        cur, conn, is_new_cur = _extract_cur_conn(conn_or_cur)
+        cond = "WHERE resolved_at IS NULL" if unresolved_only else ""
+        cur.execute(f"""
+            SELECT id, source, severity, error_code, message, details, occurred_at
+            FROM system_errors
+            {cond}
+            ORDER BY occurred_at DESC
+            LIMIT %s;
+        """, (limit,))
+        cols = ["id", "source", "severity", "error_code", "message", "details", "occurred_at"]
+        rows = cur.fetchall()
+        if is_new_cur:
+            cur.close()
+        return [dict(zip(cols, r)) for r in rows]
+    except Exception as e:
+        print(f"Помилка читання system_errors: {e}")
+        return []
+
+
+def resolve_system_errors(conn_or_cur, error_ids: list = None):
+    """
+    Позначає помилки як вирішені/прочитані.
+    """
+    try:
+        cur, conn, is_new_cur = _extract_cur_conn(conn_or_cur)
+        if error_ids:
+            cur.execute("UPDATE system_errors SET resolved_at = NOW() WHERE id = ANY(%s);", (error_ids,))
+        else:
+            cur.execute("UPDATE system_errors SET resolved_at = NOW() WHERE resolved_at IS NULL;")
+        if is_new_cur and conn:
+            conn.commit()
+            cur.close()
+    except Exception as e:
+        print(f"Помилка resolve_system_errors: {e}")
