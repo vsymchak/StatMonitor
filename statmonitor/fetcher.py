@@ -173,6 +173,7 @@ def fetch_and_save_odds(sports_map=None):
         return 0, 0, "cached"
 
     events_batch, odds_raw = [], []
+    polled_sports_success = []
     keys_pool = [k for k in (API_KEY, API_KEY_RESERVE, API_KEY_RESERVE1, API_KEY_RESERVE2, API_KEY_RESERVE3) if k]
     cur_key_idx = 0
     cur_key = keys_pool[0] if keys_pool else None
@@ -186,8 +187,15 @@ def fetch_and_save_odds(sports_map=None):
             league_thresh = get_league_thresholds(sp)
             mkt_list = league_thresh.get("markets", ["h2h", "totals", "spreads"])
         except Exception:
-            mkt_list = ["h2h", "totals", "spreads", "btts"] if sp.startswith("soccer_") else ["h2h", "totals", "spreads"]
-        mkt_str = ",".join(mkt_list)
+            mkt_list = ["h2h", "totals", "spreads"]
+        
+        # The Odds API bulk /odds endpoint accepts only featured markets: h2h, totals, spreads, outrights
+        # Non-featured markets like 'btts' cause HTTP 422 error on bulk /odds endpoint
+        valid_bulk_markets = ("h2h", "totals", "spreads", "outrights")
+        bulk_mkt_list = [m for m in mkt_list if m in valid_bulk_markets]
+        if not bulk_mkt_list:
+            bulk_mkt_list = ["h2h", "totals", "spreads"]
+        mkt_str = ",".join(bulk_mkt_list)
 
         url = f"https://api.the-odds-api.com/v4/sports/{sp}/odds/"
         params = {"apiKey": cur_key, "regions": "eu", "markets": mkt_str, "commenceTimeTo": to_str}
@@ -207,7 +215,9 @@ def fetch_and_save_odds(sports_map=None):
                 rem_int = int(float(rem_credits)) if str(rem_credits).replace(".", "").isdigit() else 999
 
             if r.status_code != 200:
+                print(f"⚠️ Помилка The Odds API для {sp} [{r.status_code}]: {r.text[:120]}")
                 continue
+            polled_sports_success.append(sp)
             for ev in r.json():
                 events_batch.append((ev["id"], sp, ev.get("home_team", ""), ev.get("away_team", ""), ev["commence_time"]))
                 for bm in ev.get("bookmakers", []):
@@ -239,7 +249,7 @@ def fetch_and_save_odds(sports_map=None):
     # Фіксуємо успішне опитування ліг у rate limiter
     try:
         from statmonitor.limiter import record_poll_success
-        record_poll_success(cur, conn, list(selected_sports.keys()), tiers=tiers, now_utc=now_utc)
+        record_poll_success(cur, conn, polled_sports_success, tiers=tiers, now_utc=now_utc)
     except Exception as e:
         print(f"Rate-limiter record err: {e}")
     ensure_tables(cur, conn)
