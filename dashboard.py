@@ -4399,16 +4399,16 @@ def run_streamlit_app():
 
                 # ---------------- АНАЛІТИКА ВИТРАТ API ТА РЕНТАБЕЛЬНОСТІ ЛІГ ----------------
                 poll_map = {}
-                if poll_data is not None and not poll_data.empty and "sport" in poll_data.columns and "poll_count" in poll_data.columns:
-                    for _, prow in poll_data.iterrows():
+                if poll_df is not None and hasattr(poll_df, "empty") and not poll_df.empty and "sport" in poll_df.columns and "poll_count" in poll_df.columns:
+                    for _, prow in poll_df.iterrows():
                         sp_k = str(prow["sport"])
                         p_cnt = int(prow.get("poll_count") or 0)
                         p_tier = str(prow.get("tier") or "")
                         poll_map[sp_k] = {"polls": p_cnt, "tier": p_tier}
 
                 pnl_map = {}
-                if bets_data is not None and not bets_data.empty and "sport" in bets_data.columns and "status" in bets_data.columns:
-                    for sp_k, grp in bets_data.groupby("sport"):
+                if bets_df is not None and hasattr(bets_df, "empty") and not bets_df.empty and "sport" in bets_df.columns and "status" in bets_df.columns:
+                    for sp_k, grp in bets_df.groupby("sport"):
                         settled_grp = grp[grp["status"].isin(["WON", "LOST", "VOID"])]
                         w_cnt = int((grp["status"] == "WON").sum())
                         l_cnt = int((grp["status"] == "LOST").sum())
@@ -4631,8 +4631,8 @@ def run_streamlit_app():
                     # Розрахунок використаних запитів для цієї групи спорту
                     grp_keys = {lg["key"] for lg in grp_leagues}
                     grp_poll_cnt = 0
-                    if df_poll is not None and not df_poll.empty and "sport" in df_poll.columns and "poll_count" in df_poll.columns:
-                        grp_poll_cnt = int(df_poll[df_poll["sport"].isin(grp_keys)]["poll_count"].sum())
+                    if poll_df is not None and hasattr(poll_df, "empty") and not poll_df.empty and "sport" in poll_df.columns and "poll_count" in poll_df.columns:
+                        grp_poll_cnt = int(poll_df[poll_df["sport"].isin(grp_keys)]["poll_count"].sum())
                     grp_poll_badge = f" • 📊 {grp_poll_cnt} запитів" if grp_poll_cnt > 0 else ""
 
                     with st.expander(f"{grp['title']} — {grp_active}/{len(grp_leagues)} активних{grp_poll_badge}", expanded=(grp_active > 0)):
