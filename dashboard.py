@@ -1614,7 +1614,7 @@ def run_streamlit_app():
                 "action": "resolve"
             })
 
-    if sx_summary and float(sx_summary.get("free_balance_usdc", 0.0) or 0.0) < 1.0 and float(sx_summary.get("portfolio_value_usdc", 0.0) or 0.0) > 0:
+    if is_admin and sx_summary and float(sx_summary.get("free_balance_usdc", 0.0) or 0.0) < 1.0 and float(sx_summary.get("portfolio_value_usdc", 0.0) or 0.0) > 0:
         active_issues.append({
             "severity": "WARNING",
             "source": "SX Bet Web3",
@@ -1686,7 +1686,7 @@ def run_streamlit_app():
     tab_titles = ["📊 Paper Bank (Теорія)"]
     if is_admin:
         tab_titles.append("🟢 Реальний банк (Real Money)")
-    tab_titles.append("🌐 SX Bet Web3 (USDC)")
+        tab_titles.append("🌐 SX Bet Web3 (USDC)")
     tab_titles.extend([
         "🧠 AI-аналітика Gemini",
         "🔬 Квантитативний Бектест (SPEC-42)",
@@ -1701,7 +1701,9 @@ def run_streamlit_app():
     tab_real = all_tabs[t_idx] if is_admin else None
     if is_admin:
         t_idx += 1
-    tab_sx = all_tabs[t_idx]; t_idx += 1
+    tab_sx = all_tabs[t_idx] if is_admin else None
+    if is_admin:
+        t_idx += 1
     tab_ai = all_tabs[t_idx]; t_idx += 1
     tab_backtest = all_tabs[t_idx]; t_idx += 1
     tab_pulse = all_tabs[t_idx]; t_idx += 1
@@ -3219,8 +3221,9 @@ def run_streamlit_app():
                     else:
                         st.info("ℹ️ Немає активних реальних ставок для розрахунку.")
 
-    # ---------------- ВКЛАДКА: SX BET WEB3 (DECENTRALIZED EXCHANGE) ----------------
-    with tab_sx:
+    # ---------------- ВКЛАДКА: SX BET WEB3 (DECENTRALIZED EXCHANGE - ADMIN ONLY) ----------------
+    if is_admin and tab_sx is not None:
+        with tab_sx:
         sx_title_clr = '#60A5FA' if is_dark else '#1D4ED8'
         sx_sub_clr = '#94A3B8' if is_dark else '#64748B'
         st.markdown(f"""
@@ -3462,7 +3465,7 @@ def run_streamlit_app():
 
             c_rule1, c_rule2, c_rule3, c_rule4 = st.columns(4)
             c_rule1.metric("⚖️ Мін. ставка", "1.00 USDC", "OrderBook V3")
-            c_rule2.metric("⭐ Поріг впевненості", "≥ 8 / 10", "AI Confidence")
+            c_rule2.metric("⭐ Поріг впевненості", "≥ 7 / 10", "AI Confidence")
             c_rule3.metric("💱 Валюта біржі", "USDC (Native)", "SX Network Rollup")
             c_rule4.metric("✍️ Тип підпису", "EIP-712 Typed", "Off-chain / Zero Gas")
 
@@ -3474,7 +3477,7 @@ def run_streamlit_app():
                         try:
                             from statmonitor.sx_bet import auto_sync_and_stake_from_paper, sync_sx_positions_to_db
                             up_sync = sync_sx_positions_to_db(conn_auto)
-                            placed_bets = auto_sync_and_stake_from_paper(conn_auto, min_confidence=8, stake_usdc=1.0)
+                            placed_bets = auto_sync_and_stake_from_paper(conn_auto, min_confidence=7, stake_usdc=1.0)
                             if placed_bets:
                                 st.success(f"🎉 Успішно розміщено {len(placed_bets)} авто-ставок на SX Bet!")
                             else:
@@ -3484,11 +3487,11 @@ def run_streamlit_app():
                             conn_auto.close()
 
             # Кандидати для авто-стейкінгу з paper_bets
-            st.markdown("##### 🔍 Кандидати з Paper Bank для авто-стейкінгу (Confidence ≥ 8)")
+            st.markdown("##### 🔍 Кандидати з Paper Bank для авто-стейкінгу (Confidence ≥ 7)")
             if bets_df is not None and not bets_df.empty:
                 cand_df = bets_df[
                     (bets_df["status"] == "PENDING") &
-                    (bets_df.get("confidence_score", 0) >= 8)
+                    (bets_df.get("confidence_score", 0) >= 7)
                 ].copy() if "status" in bets_df.columns and "confidence_score" in bets_df.columns else pd.DataFrame()
 
                 if not cand_df.empty:
@@ -3507,7 +3510,7 @@ def run_streamlit_app():
                     cols_cd_exist = [c for c in cols_cd if c in c_disp.columns]
                     st.dataframe(c_disp[cols_cd_exist], use_container_width=True, hide_index=True)
                 else:
-                    st.info("ℹ️ На даний момент немає очікуючих paper-ставок з впевненістю ≥ 8/10. Алгоритм підключиться автоматично, щойно з'явиться новий валуйний прогноз.")
+                    st.info("ℹ️ На даний момент немає очікуючих paper-ставок з впевненістю ≥ 7/10. Алгоритм підключиться автоматично, щойно з'явиться новий валуйний прогноз.")
 
     # ---------------- ВКЛАДКА 3: AI-АНАЛІТИКА GEMINI ----------------
     with tab_ai:

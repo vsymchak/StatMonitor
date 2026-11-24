@@ -429,7 +429,7 @@ DEFAULT_GLOBAL_THRESHOLDS = {
     "min_drop_pct": 5.0,
     "min_odds": 1.40,
     "max_odds": 4.00,
-    "min_confidence": 8,
+    "min_confidence": 7,
     "markets": ["h2h", "totals", "spreads"],
     "enabled": True,
 }
@@ -491,7 +491,7 @@ def get_global_defaults(config=None, cur=None):
 
     return defaults
 
-def save_global_defaults(cur, conn, min_drop_pct=5.0, min_odds=1.50, max_odds=2.40, min_confidence=8, markets=None, enabled=True, config_path=None):
+def save_global_defaults(cur, conn, min_drop_pct=5.0, min_odds=1.50, max_odds=2.40, min_confidence=7, markets=None, enabled=True, config_path=None):
     """
     Зберігає загальні дефолтні налаштування системи в БД (sport_key = '__default__')
     та оновлює файл config/leagues.json у секції 'defaults'.

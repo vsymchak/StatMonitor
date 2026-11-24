@@ -12,7 +12,7 @@ import time
 import secrets
 import logging
 from datetime import datetime, timezone
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 import requests
 
 # Автоматичне завантаження з .env файлу
@@ -197,12 +197,16 @@ class SXBetClient:
         return markets
 
     def get_orders(self, market_hash: str) -> List[Dict[str, Any]]:
-        """Отримати актуальний стакан відкритих ордерів для конкретного ринку."""
+        """Отримати актуальний стакан відкритих ордерів для конкретного ринку (OrderBook V3)."""
         params = {"marketHash": market_hash}
-        r = requests.get(f"{self.base_url}/orders", params=params, headers=self.headers, timeout=self.timeout)
-        r.raise_for_status()
-        data = r.json()
-        return data.get("data", [])
+        try:
+            r = requests.get(f"{self.base_url}/orders-v3", params=params, headers=self.headers, timeout=self.timeout)
+            if r.status_code == 200:
+                data = r.json().get("data", {})
+                return data.get("orders", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
+        except Exception as e:
+            logger.warning(f"Помилка отримання ордерів для {market_hash}: {e}")
+        return []
 
     def validate_bet_parameters(self, amount: float, currency: str) -> Dict[str, Any]:
         """
@@ -760,10 +764,11 @@ def normalize_team_text(text: str) -> str:
 
 def match_paper_bet_to_sx_market(
     paper_bet: Dict[str, Any], active_markets: List[Dict[str, Any]]
-) -> Optional[Dict[str, Any]]:
+) -> Tuple[Optional[Dict[str, Any]], bool]:
     """
     Автоматично знаходить ринок на біржі SX Bet для події з paper_bets.
-    Перевіряє схожість назв команд та сумісність маркетів.
+    Перевіряє схожість назв команд, тип ринку (Moneyline, Totals, Spreads)
+    та повертає (market, is_betting_outcome_one).
     """
     match_name = paper_bet.get("match_name", "")
     if " vs " in match_name:
@@ -771,27 +776,77 @@ def match_paper_bet_to_sx_market(
     elif " - " in match_name:
         parts = match_name.split(" - ", 1)
     else:
-        return None
+        return None, True
 
     p_t1 = normalize_team_text(parts[0])
     p_t2 = normalize_team_text(parts[1])
+    pick_lbl = str(paper_bet.get("pick_label", "")).strip().lower()
 
+    is_total = any(k in pick_lbl for k in ["тб", "тм", "over", "under", "тотал"])
+    is_spread = any(k in pick_lbl for k in ["ф1", "ф2", "фора", "spread", "+", "-"]) and not is_total
+    is_moneyline = not is_total and not is_spread
+
+    candidates = []
     for m in active_markets:
         sx_t1 = normalize_team_text(m.get("teamOneName", ""))
         sx_t2 = normalize_team_text(m.get("teamTwoName", ""))
 
-        # Перевірка прямого або реверсного співпадіння команд
         match_direct = (p_t1 in sx_t1 or sx_t1 in p_t1) and (p_t2 in sx_t2 or sx_t2 in p_t2)
         match_rev = (p_t1 in sx_t2 or sx_t2 in p_t1) and (p_t2 in sx_t1 or sx_t1 in p_t2)
 
         if match_direct or match_rev:
-            return m
+            candidates.append(m)
 
-    return None
+    if not candidates:
+        return None, True
+
+    best_m = None
+    for m in candidates:
+        m_type = m.get("type")
+        o1 = str(m.get("outcomeOneName", "")).lower()
+        o2 = str(m.get("outcomeTwoName", "")).lower()
+
+        if is_moneyline and (m_type in [226, 1] or ("over" not in o1 and "under" not in o1 and "+" not in o1 and "-" not in o1)):
+            best_m = m
+            break
+        elif is_total and (m_type == 28 or "over" in o1 or "under" in o1 or "over" in o2 or "under" in o2):
+            best_m = m
+            break
+        elif is_spread and (m_type == 342 or "+" in o1 or "-" in o1):
+            best_m = m
+            break
+
+    if not best_m and candidates:
+        best_m = candidates[0]
+
+    o1 = str(best_m.get("outcomeOneName", "")).lower()
+    o2 = str(best_m.get("outcomeTwoName", "")).lower()
+    is_outcome_one = True
+
+    if is_total:
+        if "under" in pick_lbl or "тм" in pick_lbl:
+            is_outcome_one = "under" in o1 or "тм" in o1
+        else:
+            is_outcome_one = "over" in o1 or "тб" in o1
+    else:
+        if "2" in pick_lbl or "п2" in pick_lbl:
+            if p_t2 and p_t2 in normalize_team_text(o1):
+                is_outcome_one = True
+            elif p_t2 and p_t2 in normalize_team_text(o2):
+                is_outcome_one = False
+            else:
+                is_outcome_one = False
+        elif "1" in pick_lbl or "п1" in pick_lbl:
+            if p_t1 and p_t1 in normalize_team_text(o2):
+                is_outcome_one = False
+            else:
+                is_outcome_one = True
+
+    return best_m, is_outcome_one
 
 
 def auto_sync_and_stake_from_paper(
-    conn, client: Optional[SXBetClient] = None, min_confidence: int = 8, stake_usdc: float = 1.0
+    conn, client: Optional[SXBetClient] = None, min_confidence: int = 7, stake_usdc: float = 1.0
 ) -> List[Dict[str, Any]]:
     """
     Автоматичний сканер: знаходить активні ставки у paper_bets,
@@ -830,17 +885,20 @@ def auto_sync_and_stake_from_paper(
 
     placed_results = []
     for pb in candidates:
-        matched_m = match_paper_bet_to_sx_market(pb, active_markets)
+        matched_res = match_paper_bet_to_sx_market(pb, active_markets)
+        if isinstance(matched_res, tuple):
+            matched_m, is_outcome_one = matched_res
+        else:
+            matched_m = matched_res
+            is_outcome_one = True
+            pick_label = str(pb.get("pick_label", "")).lower()
+            if "2" in pick_label or "under" in pick_label:
+                is_outcome_one = False
+
         if not matched_m:
             continue
 
         market_hash = matched_m["marketHash"]
-        # Визначаємо сторону (за замовчуванням outcomeOne або відповідно до pick_label)
-        is_outcome_one = True
-        pick_label = str(pb.get("pick_label", "")).lower()
-        if "2" in pick_label or "under" in pick_label:
-            is_outcome_one = False
-
         decimal_odds = float(pb.get("odds", 1.90))
 
         try:

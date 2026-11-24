@@ -258,7 +258,7 @@ def check_alerts_and_notify(sports_map, t_start=None):
         if not (hasattr(conn, "_mock_return_value") or type(conn).__name__ in ("MagicMock", "Mock")):
             from statmonitor.sx_bet import auto_sync_and_stake_from_paper, sync_sx_positions_to_db
             sync_sx_positions_to_db(conn)
-            sx_results = auto_sync_and_stake_from_paper(conn, min_confidence=8, stake_usdc=1.0)
+            sx_results = auto_sync_and_stake_from_paper(conn, min_confidence=7, stake_usdc=1.0)
             if sx_results:
                 print(f"🌐 [SX Bet] Розміщено {len(sx_results)} авто-ставок на біржі через API:")
                 for sx_r in sx_results:

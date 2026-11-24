@@ -47,9 +47,9 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 INITIAL_BANKROLL = 10000.00
 DASHBOARD_URL = os.environ.get("DASHBOARD_URL") or "https://statmonitor-6zj9cutprcpvckgecdxrk4.streamlit.app"
 
-# SPEC-42: Золотий стандарт якості ШІ (Golden Standard): поріг впевненості Gemini для відбору ставок
-# Підвищення порогу з 7 до 8 збільшує Win Rate з 50.0% до 62.5%, ROI з +2.36% до +17.42% та знижує Max DD до 2.4%
-DEFAULT_MIN_CONFIDENCE = int(os.environ.get("MIN_CONFIDENCE_THRESHOLD", 8))
+# SPEC-42: Золотий стандарт якості ШІ: поріг впевненості Gemini для відбору ставок
+# Знижено вимогу до 7/10 для розширення вибірки активних ставок
+DEFAULT_MIN_CONFIDENCE = int(os.environ.get("MIN_CONFIDENCE_THRESHOLD", 7))
 
 # SPEC-39: Конфігурація Cloudflare R2 / S3 Cold Odds Archive
 R2_ACCOUNT_ID = os.environ.get("R2_ACCOUNT_ID")
