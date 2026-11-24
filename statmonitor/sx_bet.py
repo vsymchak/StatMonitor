@@ -449,6 +449,8 @@ def sync_sx_positions_to_db(conn, client: Optional[SXBetClient] = None) -> int:
             m_status = market.get("status", "ACTIVE")
 
             # Визначаємо статус ставки
+            outcome_val = market.get("outcome")
+            is_one = p.get("isOutcomeOneMaxWin", True)
             if pnl is not None:
                 if pnl > 0:
                     status = "WON"
@@ -456,6 +458,24 @@ def sync_sx_positions_to_db(conn, client: Optional[SXBetClient] = None) -> int:
                     status = "LOST"
                 else:
                     status = "VOID"
+            elif outcome_val is not None and m_status in ("INACTIVE", "SETTLED", "RESOLVED"):
+                # Якщо ринок завершено і outcome зафіксовано біржею (1=outcomeOne, 2=outcomeTwo, 3=VOID)
+                if outcome_val == 1:
+                    status = "WON" if is_one else "LOST"
+                elif outcome_val == 2:
+                    status = "LOST" if is_one else "WON"
+                elif outcome_val == 3:
+                    status = "VOID"
+                else:
+                    status = "SETTLED"
+
+                if status == "WON":
+                    net_win = float(p.get("netMaxWin", 0)) / 1e6 or float(p.get("maxWin", 0)) / 1e6
+                    pnl = net_win
+                elif status == "LOST":
+                    pnl = -total_stake
+                elif status == "VOID":
+                    pnl = 0.0
             elif m_status in ("SETTLED", "RESOLVED"):
                 status = "SETTLED"
             else:
