@@ -6,6 +6,31 @@ from decimal import Decimal
 import html
 import re
 
+# Автоматичне завантаження з .env файлу
+def _load_env_file():
+    candidates = [
+        ".env",
+        os.path.join(os.path.dirname(__file__), "..", ".env"),
+        os.path.join(os.path.dirname(__file__), ".env"),
+    ]
+    for c in candidates:
+        if os.path.isfile(c):
+            try:
+                with open(c, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            k, v = line.split("=", 1)
+                            k = k.strip()
+                            v = v.strip().strip('"').strip("'")
+                            if k not in os.environ:
+                                os.environ[k] = v
+            except Exception:
+                pass
+            break
+
+_load_env_file()
+
 try:
     import pandas as pd
 except ImportError:
@@ -451,35 +476,37 @@ def get_sx_bet_dashboard_data(db_url):
     """
     conn, _ = get_db_connection(db_url)
     if not conn:
-        return {}, pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), {}
+        empty_df = pd.DataFrame() if pd is not None else []
+        return {}, empty_df, empty_df, empty_df, {}
     try:
         from statmonitor.sx_bet import SXBetClient, fetch_sx_summary, fetch_sx_bets, fetch_sx_transactions
         client = SXBetClient()
         summary = fetch_sx_summary(conn, client)
-        all_bets = fetch_sx_bets(conn)
-        txs = fetch_sx_transactions(conn)
+        all_bets = fetch_sx_bets(conn) or []
+        txs = fetch_sx_transactions(conn) or []
         proxy_info = client.get_proxy_info()
 
-        b_df = pd.DataFrame(all_bets) if all_bets else pd.DataFrame()
-        t_df = pd.DataFrame(txs) if txs else pd.DataFrame()
+        b_df = pd.DataFrame(all_bets) if (pd is not None and all_bets) else (pd.DataFrame() if pd is not None else all_bets)
+        t_df = pd.DataFrame(txs) if (pd is not None and txs) else (pd.DataFrame() if pd is not None else txs)
 
-        pending_df = (
-            b_df[b_df["status"] == "PENDING"].copy()
-            if not b_df.empty and "status" in b_df.columns
-            else pd.DataFrame()
-        )
-        settled_df = (
-            b_df[b_df["status"].isin(["WON", "LOST", "VOID", "SETTLED"])].copy()
-            if not b_df.empty and "status" in b_df.columns
-            else pd.DataFrame()
-        )
+        if pd is not None and not b_df.empty and "status" in b_df.columns:
+            pending_df = b_df[b_df["status"] == "PENDING"].copy()
+            settled_df = b_df[b_df["status"].isin(["WON", "LOST", "VOID", "SETTLED"])].copy()
+        else:
+            pending_df = pd.DataFrame() if pd is not None else [b for b in all_bets if b.get("status") == "PENDING"]
+            settled_df = pd.DataFrame() if pd is not None else [b for b in all_bets if b.get("status") in ["WON", "LOST", "VOID", "SETTLED"]]
 
         return summary, pending_df, settled_df, t_df, proxy_info
     except Exception as e:
         print(f"Помилка завантаження даних SX Bet: {e}")
-        return {}, pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), {}
+        empty_df = pd.DataFrame() if pd is not None else []
+        return {}, empty_df, empty_df, empty_df, {}
     finally:
-        conn.close()
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 def get_dashboard_system_errors(db_url):
     """
