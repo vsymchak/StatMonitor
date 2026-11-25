@@ -185,9 +185,9 @@ ODDS_TO_PROPLINE_ALIASES = {
     "soccer_usa_mls": ("soccer_usa_mls", "soccer_mls"),
     "icehockey_nhl": ("icehockey_nhl", "hockey_nhl"),
     "americanfootball_nfl": ("americanfootball_nfl", "football_nfl"),
-    "tennis_atp": ("tennis_atp", "tennis"),
-    "tennis_wta": ("tennis_wta", "tennis"),
-    "tennis_davis_cup": ("tennis_davis_cup", "tennis"),
+    "tennis_atp": ("tennis", "tennis_atp"),
+    "tennis_wta": ("tennis", "tennis_wta"),
+    "tennis_davis_cup": ("tennis", "tennis_davis_cup"),
 }
 
 PROPLINE_TO_ODDS_CANONICAL = {
