@@ -174,6 +174,154 @@ class TestSXBetClient(unittest.TestCase):
         }
         self.assertIsNone(match_paper_bet_to_sx_market(paper_bet_none, active_markets))
 
+    def test_exact_market_line_time_and_side_matching(self):
+        from datetime import datetime, timezone
+        from statmonitor.sx_bet import match_paper_bet_and_side
+
+        gt_nov26 = int(datetime(2026, 11, 26, 0, 30, tzinfo=timezone.utc).timestamp())
+        gt_dec26 = int(datetime(2026, 12, 26, 1, 0, tzinfo=timezone.utc).timestamp())
+        gt_ucl = int(datetime(2026, 11, 25, 17, 45, tzinfo=timezone.utc).timestamp())
+
+        markets = [
+            # Wrong future date Dec 26 (swapped)
+            {
+                "marketHash": "0x_dec26",
+                "type": 226,
+                "teamOneName": "Minnesota Timberwolves",
+                "teamTwoName": "Oklahoma City Thunder",
+                "outcomeOneName": "Minnesota Timberwolves",
+                "outcomeTwoName": "Oklahoma City Thunder",
+                "gameTime": gt_dec26,
+            },
+            # Right date Nov 26
+            {
+                "marketHash": "0x_nov26",
+                "type": 226,
+                "teamOneName": "Oklahoma City Thunder",
+                "teamTwoName": "Minnesota Timberwolves",
+                "outcomeOneName": "Oklahoma City Thunder",
+                "outcomeTwoName": "Minnesota Timberwolves",
+                "gameTime": gt_nov26,
+            },
+            # Soccer Total 2.0 (wrong line) vs Total 2.5 (right line)
+            {
+                "marketHash": "0x_tot20",
+                "type": 2,
+                "line": 2.0,
+                "teamOneName": "SK Slavia Praha",
+                "teamTwoName": "Villarreal",
+                "outcomeOneName": "Over 2.0",
+                "outcomeTwoName": "Under 2.0",
+                "gameTime": gt_ucl,
+            },
+            {
+                "marketHash": "0x_tot25",
+                "type": 2,
+                "line": 2.5,
+                "teamOneName": "SK Slavia Praha",
+                "teamTwoName": "Villarreal",
+                "outcomeOneName": "Over 2.5",
+                "outcomeTwoName": "Under 2.5",
+                "gameTime": gt_ucl,
+            },
+            # Soccer 1X2 type 1
+            {
+                "marketHash": "0x_1x2_away",
+                "type": 1,
+                "teamOneName": "Lille",
+                "teamTwoName": "FC Bayern Munich",
+                "outcomeOneName": "FC Bayern Munich",
+                "outcomeTwoName": "Not FC Bayern Munich",
+                "gameTime": gt_ucl,
+            },
+        ]
+
+        # 1. Time check picks Nov 26, not Dec 26, and correctly picks Minnesota (outcomeTwo -> False)
+        pb_nba = {
+            "match_name": "Oklahoma City Thunder - Minnesota Timberwolves",
+            "pick_label": "П2 (Minnesota Timberwolves)",
+            "commence_time": "2026-11-26T00:40:00Z",
+        }
+        m_nba, is_one_nba = match_paper_bet_and_side(pb_nba, markets)
+        self.assertIsNotNone(m_nba)
+        self.assertEqual(m_nba["marketHash"], "0x_nov26")
+        self.assertFalse(is_one_nba)
+
+        # 2. Exact line 2.5 check skips 2.0 and matches Under 2.5 (outcomeTwo -> False)
+        pb_tot = {
+            "match_name": "Slavia Praha - Villarreal",
+            "pick_label": "ТМ 2.5",
+            "commence_time": "2026-11-25T17:45:00Z",
+        }
+        m_tot, is_one_tot = match_paper_bet_and_side(pb_tot, markets)
+        self.assertIsNotNone(m_tot)
+        self.assertEqual(m_tot["marketHash"], "0x_tot25")
+        self.assertFalse(is_one_tot)
+
+        # 3. Soccer 1X2 Away matches "FC Bayern Munich / Not FC Bayern Munich" with outcomeOne=True
+        pb_1x2 = {
+            "match_name": "Lille - Bayern Munich",
+            "pick_label": "П2",
+            "commence_time": "2026-11-25T17:45:00Z",
+        }
+        m_1x2, is_one_1x2 = match_paper_bet_and_side(pb_1x2, markets)
+        self.assertIsNotNone(m_1x2)
+        self.assertEqual(m_1x2["marketHash"], "0x_1x2_away")
+        self.assertTrue(is_one_1x2)
+
+    def test_dynamic_percent_staking_usdc(self):
+        from statmonitor.sx_bet import calculate_sx_stake_usdc
+
+        # 1. На банку $100 при фіксованому 3% має бути рівно $3.00 USDC
+        stake_fx, pct_fx = calculate_sx_stake_usdc(
+            100.0, 90.0, 2.10, config={"stake_mode": "fixed_pct", "fixed_pct": 3.0, "min_stake_usdc": 1.0}
+        )
+        self.assertEqual(stake_fx, 3.0)
+        self.assertEqual(pct_fx, 3.0)
+
+        # 2. Динамічний Келлі на банку $64.90 дає ставку > $1.00 USDC (пропорційно % банку)
+        stake_k, pct_k = calculate_sx_stake_usdc(
+            64.90, 62.90, 2.09, kelly_pct=1.4, confidence=8,
+            config={"stake_mode": "kelly", "min_pct": 2.0, "max_pct": 5.0, "min_stake_usdc": 1.0}
+        )
+        self.assertGreater(stake_k, 1.0)
+        self.assertGreaterEqual(pct_k, 2.0)
+        self.assertLessEqual(pct_k, 5.0)
+
+        # 3. Захист мінімуму 1.00 USDC навіть на малому банку ($20 * 2% = $0.40 -> $1.00)
+        stake_min, _ = calculate_sx_stake_usdc(
+            20.0, 15.0, 2.50, config={"stake_mode": "fixed_pct", "fixed_pct": 2.0, "min_stake_usdc": 1.0}
+        )
+        self.assertEqual(stake_min, 1.0)
+
+        # 4. Недостатньо балансу (< $1.00) -> 0.0
+        stake_zero, _ = calculate_sx_stake_usdc(10.0, 0.50, 2.00)
+        self.assertEqual(stake_zero, 0.0)
+
+    def test_best_taker_offer_calculation(self):
+        from unittest.mock import patch, MagicMock
+        client = SXBetClient(api_key="test_key")
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "status": "success",
+            "data": {
+                "outcomeOne": [{"percentageOdds": "58750000000000000000", "size": "500000000"}],
+                "outcomeTwo": [{"percentageOdds": "40000000000000000000", "size": "200000000"}],
+            },
+        }
+        with patch("requests.get", return_value=mock_resp):
+            # Ставимо на Outcome Two -> беремо maker odds з outcomeOne (58.75%) -> taker prob = 41.25% -> odds ~ 2.424
+            offer_two = client.get_best_taker_offer("0xabc", is_betting_outcome_one=False, min_size_usdc=1.0)
+            self.assertIsNotNone(offer_two)
+            self.assertAlmostEqual(offer_two["decimal_odds"], 2.424, delta=0.01)
+
+            # Ставимо на Outcome One -> maker outcomeTwo (40%) -> taker prob = 60% -> odds ~ 1.667
+            offer_one = client.get_best_taker_offer("0xabc", is_betting_outcome_one=True, min_size_usdc=1.0)
+            self.assertIsNotNone(offer_one)
+            self.assertAlmostEqual(offer_one["decimal_odds"], 1.667, delta=0.01)
+
 
 if __name__ == "__main__":
     unittest.main()
