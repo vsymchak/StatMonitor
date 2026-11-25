@@ -196,6 +196,7 @@ def _parse_sports_list(data):
 
 
 def get_sports_map():
+    res_pl = {}
     # 1. Пріоритет: PropLine API
     if PROPLINE_API_KEY:
         try:
@@ -206,22 +207,25 @@ def get_sports_map():
             )
             if r_pl.status_code == 200:
                 res_pl = _parse_sports_list(r_pl.json())
-                if res_pl:
-                    return res_pl
         except Exception:
             pass
 
-    # 2. Fallback: The Odds API
+    # 2. Доповнення/Fallback: The Odds API /v4/sports/ (0 витрат квоти), щоб не втратити ЛЧ, топ-ліги Європи та теніс
+    res_odds = {}
     for k in [x for x in (API_KEY, API_KEY_RESERVE, API_KEY_RESERVE1, API_KEY_RESERVE2, API_KEY_RESERVE3) if x]:
         try:
             r = requests.get("https://api.the-odds-api.com/v4/sports/", params={"apiKey": k}, timeout=12)
             if r.status_code == 200:
-                res = _parse_sports_list(r.json())
-                if res:
-                    return res
+                res_odds = _parse_sports_list(r.json())
+                if res_odds:
+                    break
         except Exception:
             pass
-    return {k: k for k in TARGET_SPORTS}
+
+    merged = {**res_odds, **res_pl}
+    if merged:
+        return merged
+    return dict(SPORTS_MAP) if SPORTS_MAP else {k: k for k in TARGET_SPORTS}
 
 
 def _append_events_and_odds(events_list, sp, now_utc, events_batch, odds_raw):
@@ -350,13 +354,16 @@ def fetch_and_save_odds(sports_map=None):
 
                 if r_pl.status_code == 200:
                     pl_events = _extract_api_items(r_pl.json())
-                    _append_events_and_odds(pl_events, sp, now_utc, events_batch, odds_raw)
-                    polled_sports_success.append(sp)
-                    propline_polled += 1
                     if pl_rem_val is not None and pl_rem_val <= 1:
                         propline_exhausted = True
                         print("⚠️ PropLine API: денний ліміт майже вичерпано, перемикання залишку на The Odds API...")
-                    continue
+                    if len(pl_events) == 0 and tiers.get(sp) in ("HOT", "WARM") and cur_key:
+                        print(f"ℹ️ PropLine API повернув 0 подій для {sp} ({tiers.get(sp)}): fallback на The Odds API...")
+                    else:
+                        _append_events_and_odds(pl_events, sp, now_utc, events_batch, odds_raw)
+                        polled_sports_success.append(sp)
+                        propline_polled += 1
+                        continue
                 elif r_pl.status_code in (401, 402, 429):
                     propline_exhausted = True
                     print(f"⚠️ PropLine API [HTTP {r_pl.status_code}]: перемикання на резерв The Odds API...")

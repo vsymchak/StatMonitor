@@ -237,7 +237,7 @@ class TestModularDecomposition(unittest.TestCase):
              patch("statmonitor.fetcher.API_KEY", "odds_k"):
             s_map = get_sports_map()
             self.assertEqual(s_map.get("soccer_epl"), "EPL PropLine")
-            self.assertIn("prop-line.com", mock_get.call_args[0][0])
+            self.assertIn("prop-line.com", mock_get.call_args_list[0][0][0])
 
         # 3. fetch_and_save_odds: PropLine використовується першим; при 429 падає в fallback на The Odds API
         pl_429 = MagicMock(status_code=429, headers={"x-ratelimit-remaining": "0"}, text="rate limit")
