@@ -31,6 +31,9 @@ try:
 except Exception:
     KYIV_TZ = timezone(timedelta(hours=2))
 
+PROPLINE_API_KEY = os.environ.get("PROPLINE_API") or os.environ.get("PROPLINE_API_KEY")
+PROPLINE_BASE_URL = os.environ.get("PROPLINE_BASE_URL", "https://api.prop-line.com/v1").rstrip("/")
+
 API_KEY = os.environ.get("ODDS_API_KEY")
 API_KEY_RESERVE = os.environ.get("ODDS_API_KEY_RESERVE")
 API_KEY_RESERVE1 = os.environ.get("ODDS_API_KEY_RESERVE1")

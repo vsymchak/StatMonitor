@@ -203,17 +203,20 @@ def get_dashboard_odds_quota(heartbeat_df=None):
     """
     # 1. Спроба live-запиту
     try:
+        propline_key = os.environ.get("PROPLINE_API") or os.environ.get("PROPLINE_API_KEY")
         key1 = os.environ.get("ODDS_API_KEY")
         key2 = os.environ.get("ODDS_API_KEY_RESERVE")
         key3 = os.environ.get("ODDS_API_KEY_RESERVE1")
         key4 = os.environ.get("ODDS_API_KEY_RESERVE2")
         key5 = os.environ.get("ODDS_API_KEY_RESERVE3")
-        if not key1 or not key2 or not key3 or not key4 or not key5:
+        if not propline_key or not key1 or not key2 or not key3 or not key4 or not key5:
             try:
                 import streamlit as st
                 if hasattr(st, "secrets"):
                     try:
                         s_dict = dict(st.secrets)
+                        if not propline_key:
+                            propline_key = s_dict.get("PROPLINE_API") or s_dict.get("PROPLINE_API_KEY")
                         if not key1:
                             key1 = s_dict.get("ODDS_API_KEY") or s_dict.get("API_KEY")
                         if not key2:
@@ -229,10 +232,13 @@ def get_dashboard_odds_quota(heartbeat_df=None):
             except Exception:
                 pass
 
-        if any((key1, key2, key3, key4, key5)):
+        if any((propline_key, key1, key2, key3, key4, key5)):
             from statmonitor.fetcher import check_odds_api_quota
-            live_quota = check_odds_api_quota(key1, key2, key3, key4, key5)
-            if live_quota and any(live_quota.get(k, {}).get("status") not in ("not_configured", "error") for k in ("primary", "reserve", "reserve1", "reserve2", "reserve3")):
+            live_quota = check_odds_api_quota(key1, key2, key3, key4, key5, propline_api_key=propline_key)
+            if live_quota and (
+                live_quota.get("propline", {}).get("status") not in (None, "not_configured", "error")
+                or any(live_quota.get(k, {}).get("status") not in ("not_configured", "error") for k in ("primary", "reserve", "reserve1", "reserve2", "reserve3"))
+            ):
                 return live_quota, "live"
     except Exception:
         pass
@@ -1459,15 +1465,28 @@ def run_streamlit_app():
 
     # Картка 6: Пульс & API
     if quota_data:
+        pl_slot = quota_data.get("propline") or {}
+        pl_active = pl_slot.get("status") == "active"
         tot_rem = quota_data.get("total_remaining", 0)
         tot_lim = quota_data.get("total_limit", 2500)
-        pct = (tot_rem / tot_lim * 100.0) if tot_lim > 0 else 0.0
-        kpi6.metric(
-            label="💓 Пульс / API (5 кл)",
-            value=f"{tot_rem} / {tot_lim}",
-            delta=f"{pct:.1f}% • {hb_status_clean}",
-            delta_color="normal" if pct > 20 else "inverse",
-        )
+        if pl_active and pl_slot.get("remaining") is not None:
+            pl_rem = int(pl_slot["remaining"])
+            pl_lim = int(pl_slot.get("limit") or 1000)
+            pct = (pl_rem / pl_lim * 100.0) if pl_lim > 0 else 0.0
+            kpi6.metric(
+                label="💓 Пульс / PropLine (Primary)",
+                value=f"{pl_rem} / {pl_lim}",
+                delta=f"{pct:.1f}% • OddsAPI {tot_rem}",
+                delta_color="normal" if pct > 20 else "inverse",
+            )
+        else:
+            pct = (tot_rem / tot_lim * 100.0) if tot_lim > 0 else 0.0
+            kpi6.metric(
+                label="💓 Пульс / API (5 кл)",
+                value=f"{tot_rem} / {tot_lim}",
+                delta=f"{pct:.1f}% • {hb_status_clean}",
+                delta_color="normal" if pct > 20 else "inverse",
+            )
     else:
         kpi6.metric(
             label="💓 Пульс системи",
@@ -1478,6 +1497,7 @@ def run_streamlit_app():
 
     # Додатковий рядок деталізації ключів (для авторизованого адміністратора або коли є квота)
     if is_admin and quota_data:
+        pl_slot = quota_data.get("propline") or {}
         pri = quota_data.get("primary", {})
         res = quota_data.get("reserve", {})
         res1 = quota_data.get("reserve1", {})
@@ -1490,10 +1510,15 @@ def run_streamlit_app():
             used = slot.get("used")
             if rem is None and slot.get("status") == "not_configured":
                 return f"{name} — не налаштовано"
-            rem_val = rem if rem is not None else 500
+            rem_val = rem if rem is not None else lim
             if used is not None and used > 0:
                 return f"{name} — {rem_val}/{lim} (вик {used})"
             return f"{name} — {rem_val}/{lim}"
+
+        pl_str = ""
+        if pl_slot and pl_slot.get("status") != "not_configured":
+            pl_lbl = "PropLine (Primary)" if pl_slot.get("status") == "active" else f"PropLine ({pl_slot.get('status')})"
+            pl_str = f"<b>🚀 {pl_lbl}:</b> {_slot_fmt(pl_slot, 'Денний ліміт')} &nbsp;|&nbsp; "
 
         p_str = _slot_fmt(pri, "Основний")
         r_str = _slot_fmt(res, "Резерв 1")
@@ -1503,7 +1528,7 @@ def run_streamlit_app():
 
         st.markdown(f"""
             <div style="font-size: 11.5px; color: {'#94A3B8' if is_dark else '#475569'}; background: {'#161F30' if is_dark else '#F8FAFC'}; border: 1px solid {'#233044' if is_dark else '#E2E8F0'}; border-radius: 8px; padding: 4px 12px; margin-top: 4px; margin-bottom: 8px;">
-                <b>Деталізація The Odds API:</b> {p_str} &nbsp;|&nbsp; {r_str} &nbsp;|&nbsp; {r1_str} &nbsp;|&nbsp; {r2_str} &nbsp;|&nbsp; {r3_str}
+                {pl_str}<b>The Odds API (Fallback):</b> {p_str} &nbsp;|&nbsp; {r_str} &nbsp;|&nbsp; {r1_str} &nbsp;|&nbsp; {r2_str} &nbsp;|&nbsp; {r3_str}
             </div>
         """, unsafe_allow_html=True)
 

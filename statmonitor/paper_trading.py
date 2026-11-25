@@ -987,6 +987,28 @@ def settle_and_report(cur, conn):
             key_idx = 0
             for sp in {r[2] for r in pending}:
                 success = False
+                # 1. Пріоритет: PropLine API (якщо задано PROPLINE_API)
+                try:
+                    from statmonitor.config import PROPLINE_API_KEY, PROPLINE_BASE_URL
+                    if PROPLINE_API_KEY:
+                        r_pl = requests.get(
+                            f"{PROPLINE_BASE_URL}/sports/{sp}/scores",
+                            headers={"X-API-Key": PROPLINE_API_KEY},
+                            params={"daysFrom": 3},
+                            timeout=12,
+                        )
+                        if r_pl.status_code == 200:
+                            pl_raw = r_pl.json()
+                            pl_events = pl_raw if isinstance(pl_raw, list) else (pl_raw.get("data") or pl_raw.get("events") or [])
+                            if isinstance(pl_events, list):
+                                for ev in pl_events:
+                                    if ev.get("completed") and ev.get("scores"):
+                                        scores[ev["id"]] = ev
+                                success = True
+                except Exception as pl_e:
+                    print(f"PropLine scores fallback ({sp}): {pl_e}")
+
+                # 2. Fallback: The Odds API пул ключів
                 while key_idx < len(keys_pool) and not success:
                     cur_k = keys_pool[key_idx]
                     try:

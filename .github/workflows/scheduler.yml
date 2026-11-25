@@ -35,6 +35,7 @@ jobs:
       - name: Run StatMonitor script
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          PROPLINE_API: ${{ secrets.PROPLINE_API }}
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
           ODDS_API_KEY_RESERVE: ${{ secrets.ODDS_API_KEY_RESERVE }}
           ODDS_API_KEY_RESERVE1: ${{ secrets.ODDS_API_KEY_RESERVE1 }}

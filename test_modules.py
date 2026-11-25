@@ -212,5 +212,59 @@ class TestModularDecomposition(unittest.TestCase):
             self.assertIn("tennis_davis_cup", s_map)
             self.assertNotIn("cricket_ipl", s_map)
 
+    def test_propline_priority_and_fallback(self):
+        from statmonitor.fetcher import get_sports_map, check_odds_api_quota, fetch_and_save_odds
+
+        # 1. check_odds_api_quota з активним PROPLINE_API
+        pl_quota_resp = MagicMock(status_code=200)
+        pl_quota_resp.headers = {"x-ratelimit-limit": "1000", "x-ratelimit-remaining": "920"}
+        odds_resp = MagicMock(status_code=200)
+        odds_resp.headers = {"x-requests-remaining": "150", "x-requests-used": "350"}
+        with patch("requests.get", side_effect=[pl_quota_resp, odds_resp]):
+            q = check_odds_api_quota(api_key="odds_k", propline_api_key="pl_k_123456")
+            self.assertEqual(q["propline"]["status"], "active")
+            self.assertEqual(q["propline"]["remaining"], 920)
+            self.assertEqual(q["propline"]["limit"], 1000)
+            self.assertEqual(q["preferred_source"], "propline")
+
+        # 2. get_sports_map бере PropLine першим без запиту до The Odds API
+        pl_sports_resp = MagicMock(status_code=200)
+        pl_sports_resp.json.return_value = [
+            {"key": "soccer_epl", "title": "EPL PropLine", "active": True, "group": "Soccer"}
+        ]
+        with patch("requests.get", return_value=pl_sports_resp) as mock_get, \
+             patch("statmonitor.fetcher.PROPLINE_API_KEY", "pl_k_123456"), \
+             patch("statmonitor.fetcher.API_KEY", "odds_k"):
+            s_map = get_sports_map()
+            self.assertEqual(s_map.get("soccer_epl"), "EPL PropLine")
+            self.assertIn("prop-line.com", mock_get.call_args[0][0])
+
+        # 3. fetch_and_save_odds: PropLine використовується першим; при 429 падає в fallback на The Odds API
+        pl_429 = MagicMock(status_code=429, headers={"x-ratelimit-remaining": "0"}, text="rate limit")
+        odds_200 = MagicMock(status_code=200, headers={"x-requests-remaining": "140"})
+        odds_200.json.return_value = [{
+            "id": "ev_fb_1",
+            "home_team": "Arsenal",
+            "away_team": "Chelsea",
+            "commence_time": "2026-11-26T20:00:00Z",
+            "bookmakers": [{
+                "key": "pinnacle",
+                "markets": [{"key": "h2h", "outcomes": [{"name": "Arsenal", "price": 1.95}]}]
+            }],
+        }]
+        with patch("requests.get", side_effect=[pl_429, odds_200]) as mock_get_fetch, \
+             patch("statmonitor.fetcher.PROPLINE_API_KEY", "pl_k_123456"), \
+             patch("statmonitor.fetcher.API_KEY", "odds_k"), \
+             patch("statmonitor.fetcher.API_KEY_RESERVE", None), \
+             patch("statmonitor.fetcher.API_KEY_RESERVE1", None), \
+             patch("statmonitor.fetcher.API_KEY_RESERVE2", None), \
+             patch("statmonitor.fetcher.API_KEY_RESERVE3", None), \
+             patch("statmonitor.fetcher.get_db", return_value=None):
+            ev_cnt, odds_cnt, _ = fetch_and_save_odds({"soccer_epl": "EPL"})
+            self.assertEqual(ev_cnt, 1)
+            self.assertEqual(odds_cnt, 1)
+            self.assertIn("prop-line.com", mock_get_fetch.call_args_list[0][0][0])
+            self.assertIn("the-odds-api.com", mock_get_fetch.call_args_list[1][0][0])
+
 if __name__ == "__main__":
     unittest.main()

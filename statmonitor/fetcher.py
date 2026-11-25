@@ -3,6 +3,8 @@ from datetime import datetime, timezone, timedelta
 from psycopg2.extras import execute_values
 
 from statmonitor.config import (
+    PROPLINE_API_KEY,
+    PROPLINE_BASE_URL,
     API_KEY,
     API_KEY_RESERVE,
     API_KEY_RESERVE1,
@@ -14,17 +16,52 @@ from statmonitor.config import (
 )
 from statmonitor.database import get_db, get_cols, pick, ensure_tables
 
+
+def _extract_api_items(payload):
+    """Нормалізує JSON-відповідь (список або словник із ключами data/events/sports)."""
+    if isinstance(payload, list):
+        return payload
+    if isinstance(payload, dict):
+        for k in ("data", "events", "sports", "items"):
+            val = payload.get(k)
+            if isinstance(val, list):
+                return val
+    return []
+
+
+def _parse_header_int(headers, candidate_keys):
+    """Повертає ціле значення з першого наявного заголовка квоти або None."""
+    if not headers:
+        return None
+    lower_hdrs = {str(k).lower(): v for k, v in headers.items()}
+    for hk in candidate_keys:
+        raw = lower_hdrs.get(hk.lower())
+        if raw is not None:
+            try:
+                return int(float(str(raw).strip()))
+            except (ValueError, TypeError):
+                pass
+    return None
+
+
+def _mask_key(k):
+    if not k or len(k) < 6:
+        return "***"
+    return f"{k[:3]}...{k[-3:]}"
+
+
 def check_odds_api_quota(
     api_key=None,
     api_key_reserve=None,
     api_key_reserve1=None,
     api_key_reserve2=None,
     api_key_reserve3=None,
+    propline_api_key=None,
 ):
     """
-    Отримує баланс квоти The Odds API (залишок та використано) для основного та всіх резервних ключів (до 5 ключів).
-    Запит на endpoint /v4/sports/ не споживає квоту (cost = 0).
+    Отримує баланс квоти PropLine API (пріоритетний) та The Odds API (основний + до 4 резервних ключів).
     """
+    key_propline = propline_api_key if propline_api_key is not None else PROPLINE_API_KEY
     key_primary = api_key if api_key is not None else API_KEY
     key_reserve = api_key_reserve if api_key_reserve is not None else API_KEY_RESERVE
     key_reserve1 = api_key_reserve1 if api_key_reserve1 is not None else API_KEY_RESERVE1
@@ -32,6 +69,7 @@ def check_odds_api_quota(
     key_reserve3 = api_key_reserve3 if api_key_reserve3 is not None else API_KEY_RESERVE3
 
     result = {
+        "propline": {"key_masked": None, "remaining": None, "used": None, "limit": 1000, "status": "not_configured"},
         "primary": {"key_masked": None, "remaining": None, "used": None, "limit": 500, "status": "not_configured"},
         "reserve": {"key_masked": None, "remaining": None, "used": None, "limit": 500, "status": "not_configured"},
         "reserve1": {"key_masked": None, "remaining": None, "used": None, "limit": 500, "status": "not_configured"},
@@ -40,13 +78,36 @@ def check_odds_api_quota(
         "total_remaining": 0,
         "total_limit": 2500,
         "active_key": "none",
+        "preferred_source": "the_odds_api",
         "last_checked": datetime.now(timezone.utc).isoformat(),
     }
 
-    def _mask_key(k):
-        if not k or len(k) < 6:
-            return "***"
-        return f"{k[:3]}...{k[-3:]}"
+    if key_propline:
+        result["propline"]["key_masked"] = _mask_key(key_propline)
+        try:
+            r_pl = requests.get(
+                f"{PROPLINE_BASE_URL}/sports",
+                headers={"X-API-Key": key_propline},
+                timeout=8,
+            )
+            if r_pl.status_code == 200:
+                lim_pl = _parse_header_int(r_pl.headers, ("x-ratelimit-limit", "ratelimit-limit", "x-daily-limit")) or 1000
+                rem_pl = _parse_header_int(r_pl.headers, ("x-ratelimit-remaining", "x-daily-remaining", "x-requests-remaining"))
+                used_pl = (lim_pl - rem_pl) if (rem_pl is not None and lim_pl >= rem_pl) else None
+                result["propline"]["limit"] = lim_pl
+                result["propline"]["remaining"] = rem_pl
+                result["propline"]["used"] = used_pl
+                result["propline"]["status"] = "active" if (rem_pl is None or rem_pl > 1) else "exhausted"
+            elif r_pl.status_code in (402, 429):
+                result["propline"]["status"] = "exhausted"
+                result["propline"]["remaining"] = 0
+            elif r_pl.status_code in (401, 403):
+                result["propline"]["status"] = "invalid_key"
+                result["propline"]["remaining"] = 0
+            else:
+                result["propline"]["status"] = f"http_{r_pl.status_code}"
+        except Exception as e:
+            result["propline"]["status"] = f"error: {str(e)[:30]}"
 
     total_rem = 0
     total_lim = 0
@@ -80,7 +141,7 @@ def check_odds_api_quota(
         except Exception as e:
             result[slot_name]["status"] = f"error: {str(e)[:30]}"
 
-    # Перевіряємо всі 5 ключів
+    # Перевіряємо всі 5 ключів The Odds API
     _check_key(key_primary, "primary", is_primary=True)
     _check_key(key_reserve, "reserve", is_primary=False)
     _check_key(key_reserve1, "reserve1", is_primary=False)
@@ -102,7 +163,7 @@ def check_odds_api_quota(
     result["total_remaining"] = total_rem
     result["total_limit"] = total_lim if total_lim > 0 else 2500
 
-    # Визначаємо активний ключ
+    # Визначаємо активний ключ The Odds API
     active_k = "none"
     for slot in slot_keys:
         if result[slot]["status"] == "active":
@@ -112,32 +173,86 @@ def check_odds_api_quota(
             active_k = slot
             break
     result["active_key"] = active_k
+    result["preferred_source"] = "propline" if result["propline"]["status"] == "active" else "the_odds_api"
 
     return result
 
+
+def _parse_sports_list(data):
+    res = {}
+    for s in _extract_api_items(data):
+        if not isinstance(s, dict):
+            continue
+        s_key = s.get("key") or s.get("sport_key") or ""
+        is_active = s.get("active", True)
+        if is_active and (s_key in TARGET_SPORTS or s.get("group") == "Tennis" or s_key.startswith("tennis_")):
+            title = s.get("title")
+            if not title:
+                title = f"Теніс ({s_key.replace('tennis_', '').upper()})" if s_key.startswith("tennis_") else s_key
+            elif s_key.startswith("tennis_") and not title.lower().startswith("теніс") and not title.lower().startswith("tennis"):
+                title = f"Теніс ({title})"
+            res[s_key] = title
+    return res
+
+
 def get_sports_map():
+    # 1. Пріоритет: PropLine API
+    if PROPLINE_API_KEY:
+        try:
+            r_pl = requests.get(
+                f"{PROPLINE_BASE_URL}/sports",
+                headers={"X-API-Key": PROPLINE_API_KEY},
+                timeout=12,
+            )
+            if r_pl.status_code == 200:
+                res_pl = _parse_sports_list(r_pl.json())
+                if res_pl:
+                    return res_pl
+        except Exception:
+            pass
+
+    # 2. Fallback: The Odds API
     for k in [x for x in (API_KEY, API_KEY_RESERVE, API_KEY_RESERVE1, API_KEY_RESERVE2, API_KEY_RESERVE3) if x]:
         try:
             r = requests.get("https://api.the-odds-api.com/v4/sports/", params={"apiKey": k}, timeout=12)
             if r.status_code == 200:
-                data = r.json()
-                res = {}
-                for s in data:
-                    s_key = s.get("key", "")
-                    is_active = s.get("active", False)
-                    # Відбираємо ліги з TARGET_SPORTS або будь-який активний тенісний турнір
-                    if is_active and (s_key in TARGET_SPORTS or s.get("group") == "Tennis" or s_key.startswith("tennis_")):
-                        title = s.get("title")
-                        if not title:
-                            title = f"Теніс ({s_key.replace('tennis_', '').upper()})" if s_key.startswith("tennis_") else s_key
-                        elif s_key.startswith("tennis_") and not title.lower().startswith("теніс") and not title.lower().startswith("tennis"):
-                            title = f"Теніс ({title})"
-                        res[s_key] = title
+                res = _parse_sports_list(r.json())
                 if res:
                     return res
         except Exception:
             pass
     return {k: k for k in TARGET_SPORTS}
+
+
+def _append_events_and_odds(events_list, sp, now_utc, events_batch, odds_raw):
+    """Парсить події та коефіцієнти у спільному форматі PropLine / The Odds API."""
+    for ev in events_list:
+        if not isinstance(ev, dict):
+            continue
+        ev_id = ev.get("id") or ev.get("event_id")
+        commence_time = ev.get("commence_time")
+        if not ev_id or not commence_time:
+            continue
+        events_batch.append((ev_id, sp, ev.get("home_team", ""), ev.get("away_team", ""), commence_time))
+        for bm in ev.get("bookmakers", []):
+            bm_key = bm.get("key") or bm.get("title") or "unknown"
+            for mkt in bm.get("markets", []):
+                mkt_key = mkt.get("key", "")
+                for out in mkt.get("outcomes", []):
+                    if out.get("price") is not None:
+                        pt_val = out.get("point")
+                        # SPEC-23: Clean Totals Filtering (відсікання азіатських четвертних тоталів .25 / .75)
+                        if mkt_key == "totals" and pt_val is not None:
+                            try:
+                                if round(abs(float(pt_val) * 100)) % 50 != 0:
+                                    continue
+                            except (ValueError, TypeError):
+                                pass
+                        odds_raw.append({
+                            "event_id": ev_id, "bookmaker": bm_key, "market": mkt_key,
+                            "outcome": out.get("name", ""), "point": pt_val,
+                            "price": out["price"], "time": now_utc
+                        })
 
 def fetch_and_save_odds(sports_map=None):
     if sports_map is None:
@@ -178,24 +293,64 @@ def fetch_and_save_odds(sports_map=None):
     cur_key_idx = 0
     cur_key = keys_pool[0] if keys_pool else None
     rem_credits = "?"
+    propline_key = PROPLINE_API_KEY
+    propline_exhausted = not bool(propline_key)
+    propline_rem = "?"
+    propline_polled = 0
+    odds_api_polled = 0
 
     for sp in selected_sports:
-        if not cur_key:
-            break
         try:
             from statmonitor.league_config import get_league_thresholds
             league_thresh = get_league_thresholds(sp)
             mkt_list = league_thresh.get("markets", ["h2h", "totals", "spreads"])
         except Exception:
             mkt_list = ["h2h", "totals", "spreads"]
-        
-        # The Odds API bulk /odds endpoint accepts only featured markets: h2h, totals, spreads, outrights
-        # Non-featured markets like 'btts' cause HTTP 422 error on bulk /odds endpoint
+
         valid_bulk_markets = ("h2h", "totals", "spreads", "outrights")
         bulk_mkt_list = [m for m in mkt_list if m in valid_bulk_markets]
         if not bulk_mkt_list:
             bulk_mkt_list = ["h2h", "totals", "spreads"]
         mkt_str = ",".join(bulk_mkt_list)
+
+        # 1. Пріоритетне джерело: PropLine API
+        if propline_key and not propline_exhausted:
+            pl_url = f"{PROPLINE_BASE_URL}/sports/{sp}/odds"
+            pl_params = {"regions": "eu", "markets": mkt_str, "commenceTimeTo": to_str}
+            try:
+                r_pl = requests.get(
+                    pl_url,
+                    headers={"X-API-Key": propline_key},
+                    params=pl_params,
+                    timeout=12,
+                )
+                pl_rem_val = _parse_header_int(
+                    r_pl.headers,
+                    ("x-ratelimit-remaining", "x-daily-remaining", "x-requests-remaining"),
+                )
+                if pl_rem_val is not None:
+                    propline_rem = pl_rem_val
+
+                if r_pl.status_code == 200:
+                    pl_events = _extract_api_items(r_pl.json())
+                    _append_events_and_odds(pl_events, sp, now_utc, events_batch, odds_raw)
+                    polled_sports_success.append(sp)
+                    propline_polled += 1
+                    if pl_rem_val is not None and pl_rem_val <= 1:
+                        propline_exhausted = True
+                        print("⚠️ PropLine API: денний ліміт майже вичерпано, перемикання залишку на The Odds API...")
+                    continue
+                elif r_pl.status_code in (401, 402, 429):
+                    propline_exhausted = True
+                    print(f"⚠️ PropLine API [HTTP {r_pl.status_code}]: перемикання на резерв The Odds API...")
+                else:
+                    print(f"ℹ️ PropLine API для {sp} [HTTP {r_pl.status_code}]: fallback на The Odds API...")
+            except Exception as pl_err:
+                print(f"ℹ️ PropLine API err {sp}: {pl_err} (fallback на The Odds API)")
+
+        # 2. Fallback: The Odds API (пул 5 ключів)
+        if not cur_key:
+            continue
 
         url = f"https://api.the-odds-api.com/v4/sports/{sp}/odds/"
         params = {"apiKey": cur_key, "regions": "eu", "markets": mkt_str, "commenceTimeTo": to_str}
@@ -203,7 +358,7 @@ def fetch_and_save_odds(sports_map=None):
             r = requests.get(url, params=params, timeout=12)
             rem_credits = r.headers.get("x-requests-remaining", rem_credits)
             rem_int = int(float(rem_credits)) if str(rem_credits).replace(".", "").isdigit() else 999
-            
+
             # Якщо ключ вичерпано або статус помилки — ротація на наступний ключ (RESERVE -> RESERVE1)
             while (r.status_code in (401, 402, 429) or rem_int <= 1) and (cur_key_idx + 1 < len(keys_pool)):
                 cur_key_idx += 1
@@ -225,26 +380,8 @@ def fetch_and_save_odds(sports_map=None):
                         pass
                 continue
             polled_sports_success.append(sp)
-            for ev in r.json():
-                events_batch.append((ev["id"], sp, ev.get("home_team", ""), ev.get("away_team", ""), ev["commence_time"]))
-                for bm in ev.get("bookmakers", []):
-                    for mkt in bm.get("markets", []):
-                        mkt_key = mkt.get("key", "")
-                        for out in mkt.get("outcomes", []):
-                            if out.get("price") is not None:
-                                pt_val = out.get("point")
-                                # SPEC-23: Clean Totals Filtering (відсікання азіатських четвертних тоталів .25 / .75)
-                                if mkt_key == "totals" and pt_val is not None:
-                                    try:
-                                        if round(abs(float(pt_val) * 100)) % 50 != 0:
-                                            continue
-                                    except (ValueError, TypeError):
-                                        pass
-                                odds_raw.append({
-                                    "event_id": ev["id"], "bookmaker": bm["key"], "market": mkt_key,
-                                    "outcome": out.get("name", ""), "point": pt_val,
-                                    "price": out["price"], "time": now_utc
-                                })
+            odds_api_polled += 1
+            _append_events_and_odds(_extract_api_items(r.json()), sp, now_utc, events_batch, odds_raw)
         except Exception as e:
             err_msg = f"Помилка запиту котирувань для {sp}: {e}"
             print(f"API err {sp}: {e}")
@@ -255,10 +392,11 @@ def fetch_and_save_odds(sports_map=None):
                 except Exception:
                     pass
 
-    print(f"2. Залишок кредитів: {rem_credits}")
+    print(f"2. Джерела котирувань: PropLine={propline_polled} ліг (залишок {propline_rem}) | OddsAPI={odds_api_polled} ліг (залишок {rem_credits})")
+    rem_summary = f"PropLine:{propline_rem}" if propline_polled > 0 and odds_api_polled == 0 else rem_credits
     if not conn or not cur:
         print("Помилка підключення до БД для збереження котирувань.")
-        return len(events_batch), len(odds_raw), rem_credits
+        return len(events_batch), len(odds_raw), rem_summary
 
     # Фіксуємо успішне опитування ліг у rate limiter
     try:
