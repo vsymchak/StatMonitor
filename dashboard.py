@@ -3284,7 +3284,7 @@ def run_streamlit_app():
             safe_addr = os.environ.get("SX_BET_SAFE_ADDRESS") or st_sec.get("SX_BET_SAFE_ADDRESS", "0xf7466D286A0Fe1Cbd55E2925d5b7399E4990f503")
             wallet_addr = os.environ.get("SX_BET_WALLET_ADDRESS") or st_sec.get("SX_BET_WALLET_ADDRESS", "0xd4689DEE01C14Eb75688DF439f5aFb13dfD11071")
 
-            c_info_left, c_info_right = st.columns([9, 3])
+            c_info_left, c_info_spacer, c_btn_sync, c_btn_link = st.columns([8.5, 0.2, 1.7, 1.6], gap="small")
             with c_info_left:
                 st.markdown(f"""
                     <div style="background: {acc_card_bg}; border: 1px solid {acc_card_border}; border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; font-size: 12px; color: {acc_t_clr};">
@@ -3297,7 +3297,7 @@ def run_streamlit_app():
                         </div>
                     </div>
                 """, unsafe_allow_html=True)
-            with c_info_right:
+            with c_btn_sync:
                 if st.button(
                     "🔄 Оновити з біржі",
                     use_container_width=True,
@@ -3318,7 +3318,7 @@ def run_streamlit_app():
                             st.rerun()
                         finally:
                             conn_sync_act.close()
-
+            with c_btn_link:
                 if hasattr(st, "link_button"):
                     st.link_button(
                         "↗️ Відкрити sx.bet",
