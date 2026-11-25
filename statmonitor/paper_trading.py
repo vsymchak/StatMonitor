@@ -990,9 +990,11 @@ def settle_and_report(cur, conn):
                 # 1. Пріоритет: PropLine API (якщо задано PROPLINE_API)
                 try:
                     from statmonitor.config import PROPLINE_API_KEY, PROPLINE_BASE_URL
+                    from statmonitor.fetcher import resolve_propline_sport_key
                     if PROPLINE_API_KEY:
+                        pl_sp = resolve_propline_sport_key(sp)
                         r_pl = requests.get(
-                            f"{PROPLINE_BASE_URL}/sports/{sp}/scores",
+                            f"{PROPLINE_BASE_URL}/sports/{pl_sp}/scores",
                             headers={"X-API-Key": PROPLINE_API_KEY},
                             params={"daysFrom": 3},
                             timeout=12,

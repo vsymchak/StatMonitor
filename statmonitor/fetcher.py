@@ -178,12 +178,124 @@ def check_odds_api_quota(
     return result
 
 
-def _parse_sports_list(data):
+# Співставлення канонічних ключів The Odds API <-> ключів PropLine API
+ODDS_TO_PROPLINE_ALIASES = {
+    "soccer_uefa_champs_league": ("soccer_uefa_champions_league", "soccer_uefa_champs_league"),
+    "soccer_uefa_europa_conference_league": ("soccer_uefa_conference_league", "soccer_uefa_europa_conference_league"),
+    "soccer_usa_mls": ("soccer_usa_mls", "soccer_mls"),
+    "icehockey_nhl": ("icehockey_nhl", "hockey_nhl"),
+    "americanfootball_nfl": ("americanfootball_nfl", "football_nfl"),
+    "tennis_atp": ("tennis_atp", "tennis"),
+    "tennis_wta": ("tennis_wta", "tennis"),
+    "tennis_davis_cup": ("tennis_davis_cup", "tennis"),
+}
+
+PROPLINE_TO_ODDS_CANONICAL = {
+    "soccer_uefa_champions_league": "soccer_uefa_champs_league",
+    "hockey_nhl": "icehockey_nhl",
+    "football_nfl": "americanfootball_nfl",
+    "soccer_mls": "soccer_usa_mls",
+}
+
+
+def get_propline_candidate_keys(canonical_key):
+    """Повертає кортеж можливих ключів PropLine API для канонічного ключа The Odds API."""
+    if canonical_key in ODDS_TO_PROPLINE_ALIASES:
+        return ODDS_TO_PROPLINE_ALIASES[canonical_key]
+    if str(canonical_key).startswith("tennis_"):
+        return (canonical_key, "tennis")
+    return (canonical_key,)
+
+
+def resolve_propline_sport_key(canonical_key, propline_live_keys=None):
+    """Обирає найкращий ключ PropLine для канонічного ключа ліги."""
+    candidates = get_propline_candidate_keys(canonical_key)
+    if propline_live_keys:
+        for cand in candidates:
+            if cand in propline_live_keys:
+                return cand
+    return candidates[0]
+
+
+def get_common_supported_sports(propline_api_key=None, odds_api_keys=None):
+    """
+    Визначає перетин (спільні ліги) між PropLine API (/v1/sports) та The Odds API (/v4/sports/)
+    із урахуванням співставлення ключів (наприклад soccer_uefa_champs_league <-> soccer_uefa_champions_league).
+    """
+    pl_key = propline_api_key if propline_api_key is not None else PROPLINE_API_KEY
+    odds_pool = [k for k in (odds_api_keys or (API_KEY, API_KEY_RESERVE, API_KEY_RESERVE1, API_KEY_RESERVE2, API_KEY_RESERVE3)) if k]
+
+    pl_live_keys = set()
+    pl_ok = False
+    if pl_key:
+        try:
+            r_pl = requests.get(f"{PROPLINE_BASE_URL}/sports", headers={"X-API-Key": pl_key}, timeout=12)
+            if r_pl.status_code == 200:
+                for item in _extract_api_items(r_pl.json()):
+                    if isinstance(item, dict) and item.get("active", True):
+                        sk = item.get("key") or item.get("sport_key")
+                        if sk:
+                            pl_live_keys.add(str(sk))
+                pl_ok = len(pl_live_keys) > 0
+        except Exception:
+            pass
+
+    odds_live_keys = set()
+    odds_ok = False
+    for k in odds_pool:
+        try:
+            r = requests.get("https://api.the-odds-api.com/v4/sports/", params={"apiKey": k}, timeout=12)
+            if r.status_code == 200:
+                for item in _extract_api_items(r.json()):
+                    if isinstance(item, dict) and item.get("active", True):
+                        sk = item.get("key") or item.get("sport_key")
+                        if sk:
+                            odds_live_keys.add(str(sk))
+                odds_ok = len(odds_live_keys) > 0
+                if odds_ok:
+                    break
+        except Exception:
+            pass
+
+    from statmonitor.league_config import load_leagues_config
+    all_cfg_keys = [lg["key"] for lg in load_leagues_config().get("leagues", []) if lg.get("key")]
+
+    common_keys = set()
+    mapping = {}
+    for ck in all_cfg_keys:
+        cands = get_propline_candidate_keys(ck)
+        in_pl = any(c in pl_live_keys for c in cands) if pl_ok else any(c in ODDS_TO_PROPLINE_ALIASES or True for c in cands)
+        in_odds = (ck in odds_live_keys) if odds_ok else True
+        if pl_ok and odds_ok:
+            if in_pl and in_odds:
+                common_keys.add(ck)
+                mapping[ck] = resolve_propline_sport_key(ck, pl_live_keys)
+        elif pl_ok:
+            if in_pl:
+                common_keys.add(ck)
+                mapping[ck] = resolve_propline_sport_key(ck, pl_live_keys)
+        elif odds_ok:
+            if in_odds:
+                common_keys.add(ck)
+                mapping[ck] = resolve_propline_sport_key(ck)
+
+    return {
+        "common_keys": common_keys,
+        "propline_keys": pl_live_keys,
+        "odds_keys": odds_live_keys,
+        "mapping": mapping,
+        "propline_ok": pl_ok,
+        "odds_ok": odds_ok,
+    }
+
+
+def _parse_sports_list(data, map_propline=False):
     res = {}
     for s in _extract_api_items(data):
         if not isinstance(s, dict):
             continue
-        s_key = s.get("key") or s.get("sport_key") or ""
+        raw_key = s.get("key") or s.get("sport_key") or ""
+        s_key = PROPLINE_TO_ODDS_CANONICAL.get(raw_key, raw_key) if map_propline else raw_key
         is_active = s.get("active", True)
         if is_active and (s_key in TARGET_SPORTS or s.get("group") == "Tennis" or s_key.startswith("tennis_")):
             title = s.get("title")
@@ -197,7 +309,7 @@ def _parse_sports_list(data):
 
 def get_sports_map():
     res_pl = {}
-    # 1. Пріоритет: PropLine API
+    # 1. Пріоритет: PropLine API (зі співставленням ключів до канонічних The Odds API)
     if PROPLINE_API_KEY:
         try:
             r_pl = requests.get(
@@ -206,7 +318,7 @@ def get_sports_map():
                 timeout=12,
             )
             if r_pl.status_code == 200:
-                res_pl = _parse_sports_list(r_pl.json())
+                res_pl = _parse_sports_list(r_pl.json(), map_propline=True)
         except Exception:
             pass
 
@@ -216,7 +328,7 @@ def get_sports_map():
         try:
             r = requests.get("https://api.the-odds-api.com/v4/sports/", params={"apiKey": k}, timeout=12)
             if r.status_code == 200:
-                res_odds = _parse_sports_list(r.json())
+                res_odds = _parse_sports_list(r.json(), map_propline=False)
                 if res_odds:
                     break
         except Exception:
@@ -334,9 +446,10 @@ def fetch_and_save_odds(sports_map=None):
             bulk_mkt_list = ["h2h", "totals", "spreads"]
         mkt_str = ",".join(bulk_mkt_list)
 
-        # 1. Пріоритетне джерело: PropLine API
+        # 1. Пріоритетне джерело: PropLine API (з урахуванням аліасів ключів)
         if propline_key and not propline_exhausted:
-            pl_url = f"{PROPLINE_BASE_URL}/sports/{sp}/odds"
+            pl_sp = resolve_propline_sport_key(sp)
+            pl_url = f"{PROPLINE_BASE_URL}/sports/{pl_sp}/odds"
             pl_params = {"regions": "eu", "markets": mkt_str, "oddsFormat": "decimal", "commenceTimeTo": to_str}
             try:
                 r_pl = requests.get(

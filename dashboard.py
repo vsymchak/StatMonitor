@@ -4634,12 +4634,55 @@ def run_streamlit_app():
 
                 # Миттєве та надійне зчитування конфігурації ліг (з DB як єдиного джерела істини)
                 cfg_leagues = load_leagues_config(db_url=db_url)
-                all_leagues_list = cfg_leagues.get("leagues", [])
+                raw_leagues_list = cfg_leagues.get("leagues", [])
+
+                # Визначаємо спільні ліги PropLine API та The Odds API (із співставленням ключів)
+                common_info = {"common_keys": set(), "mapping": {}, "propline_ok": False, "odds_ok": False}
+                try:
+                    from statmonitor.fetcher import get_common_supported_sports
+                    s_sec = dict(st.secrets) if hasattr(st, "secrets") else {}
+                    pl_k_cfg = os.environ.get("PROPLINE_API") or os.environ.get("PROPLINE_API_KEY") or s_sec.get("PROPLINE_API") or s_sec.get("PROPLINE_API_KEY")
+                    odds_ks_cfg = [
+                        os.environ.get(ek) or s_sec.get(ek)
+                        for ek in ("ODDS_API_KEY", "ODDS_API_KEY_RESERVE", "ODDS_API_KEY_RESERVE1", "ODDS_API_KEY_RESERVE2", "ODDS_API_KEY_RESERVE3")
+                    ]
+                    if "cached_common_sports_info" not in st.session_state:
+                        st.session_state["cached_common_sports_info"] = get_common_supported_sports(
+                            propline_api_key=pl_k_cfg,
+                            odds_api_keys=odds_ks_cfg,
+                        )
+                    common_info = st.session_state["cached_common_sports_info"] or common_info
+                except Exception:
+                    pass
+
+                c_flt_l, c_flt_r = st.columns([6, 2])
+                with c_flt_l:
+                    only_common_leagues = st.checkbox(
+                        "🔗 Показувати лише спільні ліги (PropLine ∩ The Odds API)",
+                        value=True,
+                        key="chk_only_common_leagues",
+                        help="Автоматично співставляє ключі ліг обох сервісів (зокрема soccer_uefa_champs_league ↔ soccer_uefa_champions_league, теніс, топ-ліги) і приховує непідтримувані.",
+                    )
+                with c_flt_r:
+                    if st.button("🔄 Оновити список спільних", key="btn_refresh_common_leagues", use_container_width=True):
+                        if "cached_common_sports_info" in st.session_state:
+                            del st.session_state["cached_common_sports_info"]
+                        st.rerun()
+
+                if only_common_leagues and common_info.get("common_keys"):
+                    all_leagues_list = [lg for lg in raw_leagues_list if lg.get("key") in common_info["common_keys"]]
+                    st.caption(
+                        f"🔗 Знайдено спільних ліг: **{len(all_leagues_list)}** із {len(raw_leagues_list)} "
+                        f"(PropLine: {'✅' if common_info.get('propline_ok') else '⚠️'}, "
+                        f"The Odds API: {'✅' if common_info.get('odds_ok') else '⚠️'})"
+                    )
+                else:
+                    all_leagues_list = raw_leagues_list
 
                 # Ініціалізація стану в session_state
                 if "league_enabled_state" not in st.session_state:
                     st.session_state.league_enabled_state = {
-                        lg["key"]: bool(lg.get("enabled", True)) for lg in all_leagues_list
+                        lg["key"]: bool(lg.get("enabled", True)) for lg in raw_leagues_list
                     }
 
                 # ---------------- АНАЛІТИКА ВИТРАТ API ТА РЕНТАБЕЛЬНОСТІ ЛІГ ----------------

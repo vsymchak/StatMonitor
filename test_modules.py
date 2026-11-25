@@ -288,5 +288,45 @@ class TestModularDecomposition(unittest.TestCase):
         self.assertAlmostEqual(prices["B"], 1.667, places=3)
         self.assertEqual(prices["Draw"], 3.45)
 
+    def test_propline_odds_league_mapping_and_common_filter(self):
+        from statmonitor.fetcher import (
+            resolve_propline_sport_key,
+            get_common_supported_sports,
+            _parse_sports_list,
+        )
+
+        # 1. Співставлення ключів ЛЧ та тенісу
+        self.assertEqual(resolve_propline_sport_key("soccer_uefa_champs_league"), "soccer_uefa_champions_league")
+        self.assertEqual(resolve_propline_sport_key("tennis_atp"), "tennis")
+
+        parsed = _parse_sports_list(
+            [{"key": "soccer_uefa_champions_league", "title": "UEFA Champions League", "active": True}],
+            map_propline=True,
+        )
+        self.assertIn("soccer_uefa_champs_league", parsed)
+
+        # 2. Перетин спільних ліг PropLine ∩ The Odds API
+        pl_sports = MagicMock(status_code=200)
+        pl_sports.json.return_value = [
+            {"key": "soccer_uefa_champions_league", "active": True},
+            {"key": "soccer_epl", "active": True},
+            {"key": "basketball_nba", "active": True},
+            {"key": "tennis", "active": True},
+        ]
+        odds_sports = MagicMock(status_code=200)
+        odds_sports.json.return_value = [
+            {"key": "soccer_uefa_champs_league", "active": True},
+            {"key": "soccer_epl", "active": True},
+            {"key": "basketball_nba", "active": True},
+            {"key": "soccer_ukraine_premier_league", "active": True},
+        ]
+        with patch("requests.get", side_effect=[pl_sports, odds_sports]):
+            res = get_common_supported_sports(propline_api_key="pl_k", odds_api_keys=["odds_k"])
+            self.assertIn("soccer_uefa_champs_league", res["common_keys"])
+            self.assertIn("soccer_epl", res["common_keys"])
+            self.assertIn("basketball_nba", res["common_keys"])
+            self.assertNotIn("soccer_ukraine_premier_league", res["common_keys"])
+            self.assertEqual(res["mapping"].get("soccer_uefa_champs_league"), "soccer_uefa_champions_league")
+
 if __name__ == "__main__":
     unittest.main()
