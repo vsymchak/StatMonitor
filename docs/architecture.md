@@ -167,7 +167,7 @@ flowchart TD
     Watchdog -.->|Watchdog Alert при затримці| Telegram
 
     %% Дашборд
-    DB -.->|Прямий зв'язок (autocommit=True)| StreamlitUI
+    DB -.->|"Прямий зв'язок (autocommit=True)"| StreamlitUI
 ```
 
 ---
