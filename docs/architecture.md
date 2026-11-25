@@ -21,17 +21,15 @@ flowchart TD
     classDef test fill:#334155,stroke:#94a3b8,color:#f1f5f9,stroke-width:1px,stroke-dasharray: 3 3;
 
     subgraph Triggers["🌐 1. Рівень тригерів і планувальника"]
-        CronJob["Cron-job.org / Webhook<br>Точний розклад по секундах"]:::ext
-        GHFallbackCron["GitHub Actions Fallback Cron<br>schedule: 15,45 * * * *"]:::ext
         ManualAdmin["Admin / CLI<br>python trigger_dispatch.py"]:::ext
-        DashboardTrigger["Web Dashboard Button<br>⚡ Запустити моніторинг"]:::ui
-        CFWorker["Cloudflare Worker<br>(deploy/cloudflare_webhook.js)<br>Edge Zero-Cost Gate (Supabase REST)"]:::gw
+        DashboardTrigger["Web Dashboard Button<br>⚡ Запуск моніторингу"]:::ui
+        CFWorker["Cloudflare Worker<br>(deploy/cloudflare_webhook.js)<br>HTTP Webhook Only (Cron вимкнено)"]:::gw
     end
 
     subgraph ExecutionInfra["⚙️ 2. Інфраструктура виконання (Hybrid Cloud Execution)"]
-        RenderService["Render.com 24/7 Web Service<br>(render_service.py)<br>Автономний хмарний демон (Free $0/mo)"]:::core
+        RenderService["Render.com 24/7 Web Service<br>(render_service.py)<br>Основний 24/7 демон (кожні 30 хв)"]:::core
         GHAPI["GitHub REST API<br>/workflows/scheduler.yml/dispatches"]:::gw
-        GHRunner["GitHub Actions Runner (Ubuntu)<br>Резервний cron (кожні 30 хв)"]:::core
+        GHRunner["GitHub Actions Runner (Ubuntu)<br>Лише ручний workflow_dispatch"]:::core
         LocalDaemon["Local / VPS Daemon<br>(daemon.py / statmonitor.service)"]:::core
     end
 
@@ -118,8 +116,6 @@ flowchart TD
     end
 
     %% Потоки тригерів
-    CronJob -->|HTTP GET/POST| CFWorker
-    GHFallbackCron -->|Scheduled Cron| GHRunner
     ManualAdmin -->|Direct API| GHAPI
     DashboardTrigger -->|HTTP Webhook| CFWorker
     DashboardTrigger -.->|HTTP GET /trigger| RenderService
@@ -293,14 +289,13 @@ erDiagram
   - Спеціалізований CLI-демон для запуску на будь-якому Linux VPS (Ubuntu/Debian) або локальному комп'ютері: `python daemon.py --interval 30`.
   - Повна стійкість до збоїв: автоматичне логування помилок у таблицю `system_errors` без аварійного завершення процесу при збоях мережі або API.
   - Готовий конфіг системної служби `systemd` з автоматичним перезапуском при аваріях (`Restart=always`).
-* **Зовнішній сервіс (Cron-job.org)**: викликає Webhook секунда в секунду за розкладом.
-* **Шлюз Cloudflare Worker (`deploy/cloudflare_webhook.js`)**:
-  - Перевіряє секрет `?secret=***`.
-  - Відправляє `workflow_dispatch` на GitHub API за $\sim 50$ мс.
-  - Жодних секретів не зберігається у відкритому вигляді (Cloudflare Encrypted Secrets).
+* **Шлюз Cloudflare Worker (`deploy/cloudflare_webhook.js`) — режим Button-Only**:
+  - Працює виключно по HTTP-запиту з кнопки `⚡ Запуск` у дашборді (усі Cron-тригери у `wrangler.toml` вимкнено).
+  - Перевіряє секрет `SECRET_KEY` (із нормалізацією пробілів/лапок) та відправляє `workflow_dispatch` на GitHub API за $\sim 50$ мс; відкриття базового URL `/` без параметрів повертає безпечний статус `200 OK` без запуску дій.
+  - Жодних секретів не зберігається у відкритому вигляді (Cloudflare Encrypted Secrets: `GITHUB_TOKEN`, `SECRET_KEY`).
 * **Кнопка Web Dashboard**: запуск сканування безпосередньо з інтерфейсу Streamlit в один клік (для користувачів з роллю Admin).
-* **Резервний GitHub Actions Cron (`.github/workflows/scheduler.yml`)**:
-  - Оптимізовано на інтервал `schedule: - cron: '*/30 * * * *'` (кожні 30 хв: 1 440 хв/місяць), що на 100% вкладається в безкоштовний ліміт 2 000 хв для приватних репозиторіїв GitHub.
+* **GitHub Actions (`.github/workflows/scheduler.yml`)**:
+  - Регулярний `schedule` вимкнено — воркфлоу запускається виключно через `workflow_dispatch` (ручний запуск або кнопка в UI), щоб не витрачати білінг Actions і не дублювати 24/7 демон Render.com.
 * **GitHub Actions Runner**: без черг стартує контейнер Ubuntu з Python 3.10+ і запускає `main.py`.
 
 ### Рівень 2: Збір та адаптація котирувань (Ingestion Engine)
@@ -392,12 +387,13 @@ erDiagram
 * **Інтерактивний веб-дашборд (`dashboard.py` на Streamlit Cloud)**:
 * **Інтерактивний веб-дашборд (`dashboard.py` на Streamlit Cloud)**:
   - **RBAC безпека**: Гостьовий режим (Read-Only) без кнопок керування проти режиму адміністратора (`?key=...` або форма входу).
-  - **5 спеціалізованих вкладок архітектури UI**:
+  - **6 спеціалізованих вкладок архітектури UI**:
     1. `📊 Paper Bank (Теорія)`: базова алгоритмічна модель (10 000 ₴), графік зростання банку Plotly, сегментація по лігах і маркетах, активні ставки з прапорцем `🟢 Real` та кнопкою пакетного переносу `⚡ Перенести в Реальні ставки & Розрахувати банк`, історія ставок.
     2. `🟢 Реальний банк (Real Money)`: автономний облік реального капіталу з повною ізоляцією від віртуальної моделі. 6 KPI-карток (баланс, депозити, PnL, Real ROI, оборот, вінрейт), графік динаміки балансу леджера Plotly у смарагдових тонах (`#16A34A`), картка експозиції та ризик-лімітів (макс. 5% на 1 ставку, No-Vig Kelly $0.10 \times \text{Kelly}$), таблиця активних реальних ставок, історія закритих ставок, Каса (депозити/виведення/коригування) та ручний розрахунок реальних результатів.
-    3. `🧠 AI-аналітика Gemini`: картки глибокого аналізу матчів, Confidence Score (1–10) та обґрунтування валуйних сигналів із Markdown-розміткою.
-    4. `⚙️ Розклад та Пульс`: статус пайплайну, моніторинг квот The Odds API (5 ключів, пул 2500 запитів) та журнал перевірок пульсу.
-    5. `🎛️ Пороги ліг (Admin)`: інтерактивне налаштування порогів просідання ліг у режимі реального часу.
+    3. `🌐 SX Bet Web3 (USDC)` *(лише Admin)*: децентралізована біржа (OrderBook V3 + Proxy Wallet USDC) — повна синхронізація трейдів і розрахунків (`trades-v3`, `markets/find`), окремі таблиці активних зматчених ставок (`PENDING`), відкритих лімітних ордерів (`OPEN_ORDER`) та прострочених (`EXPIRED`), налаштування динамічного `%`-стейкінгу (Kelly `2–5%` / Fixed `%`, мін. `$1.00`), кнопка чистого оновлення з біржі (`🔄 Оновити з біржі`).
+    4. `🧠 AI-аналітика Gemini`: картки глибокого аналізу матчів, Confidence Score (1–10) та обґрунтування валуйних сигналів із Markdown-розміткою.
+    5. `⚙️ Розклад та Пульс`: статус пайплайну, моніторинг квот The Odds API (5 ключів, пул 2500 запитів) та журнал перевірок пульсу.
+    6. `🎛️ Пороги ліг (Admin)`: інтерактивне налаштування порогів просідання ліг у режимі реального часу.
   - **Інтерактивна аналітика ризику та сегментація (Крок 24, `statmonitor.analytics`)**:
     - Розрахунок максимального просідання балансу (Max Drawdown % та грн від піку).
     - Аналіз серій результатів (Streaks: поточна серія, рекордний Win Streak, макс. Loss Streak).

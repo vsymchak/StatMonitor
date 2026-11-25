@@ -10,7 +10,7 @@
 * 📊 **[Діаграма дорожньої карти SDD (docs/roadmap-diagram.md)](docs/roadmap-diagram.md)** — візуальний прогрес виконання завдань по хвилях (Wave 1–12).
 * 📋 **[Реєстр дорожньої карти (docs/roadmap.md)](docs/roadmap.md)** — повний список 42 кроків еволюції системи за методологією Spec-Driven Development (41 реалізовано, 1 у Wave 12).
 * 🧾 **[Специфікація SPEC-31: Real Money Mode (specs/31-real-money-betting-ocr/specification.md)](specs/31-real-money-betting-ocr/specification.md)** — архітектура подвійного банкролу, фінансового леджера та незалежного обліку реального капіталу.
-* ⚡ **[Налаштування Cloudflare Cron (docs/cloudflare_cron_setup.md)](docs/cloudflare_cron_setup.md)** — конфігурація безсерверного запуску на edge-інфраструктурі Cloudflare.
+* ⚡ **[Налаштування Cloudflare Webhook (docs/cloudflare_cron_setup.md)](docs/cloudflare_cron_setup.md)** — конфігурація HTTP-вебхука кнопки ручного запуску на Cloudflare Workers.
 
 ---
 
@@ -36,12 +36,13 @@
    - **Калібрування оцінок ШІ та Brier Score**: калібрувальна матриця за 4 бакетами сили сигналу (`1-4`, `5-6`, `7-8`, `9-10`) з розрахунком емпіричного Brier Score, Win Rate %, Avg CLV % та ROI %.
    - **Реєстр Shadow-ставок**: інтерактивний журнал гіпотетичних ставок із зазначенням причини відсікання (`LOW_CONFIDENCE`, `AI_SKIP`, тощо) та фільтр `🟡 Відсіяні (Shadow)` у загальному списку.
 6. **Інтерактивний Web Dashboard (Streamlit Cloud)**:
-   - **5 спеціалізованих вкладок**:
+   - **6 спеціалізованих вкладок**:
      1. `📊 Paper Bank (Теорія)`: базова алгоритмічна модель (10 000 ₴), графік зростання, сегментація по лігах і маркетах, активні ставки з прапорцем `🟢 Real` та кнопкою пакетного переносу, фільтр `🟡 Відсіяні (Shadow)`, історія.
      2. `🟢 Реальний банк (Real Money)`: автономний облік реального капіталу (графік леджера, активні ставки, історія, каса, manual settle).
-     3. `🧠 AI-аналітика Gemini`: картки глибокого аналізу матчів, блок Counterfactual AI Audit & A/B бектест, калібрування Brier Score та реєстр Shadow-ставок.
-     4. `⚙️ Розклад та Пульс`: статус пайплайну, моніторинг квот The Odds API (5 ключів) та журнал перевірок.
-     5. `🎛️ Пороги ліг (Admin)`: інтерактивне керування порогами ліг у реальному часі.
+     3. `🌐 SX Bet Web3 (USDC)` *(лише Admin)*: пряма інтеграція з біржею SX Bet (OrderBook V3 API + Proxy Wallet USDC) — повна синхронізація трейдів і розрахунків (`trades-v3`, `markets/find`), розділення зматчених ставок (`PENDING`) та лімітних ордерів у стакані (`OPEN_ORDER`), точний пошук ринків із Paper Bank (`Confidence >= 7/10`), динамічний стейкінг у `%` від банку USDC (мін. `$1.00`) та кнопка чистого оновлення з біржі (`🔄 Оновити з біржі`).
+     4. `🧠 AI-аналітика Gemini`: картки глибокого аналізу матчів, блок Counterfactual AI Audit & A/B бектест, калібрування Brier Score та реєстр Shadow-ставок.
+     5. `⚙️ Розклад та Пульс`: статус пайплайну, моніторинг квот The Odds API (5 ключів) та журнал перевірок.
+     6. `🎛️ Пороги ліг (Admin)`: інтерактивне керування порогами ліг у реальному часі.
    - Безпечний RBAC-доступ: гостьовий режим (Read-Only) та адмін-режим із керуванням касою, редагуванням коефіцієнтів та ручним розрахунком ставок.
 7. **Конфігураційна матриця ліг та динамічні пороги (`config/leagues.json` + `league_thresholds`)**:
    - Декларативне керування списком ліг, назвами, категоріями, ринками та індивідуальними порогами просідання коефіцієнтів.
@@ -49,9 +50,9 @@
 8. **Інтерактивний Telegram-бот (`bot_service.py`)**: двосторонній персональний асистент із клавіатурою швидких дій, командами `/status`, `/bank`, `/bets` (з показом % банку за Келлі), `/today`, `/schedule`, `/digest` та позачерговим запуском моніторингу `/run_now` з перевіркою авторизації `TG_CHAT_ID`.
 9. **Smart Rate-Limiter & Credit Budgeter (`statmonitor/limiter.py`)**: динамічна класифікація ліг на HOT (< 6 год), WARM (6..24 год) та COLD (> 24 год) з автоматичними режимами економії (NORMAL/ECO/CRITICAL), що зберігає до 80% квоти The Odds API.
 10. **Модульна архітектура пакету (`statmonitor/`)**: розподіл обов'язків на чисті модулі (`pipeline`, `fetcher`, `limiter`, `league_config`, `bot`, `database`, `ai`, `paper_trading`, `real_bankroll`, `chart`, `notifier`, `config`) та лаконічний оркестратор `main.py` зі збереженням 100% зворотної сумісності.
-11. **Високоточний гібридний тригер & Zero-Cost Orchestration Sync (SPEC-11 & SPEC-38)**:
-    - Виклик воркфлоу секунда в секунду через **Cloudflare Worker** (`statmonitor.symchak.workers.dev`) + **Cron-job.org**.
-    - **Edge Zero-Cost Gate (SPEC-38)**: легкий edge-запит до Supabase REST API перед викликом Actions, що усуває випалювання лімітів білінгу GitHub Actions (0 хв на холостих тіках).
+11. **Ручний HTTP-вебхук через Cloudflare Worker & Zero-Cost Orchestration (`SPEC-11`, `SPEC-38`)**:
+    - Регулярні Cron-тригери у GitHub Actions та Cloudflare Worker вимкнено (основний 24/7 цикл працює на Render.com через `render_service.py`).
+    - **Cloudflare Worker** (`statmonitor.symchak.workers.dev`, `deploy/cloudflare_webhook.js`) працює в режимі **button-only** — запускає GitHub Actions `workflow_dispatch` виключно по натисканню кнопки `⚡ Запуск` / `⚡ Перезапустити моніторинг зараз` у дашборді за валідним `SECRET_KEY`.
     - Автоматична санітизація URL при автентифікації на Dashboard та кнопка безпечного виходу `🚪 Вийти`.
     - Атомарний фінансовий леджер із суворим математичним балансом $\sum \text{amount\_uah} \equiv \text{balance\_after\_uah}$.
 12. **Динамічний планувальник (`scheduler.py`)**: автоматичний розрахунок контрольних точок за 15 хв до початку матчів (Closing Line Value), через 115 хв для розрахунку ставок, автофіксація статусу `EXECUTED`, захист від дублікатів та фільтрація вікна перегляду (-6 год).
@@ -82,5 +83,5 @@
 * **Веб-інтерфейс**: Streamlit Cloud (`dashboard.py` + Plotly + `st.data_editor`)
 * **Візуалізація трендів**: Matplotlib (рендеринг у пам'яті без дисків)
 * **Канал сповіщень**: Telegram Bot API (HTML-розмітка, чанкінг $\le 3800$ симв., анти-спам фільтрація)
-* **Оркестрація**: GitHub Actions + Cloudflare Workers (з Edge Zero-Cost Gate)
-* **Тестування**: `unittest` (217 тест-кейсів, 100% pass, час виконання $\approx 1$ с)
+* **Оркестрація**: Render.com 24/7 (`render_service.py`) + Cloudflare Workers HTTP-вебхук (ручний запуск через `workflow_dispatch`)
+* **Тестування**: `unittest` (повний набір модульних та інтеграційних тестів)
