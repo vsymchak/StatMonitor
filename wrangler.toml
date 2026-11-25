@@ -2,5 +2,4 @@ name = "statmonitor"
 main = "deploy/cloudflare_webhook.js"
 compatibility_date = "2024-01-01"
 
-[triggers]
-crons = ["*/5 * * * *"]
+# Варіант А: Cron-тригери вимкнено. Воркер працює виключно по HTTP-запиту з кнопки дашборду.

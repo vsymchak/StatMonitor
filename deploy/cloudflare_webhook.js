@@ -142,15 +142,38 @@ export default {
   // 1. Обробка HTTP-запитів (Dashboard кнопка '⚡ Запуск', webhook)
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    const hasAuthAttempt =
+      url.searchParams.has("secret") ||
+      url.searchParams.has("source") ||
+      url.searchParams.has("force") ||
+      request.headers.has("x-webhook-secret") ||
+      request.method !== "GET";
 
-    // Перевірка секретного ключа
-    const expectedSecret = env.SECRET_KEY || "ALTECsrs1989_";
-    const providedSecret = url.searchParams.get("secret") || request.headers.get("x-webhook-secret");
+    // Безпечний статус при відкритті базового URL без параметрів запуску (наприклад кнопка Visit у Cloudflare)
+    if (!hasAuthAttempt && (url.pathname === "/" || url.pathname === "/health")) {
+      return new Response(JSON.stringify({
+        status: "ok",
+        service: "StatMonitor Cloudflare Webhook",
+        mode: "button_only",
+        message: "Воркер активний. Cron вимкнено — запуск можливий лише з ?secret=... (кнопка '⚡ Запуск' у дашборді).",
+      }), {
+        status: 200,
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+      });
+    }
+
+    // Перевірка секретного ключа (з очищенням випадкових пробілів/лапок)
+    const cleanVal = (v) => String(v || "").trim().replace(/^["']|["']$/g, "");
+    const expectedSecret = cleanVal(env.SECRET_KEY || "ALTECsrs1989_");
+    const providedSecret = cleanVal(url.searchParams.get("secret") || request.headers.get("x-webhook-secret"));
 
     if (expectedSecret && providedSecret !== expectedSecret) {
-      return new Response(JSON.stringify({ error: "Unauthorized: Invalid secret" }), {
+      return new Response(JSON.stringify({
+        error: "Unauthorized: Invalid secret",
+        hint: "Перевірте, чи однаковий SECRET_KEY задано в Cloudflare Variables and secrets та Streamlit Secrets.",
+      }), {
         status: 401,
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json; charset=utf-8" },
       });
     }
 
@@ -158,7 +181,7 @@ export default {
     const source = url.searchParams.get("source") || "external_webhook";
     const force = url.searchParams.get("force") === "true";
 
-    if (force || source === "dashboard_button" || source === "manual" || source === "ci_test") {
+    if (force || source === "dashboard_button" || source === "dashboard_error_alert" || source === "manual" || source === "ci_test") {
       const res = await dispatchWorkflow(env, source, ref);
       return new Response(JSON.stringify(res), {
         status: res.status || (res.success ? 200 : 500),
@@ -187,23 +210,8 @@ export default {
     });
   },
 
-  // 2. Обробка високоточного розкладу Cloudflare Cron Triggers
+  // 2. Варіант А: плановий Cron вимкнено (лише запуск по кнопці з дашборду)
   async scheduled(event, env, ctx) {
-    const cronSource = `cloudflare_cron_${(event.cron || '5m').replace(/\s+/g, '_')}`;
-    console.log(`[Cloudflare Cron] Тригер розкладу: ${event.cron} о ${new Date().toISOString()}`);
-    ctx.waitUntil((async () => {
-      const gate = await checkShouldRunSupabase(env);
-      if (!gate.shouldRun) {
-        console.log(`[Cloudflare Cron Gate] Пропуск запуску: ${gate.reason}`);
-        return;
-      }
-      console.log(`[Cloudflare Cron Gate] Запуск воркфлоу: ${gate.reason}`);
-      const res = await dispatchWorkflow(env, cronSource, "main");
-      if (!res.success) {
-        console.error(`[Cloudflare Cron Error]:`, res.error);
-      } else {
-        console.log(`[Cloudflare Cron Success]:`, res.message);
-      }
-    })());
+    console.log(`[Cloudflare Cron] Вимкнено (режим button_only). Ігноруємо розклад: ${event.cron || "manual"}`);
   },
 };

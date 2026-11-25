@@ -1361,11 +1361,17 @@ def run_streamlit_app():
                         import requests
                         trigger_url = "https://statmonitor.symchak.workers.dev"
                         if secret_key:
-                            resp = requests.get(f"{trigger_url}/?secret={secret_key}&source=dashboard_button", timeout=12)
+                            resp = requests.get(
+                                trigger_url,
+                                params={"secret": secret_key, "source": "dashboard_button"},
+                                timeout=12,
+                            )
                             if resp.status_code == 200:
                                 st.toast("🚀 Моніторинг успішно запущено!", icon="✅")
+                            elif resp.status_code == 401:
+                                st.error("Помилка [401]: SECRET_KEY у Streamlit Secrets не збігається з SECRET_KEY у Cloudflare.")
                             else:
-                                st.error(f"Помилка [{resp.status_code}]: {resp.text[:100]}")
+                                st.error(f"Помилка [{resp.status_code}]: {resp.text[:140]}")
                     except Exception as e:
                         st.error(f"Помилка виклику: {e}")
             with c_logout:
@@ -1698,12 +1704,18 @@ def run_streamlit_app():
                                 import requests
                                 trigger_url = "https://statmonitor.symchak.workers.dev"
                                 if secret_key:
-                                    resp = requests.get(f"{trigger_url}/?secret={secret_key}&source=dashboard_error_alert", timeout=12)
+                                    resp = requests.get(
+                                        trigger_url,
+                                        params={"secret": secret_key, "source": "dashboard_error_alert"},
+                                        timeout=12,
+                                    )
                                     if resp.status_code == 200:
                                         st.toast("🚀 Запуск моніторингу надіслано успішно!", icon="✅")
                                         st.rerun()
+                                    elif resp.status_code == 401:
+                                        st.error("Помилка [401]: SECRET_KEY у Streamlit Secrets не збігається з SECRET_KEY у Cloudflare.")
                                     else:
-                                        st.error(f"Помилка воркера [{resp.status_code}]: {resp.text[:100]}")
+                                        st.error(f"Помилка воркера [{resp.status_code}]: {resp.text[:140]}")
                             except Exception as ex_tr:
                                 st.error(f"Помилка запиту перезапуску: {ex_tr}")
 
