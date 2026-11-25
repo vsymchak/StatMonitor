@@ -239,19 +239,36 @@ def _append_events_and_odds(events_list, sp, now_utc, events_batch, odds_raw):
             for mkt in bm.get("markets", []):
                 mkt_key = mkt.get("key", "")
                 for out in mkt.get("outcomes", []):
-                    if out.get("price") is not None:
+                    raw_price = out.get("price")
+                    if raw_price is not None:
+                        try:
+                            price_val = float(raw_price)
+                        except (ValueError, TypeError):
+                            continue
+                        # Конвертація випадкових мінусових американських коефіцієнтів (наприклад -110 -> 1.909)
+                        if price_val < 0:
+                            price_val = 1.0 + (100.0 / abs(price_val))
+                        # Захист від overflow у PostgreSQL NUMERIC(6,3) (< 1000.0) та некоректних коефіцієнтів
+                        if price_val <= 1.0 or price_val >= 1000.0:
+                            continue
+                        price_val = round(price_val, 3)
+
                         pt_val = out.get("point")
-                        # SPEC-23: Clean Totals Filtering (відсікання азіатських четвертних тоталів .25 / .75)
-                        if mkt_key == "totals" and pt_val is not None:
+                        if pt_val is not None:
                             try:
-                                if round(abs(float(pt_val) * 100)) % 50 != 0:
+                                pt_f = float(pt_val)
+                                if abs(pt_f) >= 1000.0:
                                     continue
+                                # SPEC-23: Clean Totals Filtering (відсікання азіатських четвертних тоталів .25 / .75)
+                                if mkt_key == "totals" and round(abs(pt_f * 100)) % 50 != 0:
+                                    continue
+                                pt_val = round(pt_f, 2)
                             except (ValueError, TypeError):
-                                pass
+                                pt_val = None
                         odds_raw.append({
                             "event_id": ev_id, "bookmaker": bm_key, "market": mkt_key,
                             "outcome": out.get("name", ""), "point": pt_val,
-                            "price": out["price"], "time": now_utc
+                            "price": price_val, "time": now_utc
                         })
 
 def fetch_and_save_odds(sports_map=None):
@@ -316,7 +333,7 @@ def fetch_and_save_odds(sports_map=None):
         # 1. Пріоритетне джерело: PropLine API
         if propline_key and not propline_exhausted:
             pl_url = f"{PROPLINE_BASE_URL}/sports/{sp}/odds"
-            pl_params = {"regions": "eu", "markets": mkt_str, "commenceTimeTo": to_str}
+            pl_params = {"regions": "eu", "markets": mkt_str, "oddsFormat": "decimal", "commenceTimeTo": to_str}
             try:
                 r_pl = requests.get(
                     pl_url,
@@ -353,7 +370,7 @@ def fetch_and_save_odds(sports_map=None):
             continue
 
         url = f"https://api.the-odds-api.com/v4/sports/{sp}/odds/"
-        params = {"apiKey": cur_key, "regions": "eu", "markets": mkt_str, "commenceTimeTo": to_str}
+        params = {"apiKey": cur_key, "regions": "eu", "markets": mkt_str, "oddsFormat": "decimal", "commenceTimeTo": to_str}
         try:
             r = requests.get(url, params=params, timeout=12)
             rem_credits = r.headers.get("x-requests-remaining", rem_credits)

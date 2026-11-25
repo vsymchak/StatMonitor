@@ -266,5 +266,27 @@ class TestModularDecomposition(unittest.TestCase):
             self.assertIn("prop-line.com", mock_get_fetch.call_args_list[0][0][0])
             self.assertIn("the-odds-api.com", mock_get_fetch.call_args_list[1][0][0])
 
+        # 4. Захист від NumericValueOutOfRange: відсікання >= 1000.0 та конвертація від'ємних American odds
+        from statmonitor.fetcher import _append_events_and_odds
+        ev_b, o_raw = [], []
+        _append_events_and_odds([{
+            "id": "ev_ovf",
+            "home_team": "A",
+            "away_team": "B",
+            "commence_time": "2026-11-26T20:00:00Z",
+            "bookmakers": [{
+                "key": "bm1",
+                "markets": [{"key": "h2h", "outcomes": [
+                    {"name": "A", "price": 1200},
+                    {"name": "B", "price": -150},
+                    {"name": "Draw", "price": 3.45},
+                ]}]
+            }]
+        }], "soccer_epl", datetime.now(timezone.utc), ev_b, o_raw)
+        prices = {x["outcome"]: x["price"] for x in o_raw}
+        self.assertNotIn("A", prices)
+        self.assertAlmostEqual(prices["B"], 1.667, places=3)
+        self.assertEqual(prices["Draw"], 3.45)
+
 if __name__ == "__main__":
     unittest.main()
