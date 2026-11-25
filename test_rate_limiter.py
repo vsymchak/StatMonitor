@@ -163,5 +163,49 @@ class TestRateLimiter(unittest.TestCase):
         self.assertEqual(cats[1]["category_name"], "🏀 Баскетбол")
         self.assertEqual(cats[1]["poll_count"], 340)
 
+    def test_updated_tier_intervals(self):
+        now = datetime(2026, 11, 25, 12, 0, tzinfo=timezone.utc)
+        cur = MockCursor()
+        conn = MockConn()
+
+        def make_fetchall(hot_m, warm_m, cold_m):
+            def _fn():
+                if "FROM events" in cur.queries[-1][0]:
+                    return [
+                        ("soccer_epl", now + timedelta(hours=2)),       # HOT
+                        ("basketball_nba", now + timedelta(hours=10)),  # WARM
+                        ("tennis_atp", now + timedelta(hours=36)),      # COLD
+                    ]
+                elif "FROM sports_poll_log" in cur.queries[-1][0]:
+                    return [
+                        ("soccer_epl", now - timedelta(minutes=hot_m)),
+                        ("basketball_nba", now - timedelta(minutes=warm_m)),
+                        ("tennis_atp", now - timedelta(minutes=cold_m)),
+                    ]
+                return []
+            return _fn
+
+        sports_map = {"soccer_epl": "EPL", "basketball_nba": "NBA", "tennis_atp": "ATP"}
+
+        # NORMAL (>200): HOT=45, WARM=90, COLD=240 -> 44/89/239 хв пропуск, 45/90/240 хв опитування
+        cur.fetchall = make_fetchall(44, 89, 239)
+        sel, mode, _ = filter_sports_to_poll(cur, conn, sports_map, remaining_credits=300, now_utc=now)
+        self.assertEqual(mode, "NORMAL")
+        self.assertEqual(sel, {})
+
+        cur.fetchall = make_fetchall(45, 90, 240)
+        sel, _, _ = filter_sports_to_poll(cur, conn, sports_map, remaining_credits=300, now_utc=now)
+        self.assertEqual(set(sel.keys()), {"soccer_epl", "basketball_nba", "tennis_atp"})
+
+        # ECO (50..200): HOT=60, WARM=120, COLD=360
+        cur.fetchall = make_fetchall(55, 110, 350)
+        sel, mode, _ = filter_sports_to_poll(cur, conn, sports_map, remaining_credits=100, now_utc=now)
+        self.assertEqual(mode, "ECO")
+        self.assertEqual(sel, {})
+
+        cur.fetchall = make_fetchall(60, 120, 360)
+        sel, _, _ = filter_sports_to_poll(cur, conn, sports_map, remaining_credits=100, now_utc=now)
+        self.assertEqual(set(sel.keys()), {"soccer_epl", "basketball_nba", "tennis_atp"})
+
 if __name__ == "__main__":
     unittest.main()

@@ -102,11 +102,11 @@ def filter_sports_to_poll(cur, conn, sports_map, remaining_credits=None, now_utc
 
     # Пороги мінімального інтервалу між опитуваннями (у хвилинах) залежно від режиму
     if mode == "CRITICAL":
-        intervals = {"HOT": 45, "WARM": 99999, "COLD": 99999}
+        intervals = {"HOT": 60, "WARM": 99999, "COLD": 99999}
     elif mode == "ECO":
-        intervals = {"HOT": 25, "WARM": 360, "COLD": 720}
+        intervals = {"HOT": 60, "WARM": 120, "COLD": 360}
     else:  # NORMAL
-        intervals = {"HOT": 25, "WARM": 120, "COLD": 360}
+        intervals = {"HOT": 45, "WARM": 90, "COLD": 240}
 
     selected = {}
     for sp, title in sports_map.items():
