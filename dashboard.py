@@ -803,6 +803,7 @@ def run_streamlit_app():
             .stButton > button,
             div[data-testid="stPopover"] > button,
             div[data-testid="stDownloadButton"] > button,
+            div[data-testid="stLinkButton"] > a:not([data-testid="stBaseButton-primary"]):not([kind="primary"]),
             div[data-testid="stFormSubmitButton"] > button:not([kind="primary"]),
             button[data-testid="stBaseButton-secondary"],
             button[kind="secondary"] {
@@ -815,11 +816,13 @@ def run_streamlit_app():
                 padding: 5px 12px !important;
                 box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08) !important;
                 transition: all 0.15s ease-in-out !important;
+                text-decoration: none !important;
             }
 
             .stButton > button *,
             div[data-testid="stPopover"] > button *,
             div[data-testid="stDownloadButton"] > button *,
+            div[data-testid="stLinkButton"] > a:not([data-testid="stBaseButton-primary"]):not([kind="primary"]) *,
             div[data-testid="stFormSubmitButton"] > button:not([kind="primary"]) * {
                 color: __BTN_COLOR__ !important;
             }
@@ -827,6 +830,7 @@ def run_streamlit_app():
             .stButton > button:hover,
             div[data-testid="stPopover"] > button:hover,
             div[data-testid="stDownloadButton"] > button:hover,
+            div[data-testid="stLinkButton"] > a:not([data-testid="stBaseButton-primary"]):not([kind="primary"]):hover,
             button[data-testid="stBaseButton-secondary"]:hover,
             button[kind="secondary"]:hover {
                 background-color: __BTN_HOVER_BG__ !important;
@@ -836,7 +840,8 @@ def run_streamlit_app():
 
             .stButton > button:hover *,
             div[data-testid="stPopover"] > button:hover *,
-            div[data-testid="stDownloadButton"] > button:hover * {
+            div[data-testid="stDownloadButton"] > button:hover *,
+            div[data-testid="stLinkButton"] > a:not([data-testid="stBaseButton-primary"]):not([kind="primary"]):hover * {
                 color: __BTN_HOVER_COLOR__ !important;
             }
 
@@ -3279,7 +3284,7 @@ def run_streamlit_app():
             safe_addr = os.environ.get("SX_BET_SAFE_ADDRESS") or st_sec.get("SX_BET_SAFE_ADDRESS", "0xf7466D286A0Fe1Cbd55E2925d5b7399E4990f503")
             wallet_addr = os.environ.get("SX_BET_WALLET_ADDRESS") or st_sec.get("SX_BET_WALLET_ADDRESS", "0xd4689DEE01C14Eb75688DF439f5aFb13dfD11071")
 
-            c_info_left, c_info_right = st.columns([8, 4])
+            c_info_left, c_info_right = st.columns([9, 3])
             with c_info_left:
                 st.markdown(f"""
                     <div style="background: {acc_card_bg}; border: 1px solid {acc_card_border}; border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; font-size: 12px; color: {acc_t_clr};">
@@ -3293,34 +3298,39 @@ def run_streamlit_app():
                     </div>
                 """, unsafe_allow_html=True)
             with c_info_right:
-                c_btn_sync, c_btn_link = st.columns([1.3, 1.1])
-                with c_btn_sync:
-                    if st.button(
-                        "🔄 Оновити з біржі",
+                if st.button(
+                    "🔄 Оновити з біржі",
+                    use_container_width=True,
+                    help="Повна синхронізація суто з біржею SX Bet: баланс Proxy USDC, активні ставки, розрахована історія та каса",
+                ):
+                    conn_sync_act, _ = get_db_connection(db_url)
+                    if conn_sync_act:
+                        try:
+                            from statmonitor.sx_bet import sync_sx_exchange_full
+                            res_sync = sync_sx_exchange_full(conn_sync_act)
+                            st.cache_data.clear()
+                            st.toast(
+                                f"✅ Біржа SX Bet оновлена! Баланс: ${res_sync['free_balance_usdc']:.2f} USDC | "
+                                f"Трейдів: {res_sync['trades_fetched']} | Розраховано: {res_sync['settled_bets']} | "
+                                f"Прострочено: {res_sync['expired_cleaned']}",
+                                icon="🔄",
+                            )
+                            st.rerun()
+                        finally:
+                            conn_sync_act.close()
+
+                if hasattr(st, "link_button"):
+                    st.link_button(
+                        "↗️ Відкрити sx.bet",
+                        "https://sx.bet/my-bets/unsettled",
                         use_container_width=True,
-                        help="Повна синхронізація суто з біржею SX Bet: баланс Proxy USDC, активні ставки, розрахована історія та каса",
-                    ):
-                        conn_sync_act, _ = get_db_connection(db_url)
-                        if conn_sync_act:
-                            try:
-                                from statmonitor.sx_bet import sync_sx_exchange_full
-                                res_sync = sync_sx_exchange_full(conn_sync_act)
-                                st.cache_data.clear()
-                                st.toast(
-                                    f"✅ Біржа SX Bet оновлена! Баланс: ${res_sync['free_balance_usdc']:.2f} USDC | "
-                                    f"Трейдів: {res_sync['trades_fetched']} | Розраховано: {res_sync['settled_bets']} | "
-                                    f"Прострочено: {res_sync['expired_cleaned']}",
-                                    icon="🔄",
-                                )
-                                st.rerun()
-                            finally:
-                                conn_sync_act.close()
-                with c_btn_link:
+                    )
+                else:
                     st.markdown(
-                        '<a href="https://sx.bet/my-bets/unsettled" target="_blank" style="text-decoration: none;">'
-                        '<div style="background: #2563EB; color: white; text-align: center; border-radius: 6px; padding: 8px 10px; font-size: 12px; font-weight: 600;">'
-                        '↗️ Відкрити sx.bet</div></a>',
-                        unsafe_allow_html=True
+                        f'<a href="https://sx.bet/my-bets/unsettled" target="_blank" style="text-decoration: none;">'
+                        f'<div style="background: {acc_card_bg}; color: {acc_t_clr}; border: 1px solid {acc_card_border}; text-align: center; border-radius: 8px; padding: 6px 12px; font-size: 12px; font-weight: 600;">'
+                        f'↗️ Відкрити sx.bet</div></a>',
+                        unsafe_allow_html=True,
                     )
 
             # 1. KPI-МЕТРИКИ SX BET
