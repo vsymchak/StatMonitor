@@ -1469,16 +1469,24 @@ def run_streamlit_app():
         pl_active = pl_slot.get("status") == "active"
         tot_rem = quota_data.get("total_remaining", 0)
         tot_lim = quota_data.get("total_limit", 2500)
-        if pl_active and pl_slot.get("remaining") is not None:
-            pl_rem = int(pl_slot["remaining"])
+        if pl_active:
             pl_lim = int(pl_slot.get("limit") or 1000)
-            pct = (pl_rem / pl_lim * 100.0) if pl_lim > 0 else 0.0
-            kpi6.metric(
-                label="💓 Пульс / PropLine (Primary)",
-                value=f"{pl_rem} / {pl_lim}",
-                delta=f"{pct:.1f}% • OddsAPI {tot_rem}",
-                delta_color="normal" if pct > 20 else "inverse",
-            )
+            if pl_slot.get("remaining") is not None:
+                pl_rem = int(pl_slot["remaining"])
+                pct = (pl_rem / pl_lim * 100.0) if pl_lim > 0 else 0.0
+                kpi6.metric(
+                    label="💓 Пульс / PropLine (Primary)",
+                    value=f"{pl_rem} / {pl_lim}",
+                    delta=f"{pct:.1f}% • OddsAPI {tot_rem}",
+                    delta_color="normal" if pct > 20 else "inverse",
+                )
+            else:
+                kpi6.metric(
+                    label="💓 Пульс / PropLine (Primary)",
+                    value=f"Active ({pl_lim}/д)",
+                    delta=f"OddsAPI: {tot_rem}/{tot_lim}",
+                    delta_color="normal",
+                )
         else:
             pct = (tot_rem / tot_lim * 100.0) if tot_lim > 0 else 0.0
             kpi6.metric(
@@ -4389,13 +4397,22 @@ def run_streamlit_app():
         else:
             wd_card_html = f'<span style="color: #EF4444; font-weight: 700;">✖ Збій ({hb_status_clean})</span>'
 
+        pl_q = (quota_data.get("propline") or {}) if quota_data else {}
+        if pl_q and pl_q.get("status") not in (None, "not_configured"):
+            pl_q_rem = pl_q.get("remaining")
+            pl_q_lim = pl_q.get("limit", 1000)
+            pl_q_txt = f"{pl_q_rem}/{pl_q_lim}" if pl_q_rem is not None else pl_q.get("status", "active")
+            scanner_quota_sub = f"PropLine (Primary): {pl_q_txt} • OddsAPI: {quota_data.get('total_remaining', '—')}"
+        else:
+            scanner_quota_sub = f"Пул з 5 API ключів • Квота: {quota_data.get('total_remaining', '—') if quota_data else '—'}"
+
         st.markdown(f"""
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-bottom: 14px;">
                 <div style="background: {c_bg}; border: 1px solid {c_bdr}; border-radius: 10px; padding: 10px;">
                     <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; color: {c_txt};">
                         <span>Odds Scanner API</span>{api_status_html}
                     </div>
-                    <div style="font-size: 11px; color: {c_sub}; margin-top: 4px;">Пул з 5 API ключів • Квота: {quota_data.get('total_remaining', '—') if quota_data else '—'}</div>
+                    <div style="font-size: 11px; color: {c_sub}; margin-top: 4px;">{scanner_quota_sub}</div>
                 </div>
                 <div style="background: {c_bg}; border: 1px solid {c_bdr}; border-radius: 10px; padding: 10px;">
                     <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; color: {c_txt};">

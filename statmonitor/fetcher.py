@@ -92,7 +92,7 @@ def check_odds_api_quota(
             )
             if r_pl.status_code == 200:
                 lim_pl = _parse_header_int(r_pl.headers, ("x-ratelimit-limit", "ratelimit-limit", "x-daily-limit")) or 1000
-                rem_pl = _parse_header_int(r_pl.headers, ("x-ratelimit-remaining", "x-daily-remaining", "x-requests-remaining"))
+                rem_pl = _parse_header_int(r_pl.headers, ("x-ratelimit-remaining", "ratelimit-remaining", "x-daily-remaining", "x-requests-remaining"))
                 used_pl = (lim_pl - rem_pl) if (rem_pl is not None and lim_pl >= rem_pl) else None
                 result["propline"]["limit"] = lim_pl
                 result["propline"]["remaining"] = rem_pl
@@ -326,7 +326,7 @@ def fetch_and_save_odds(sports_map=None):
                 )
                 pl_rem_val = _parse_header_int(
                     r_pl.headers,
-                    ("x-ratelimit-remaining", "x-daily-remaining", "x-requests-remaining"),
+                    ("x-ratelimit-remaining", "ratelimit-remaining", "x-daily-remaining", "x-requests-remaining"),
                 )
                 if pl_rem_val is not None:
                     propline_rem = pl_rem_val
