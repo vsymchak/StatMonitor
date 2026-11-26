@@ -973,7 +973,7 @@ def sync_sx_exchange_full(conn, client: Optional[SXBetClient] = None) -> Dict[st
             if not side:
                 side = "Outcome 1" if is_one else "Outcome 2"
             market_label = f"{outcome1} / {outcome2}" if outcome1 and outcome2 else str(market.get("type") or "Market")
-            sport_lbl = str(market.get("sportLabel") or market.get("leagueLabel") or market.get("type") or "Sport")
+            sport_lbl = str(market.get("leagueLabel") or market.get("sportLabel") or market.get("type") or "Sport")
             gt_dt = _parse_sx_timestamp(market.get("gameTime") or t.get("gameTime"))
             bet_dt = _parse_sx_timestamp(t.get("betTime") or t.get("createdAt")) or datetime.now(timezone.utc)
 
@@ -992,12 +992,14 @@ def sync_sx_exchange_full(conn, client: Optional[SXBetClient] = None) -> Dict[st
             if row:
                 bet_id, db_oid, old_status, old_profit, old_settled, old_odds, old_ev, old_sport = row
                 old_profit_f = float(old_profit or 0.0)
+                generic_sports = {"", "none", "sport", "soccer", "basketball", "hockey", "football", "tennis"}
                 needs_update = (
                     old_status != status
                     or round(old_profit_f, 2) != round(profit, 2)
                     or (settled_dt is not None and old_settled is None)
                     or ("SX Market" in str(old_ev) and "vs" in ev_name)
                     or (str(old_sport).isdigit() and not sport_lbl.isdigit())
+                    or (str(old_sport).strip().lower() in generic_sports and sport_lbl.strip().lower() not in generic_sports)
                 )
                 if needs_update:
                     cur.execute("""
@@ -1763,7 +1765,7 @@ def auto_sync_and_stake_from_paper(
                     order_id,
                     market_hash,
                     matched_m.get("sportXeventId"),
-                    matched_m.get("sportLabel"),
+                    matched_m.get("leagueLabel") or matched_m.get("sportLabel"),
                     f"{matched_m.get('teamOneName')} vs {matched_m.get('teamTwoName')}",
                     f"{matched_m.get('outcomeOneName')} / {matched_m.get('outcomeTwoName')}",
                     matched_m.get("outcomeOneName") if is_outcome_one else matched_m.get("outcomeTwoName"),

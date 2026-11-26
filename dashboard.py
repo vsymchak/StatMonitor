@@ -3443,6 +3443,31 @@ def run_streamlit_app():
                 "🤖 Авто-стейкінг (Paper ➔ SX API)",
             ])
 
+            # Мапа турнірів із Paper Bank (для точних українських назв у всіх таблицях SX Bet)
+            _paper_sport_map = {}
+            if bets_df is not None and hasattr(bets_df, "empty") and not bets_df.empty and "id" in bets_df.columns and "sport" in bets_df.columns:
+                for _, _br in bets_df[["id", "sport"]].dropna().iterrows():
+                    try:
+                        _paper_sport_map[int(_br["id"])] = str(_br["sport"])
+                    except Exception:
+                        pass
+
+            def _sx_tournament_name(r):
+                pid = r.get("paper_bet_id")
+                if pid is not None and not (pd is not None and pd.isna(pid)):
+                    try:
+                        sp_k = _paper_sport_map.get(int(pid))
+                        if sp_k:
+                            return _get_league_name(sp_k, with_icon=True)
+                    except Exception:
+                        pass
+                sl = str(r.get("sport_label") or "").strip()
+                if not sl or sl.lower() in ("none", "sport"):
+                    return "🌐 SX Bet"
+                if "_" in sl:
+                    return _get_league_name(sl, with_icon=True)
+                return sl
+
             with sx_sub1:
                 st.markdown(f"##### ⏳ Активні ставки на децентралізованій біржі ({len(sx_pending_df)})")
                 if not sx_pending_df.empty:
@@ -3450,6 +3475,7 @@ def run_streamlit_app():
                     p_show["ID"] = p_show["id"].apply(lambda x: f"#{x}")
                     if "game_time" in p_show.columns:
                         p_show["Час гри"] = p_show["game_time"].apply(format_kyiv_time)
+                    p_show["Турнір"] = p_show.apply(_sx_tournament_name, axis=1)
                     p_show["Подія"] = p_show["event_name"]
                     p_show["Маркет"] = p_show["market_name"]
                     p_show["Вибір (Pick)"] = p_show["bet_side"]
@@ -3465,7 +3491,7 @@ def run_streamlit_app():
                     )
                     p_show["Статус"] = "⏳ В грі (Locked)"
                     p_show["Order ID"] = p_show["order_id"].apply(lambda x: f"{x[:10]}...{x[-6:]}" if x else "—")
-                    cols_ps = ["ID", "Час гри", "Подія", "Маркет", "Вибір (Pick)", "Коеф.", "Сума (USDC)", "Екв. (₴)", "Потенц. виплата", "Макс. прибуток", "Джерело", "Статус", "Order ID"]
+                    cols_ps = ["ID", "Час гри", "Турнір", "Подія", "Маркет", "Вибір (Pick)", "Коеф.", "Сума (USDC)", "Екв. (₴)", "Потенц. виплата", "Макс. прибуток", "Джерело", "Статус", "Order ID"]
                     cols_ps_exist = [c for c in cols_ps if c in p_show.columns]
                     st.dataframe(p_show[cols_ps_exist], use_container_width=True, hide_index=True)
                 else:
@@ -3482,6 +3508,7 @@ def run_streamlit_app():
                     o_show["ID"] = o_show["id"].apply(lambda x: f"#{x}")
                     if "game_time" in o_show.columns:
                         o_show["Час гри"] = o_show["game_time"].apply(format_kyiv_time)
+                    o_show["Турнір"] = o_show.apply(_sx_tournament_name, axis=1)
                     o_show["Подія"] = o_show["event_name"]
                     o_show["Маркет"] = o_show["market_name"]
                     o_show["Вибір (Pick)"] = o_show["bet_side"]
@@ -3493,7 +3520,7 @@ def run_streamlit_app():
                     )
                     o_show["Статус"] = "📋 Ордер у стакані (Offered)"
                     o_show["Order ID"] = o_show["order_id"].apply(lambda x: f"{x[:10]}...{x[-6:]}" if x else "—")
-                    cols_oo = ["ID", "Час гри", "Подія", "Маркет", "Вибір (Pick)", "Коеф.", "Сума (USDC)", "Потенц. виплата", "Джерело", "Статус", "Order ID"]
+                    cols_oo = ["ID", "Час гри", "Турнір", "Подія", "Маркет", "Вибір (Pick)", "Коеф.", "Сума (USDC)", "Потенц. виплата", "Джерело", "Статус", "Order ID"]
                     cols_oo_exist = [c for c in cols_oo if c in o_show.columns]
                     st.dataframe(o_show[cols_oo_exist], use_container_width=True, hide_index=True)
 
@@ -3506,6 +3533,7 @@ def run_streamlit_app():
                         s_show["Час гри"] = s_show["game_time"].apply(format_kyiv_time)
                     if "settled_at" in s_show.columns:
                         s_show["Час розрахунку"] = s_show["settled_at"].apply(format_kyiv_time)
+                    s_show["Турнір"] = s_show.apply(_sx_tournament_name, axis=1)
                     s_show["Подія"] = s_show["event_name"]
                     s_show["Маркет"] = s_show.get("market_name", "—")
                     s_show["Вибір"] = s_show["bet_side"]
@@ -3532,7 +3560,7 @@ def run_streamlit_app():
                     s_show["Результат"] = s_show.apply(_fmt_sx_res, axis=1)
                     s_show["PnL (USDC)"] = s_show["profit_usdc"].apply(lambda x: f"${float(x or 0):+,.2f}")
                     s_show["PnL (₴)"] = s_show["profit_usdc"].apply(lambda x: f"{float(x or 0) * 41.6:+,.0f} ₴")
-                    cols_ss = ["ID", "Час розрахунку", "Час гри", "Подія", "Маркет", "Вибір", "Коеф.", "Ставка", "Виплата", "Результат", "PnL (USDC)", "PnL (₴)"]
+                    cols_ss = ["ID", "Час розрахунку", "Час гри", "Турнір", "Подія", "Маркет", "Вибір", "Коеф.", "Ставка", "Виплата", "Результат", "PnL (USDC)", "PnL (₴)"]
                     cols_ss_exist = [c for c in cols_ss if c in s_show.columns]
                     st.dataframe(s_show[cols_ss_exist], use_container_width=True, hide_index=True)
                 else:
@@ -3544,6 +3572,7 @@ def run_streamlit_app():
                         if pd is not None and not ex_df.empty:
                             ex_show = pd.DataFrame({
                                 "ID": ex_df["id"].apply(lambda x: f"#{x}"),
+                                "Турнір": ex_df.apply(_sx_tournament_name, axis=1),
                                 "Подія": ex_df["event_name"],
                                 "Вибір": ex_df["bet_side"],
                                 "Коеф.": ex_df["odds"].apply(lambda x: f"{float(x or 0):.2f}"),
@@ -3703,6 +3732,8 @@ def run_streamlit_app():
                         c_disp["ID"] = c_disp["id"].apply(lambda x: f"#{x}")
                         if "commence_time" in c_disp.columns:
                             c_disp["Час"] = c_disp["commence_time"].apply(format_kyiv_time)
+                        if "sport" in c_disp.columns:
+                            c_disp["Турнір"] = c_disp["sport"].apply(lambda sp: _get_league_name(sp, with_icon=True))
                         c_disp["Подія"] = c_disp.get("match_name", "")
                         c_disp["Маркет"] = c_disp.get("pick_label", "").apply(_clean_pick_label)
                         c_disp["Коеф."] = c_disp["odds"].apply(lambda x: f"{_normalize_decimal_odds(x):.2f}")
@@ -3736,7 +3767,7 @@ def run_streamlit_app():
                             return "⏳ Очікує переносу"
 
                         c_disp["Стан SX Bet"] = c_disp["id"].apply(_cand_sx_status)
-                        cols_cd = ["ID", "Час", "Подія", "Маркет", "Коеф.", "Впевненість", "% банку", "Розрах. ставка", "Стан SX Bet"]
+                        cols_cd = ["ID", "Час", "Турнір", "Подія", "Маркет", "Коеф.", "Впевненість", "% банку", "Розрах. ставка", "Стан SX Bet"]
                         cols_cd_exist = [c for c in cols_cd if c in c_disp.columns]
                         st.dataframe(c_disp[cols_cd_exist], use_container_width=True, hide_index=True)
                     else:
