@@ -1090,44 +1090,46 @@ def sync_sx_exchange_full(conn, client: Optional[SXBetClient] = None) -> Dict[st
                     stats["tx_synced"] += 1
 
         # Синхронізація лімітних мейкер-ордерів (OPEN_ORDER) та очищення прострочених (EXPIRED)
-        cur.execute("SELECT id, order_id, market_hash, game_time, status FROM sx_bets WHERE status IN ('PENDING', 'OPEN_ORDER');")
-        local_pending = cur.fetchall()
-        now_utc = datetime.now(timezone.utc)
-        for lp_id, lp_oid, lp_mh, lp_gt, lp_status in local_pending:
-            if lp_oid in active_trade_order_ids or lp_mh in active_trade_mhashes:
-                continue
-            # Якщо ордер активно висить у стакані (/orders-v3), позначаємо як OPEN_ORDER (ще не списав USDC)
-            if lp_oid in open_order_ids:
-                if lp_status != "OPEN_ORDER":
-                    cur.execute("UPDATE sx_bets SET status = 'OPEN_ORDER' WHERE id = %s;", (lp_id,))
-                    updated_count += 1
-                continue
+        # Виконуємо очищення тільки якщо API повернув трейди (захист від хибного EXPIRED при збої мережі)
+        if trades:
+            cur.execute("SELECT id, order_id, market_hash, game_time, status FROM sx_bets WHERE status IN ('PENDING', 'OPEN_ORDER');")
+            local_pending = cur.fetchall()
+            now_utc = datetime.now(timezone.utc)
+            for lp_id, lp_oid, lp_mh, lp_gt, lp_status in local_pending:
+                if lp_oid in active_trade_order_ids or lp_mh in active_trade_mhashes:
+                    continue
+                # Якщо ордер активно висить у стакані (/orders-v3), позначаємо як OPEN_ORDER (ще не списав USDC)
+                if lp_oid in open_order_ids:
+                    if lp_status != "OPEN_ORDER":
+                        cur.execute("UPDATE sx_bets SET status = 'OPEN_ORDER' WHERE id = %s;", (lp_id,))
+                        updated_count += 1
+                    continue
 
-            # Перевіряємо живий статус ордера на SX Bet
-            ord_obj, http_st = sx_client._get_order_with_status(lp_oid)
-            m_info = markets_map.get(lp_mh) or {}
-            m_st = str(m_info.get("status", "")).upper()
-            is_market_closed = m_st in ("INACTIVE", "SETTLED", "RESOLVED", "CANCELLED")
-            is_past_game = lp_gt is not None and (_parse_sx_timestamp(lp_gt) or now_utc) < now_utc
+                # Перевіряємо живий статус ордера на SX Bet
+                ord_obj, http_st = sx_client._get_order_with_status(lp_oid)
+                m_info = markets_map.get(lp_mh) or {}
+                m_st = str(m_info.get("status", "")).upper()
+                is_market_closed = m_st in ("INACTIVE", "SETTLED", "RESOLVED", "CANCELLED")
+                is_past_game = lp_gt is not None and (_parse_sx_timestamp(lp_gt) or now_utc) < now_utc
 
-            ord_st = str((ord_obj or {}).get("status", "")).upper()
-            fill_amt = float((ord_obj or {}).get("filledAmount", 0) or 0)
-            if ord_st == "ACTIVE" and fill_amt == 0:
-                if lp_status != "OPEN_ORDER":
-                    cur.execute("UPDATE sx_bets SET status = 'OPEN_ORDER' WHERE id = %s;", (lp_id,))
-                    updated_count += 1
-            elif http_st == 404 or ord_st in ("CANCELLED", "EXPIRED", "FAILED") or (ord_obj is None and (is_market_closed or is_past_game)):
-                if fill_amt == 0:
-                    cur.execute("""
-                        UPDATE sx_bets
-                        SET status = 'EXPIRED', profit_usdc = 0.0, settled_at = NOW()
-                        WHERE id = %s;
-                    """, (lp_id,))
-                    stats["expired_cleaned"] += 1
-                    updated_count += 1
+                ord_st = str((ord_obj or {}).get("status", "")).upper()
+                fill_amt = float((ord_obj or {}).get("filledAmount", 0) or 0)
+                if ord_st == "ACTIVE" and fill_amt == 0:
+                    if lp_status != "OPEN_ORDER":
+                        cur.execute("UPDATE sx_bets SET status = 'OPEN_ORDER' WHERE id = %s;", (lp_id,))
+                        updated_count += 1
+                elif http_st == 404 or ord_st in ("CANCELLED", "EXPIRED", "FAILED") or (ord_obj is None and (is_market_closed or is_past_game)):
+                    if fill_amt == 0:
+                        cur.execute("""
+                            UPDATE sx_bets
+                            SET status = 'EXPIRED', profit_usdc = 0.0, settled_at = NOW()
+                            WHERE id = %s;
+                        """, (lp_id,))
+                        stats["expired_cleaned"] += 1
+                        updated_count += 1
 
         # Звіряємо фінансовий стан з ончейн Proxy Wallet (враховуємо лише реально виконані LOCKED ставки!)
-        if free_balance > 0:
+        if free_balance > 0 and trades:
             cur.execute("""
                 SELECT
                     COALESCE(SUM(amount_usdc) FILTER (WHERE type = 'DEPOSIT'), 0.0),
@@ -1150,7 +1152,7 @@ def sync_sx_exchange_full(conn, client: Optional[SXBetClient] = None) -> Dict[st
 
             expected_free = round(dep_sum - with_sum + net_pnl - active_risked, 2)
             diff = round(free_balance - expected_free, 2)
-            if abs(diff) >= 0.10:
+            if abs(diff) >= 0.50:
                 if diff > 0:
                     cur.execute("""
                         INSERT INTO sx_transactions (tx_hash, type, amount_usdc, balance_after_usdc, notes)
@@ -1376,7 +1378,7 @@ def fetch_markets_for_paper_bets(sx_client: SXBetClient, paper_bets: List[Dict[s
     by_hash: Dict[str, Dict[str, Any]] = {}
     for lid in league_ids:
         try:
-            for m in sx_client.get_active_markets(league_id=lid, max_pages=15):
+            for m in sx_client.get_active_markets(league_id=lid, max_pages=4):
                 mh = m.get("marketHash")
                 if mh:
                     by_hash[mh] = m
@@ -1385,7 +1387,7 @@ def fetch_markets_for_paper_bets(sx_client: SXBetClient, paper_bets: List[Dict[s
 
     for sid in sport_ids:
         try:
-            for m in sx_client.get_active_markets(sport_id=sid, max_pages=18):
+            for m in sx_client.get_active_markets(sport_id=sid, max_pages=6):
                 mh = m.get("marketHash")
                 if mh:
                     by_hash[mh] = m
@@ -1394,7 +1396,7 @@ def fetch_markets_for_paper_bets(sx_client: SXBetClient, paper_bets: List[Dict[s
 
     if not league_ids and not sport_ids:
         try:
-            for m in sx_client.get_active_markets(max_pages=20):
+            for m in sx_client.get_active_markets(max_pages=5):
                 mh = m.get("marketHash")
                 if mh:
                     by_hash[mh] = m
@@ -1402,6 +1404,19 @@ def fetch_markets_for_paper_bets(sx_client: SXBetClient, paper_bets: List[Dict[s
             logger.warning(f"Помилка завантаження загальних маркетів SX Bet: {e}")
 
     return list(by_hash.values())
+
+
+def _normalize_decimal_odds(val: Any) -> float:
+    """Конвертує випадкові старі американські коефіцієнти (>= 50.0 або < 0) у десяткові."""
+    try:
+        o = float(val or 1.90)
+    except (ValueError, TypeError):
+        return 1.90
+    if o < 0:
+        return round(1.0 + (100.0 / abs(o)), 3)
+    if o >= 50.0:
+        return round(1.0 + (o / 100.0), 3)
+    return o
 
 
 def _extract_number_from_pick(text: str) -> Optional[float]:
@@ -1682,8 +1697,9 @@ def auto_sync_and_stake_from_paper(
             continue
 
         market_hash = matched_m["marketHash"]
-        paper_odds = float(pb.get("odds", 1.90) or 1.90)
-        walkaway = float(pb.get("walkaway_odds") or 0.0)
+        paper_odds = _normalize_decimal_odds(pb.get("odds", 1.90))
+        raw_walkaway = float(pb.get("walkaway_odds") or 0.0)
+        walkaway = _normalize_decimal_odds(raw_walkaway) if raw_walkaway > 1.05 else 0.0
         min_acceptable_odds = max(1.05, walkaway if walkaway > 1.05 else round(paper_odds * 0.90, 2))
 
         # Розрахунок ставки у % від банку USDC (але не менше 1.00 USDC)

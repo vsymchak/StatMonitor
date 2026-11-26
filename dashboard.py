@@ -3658,9 +3658,9 @@ def run_streamlit_app():
                     conn_auto, _ = get_db_connection(db_url)
                     if conn_auto:
                         try:
-                            from statmonitor.sx_bet import auto_sync_and_stake_from_paper, sync_sx_exchange_full
-                            sync_sx_exchange_full(conn_auto)
-                            placed_bets = auto_sync_and_stake_from_paper(conn_auto)
+                            from statmonitor.sx_bet import auto_sync_and_stake_from_paper
+                            with st.spinner("🔍 Пошук ринків SX Bet та розміщення ордерів..."):
+                                placed_bets = auto_sync_and_stake_from_paper(conn_auto)
                             st.cache_data.clear()
                             if placed_bets:
                                 summary_placed = ", ".join(
@@ -3668,20 +3668,28 @@ def run_streamlit_app():
                                 )
                                 st.success(f"🎉 Успішно перенесено {len(placed_bets)} ставок на SX Bet: {summary_placed}")
                             else:
-                                st.info("ℹ️ Пошук завершено: усі відповідні активні події або вже на біржі, або наразі не мають відповідних відкритих ринків / вільного балансу.")
+                                st.info("ℹ️ Пошук завершено: усі відповідні майбутні події або вже на біржі, або наразі не мають відповідних відкритих ринків / вільного балансу.")
                             st.rerun()
                         finally:
                             conn_auto.close()
 
-                # Кандидати для авто-стейкінгу з paper_bets
+                # Кандидати для авто-стейкінгу з paper_bets (тільки майбутні матчі)
                 st.markdown(f"##### 🔍 Кандидати з Paper Bank для авто-стейкінгу (Confidence ≥ {eff_min_conf})")
                 if bets_df is not None and not bets_df.empty:
-                    cand_df = bets_df[
-                        (bets_df["status"] == "PENDING") &
-                        (bets_df.get("confidence_score", 0) >= eff_min_conf)
-                    ].copy() if "status" in bets_df.columns and "confidence_score" in bets_df.columns else pd.DataFrame()
+                    if "status" in bets_df.columns and "confidence_score" in bets_df.columns:
+                        cand_df = bets_df[
+                            (bets_df["status"] == "PENDING") &
+                            (bets_df.get("confidence_score", 0) >= eff_min_conf)
+                        ].copy()
+                        if not cand_df.empty and "commence_time" in cand_df.columns and pd is not None:
+                            ct_utc = pd.to_datetime(cand_df["commence_time"], utc=True, errors="coerce")
+                            cutoff_utc = pd.Timestamp.now(tz="UTC") + pd.Timedelta(minutes=5)
+                            cand_df = cand_df[ct_utc > cutoff_utc].copy()
+                    else:
+                        cand_df = pd.DataFrame()
 
                     if not cand_df.empty:
+                        from statmonitor.sx_bet import _normalize_decimal_odds
                         active_pids = set()
                         open_order_pids = {int(oo["paper_bet_id"]) for oo in sx_open_orders if oo.get("paper_bet_id")}
                         settled_pids = set()
@@ -3697,7 +3705,7 @@ def run_streamlit_app():
                             c_disp["Час"] = c_disp["commence_time"].apply(format_kyiv_time)
                         c_disp["Подія"] = c_disp.get("match_name", "")
                         c_disp["Маркет"] = c_disp.get("pick_label", "").apply(_clean_pick_label)
-                        c_disp["Коеф."] = c_disp["odds"].apply(lambda x: f"{float(x or 0):.2f}")
+                        c_disp["Коеф."] = c_disp["odds"].apply(lambda x: f"{_normalize_decimal_odds(x):.2f}")
                         c_disp["Впевненість"] = c_disp["confidence_score"].apply(lambda x: f"⭐ {int(x)}/10" if x else "—")
 
                         bank_base = max(sx_port_val, sx_free_bal)
@@ -3705,7 +3713,7 @@ def run_streamlit_app():
                             lambda r: calculate_sx_stake_usdc(
                                 bank_usdc=bank_base,
                                 free_usdc=sx_free_bal,
-                                odds=float(r.get("odds") or 1.90),
+                                odds=_normalize_decimal_odds(r.get("odds") or 1.90),
                                 kelly_pct=float(r["kelly_pct"]) if (r.get("kelly_pct") is not None and not (pd is not None and pd.isna(r.get("kelly_pct")))) else None,
                                 confidence=int(r["confidence_score"]) if (r.get("confidence_score") is not None and not (pd is not None and pd.isna(r.get("confidence_score")))) else None,
                                 config=sx_cfg,
