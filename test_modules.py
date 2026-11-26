@@ -79,6 +79,7 @@ class TestModularDecomposition(unittest.TestCase):
         import statmonitor.pipeline as pipe
 
         mock_cur = MagicMock()
+        mock_cur.fetchone.return_value = None
         mock_conn = MagicMock()
         mock_conn.cursor.return_value = mock_cur
 
@@ -104,7 +105,7 @@ class TestModularDecomposition(unittest.TestCase):
              patch("statmonitor.pipeline.resolve_alert_from_history", return_value=(None, None, None, None)), \
              patch("statmonitor.pipeline.get_cols", return_value={"event_id", "outcome", "price", "recorded_at"}), \
              patch("statmonitor.pipeline.build_chart", return_value=b"fake_chart"), \
-             patch("statmonitor.pipeline.analyze_gemini", return_value="Аналіз"), \
+             patch("statmonitor.pipeline.analyze_gemini", return_value="Аналіз\nConfidence Score: 8/10"), \
              patch("statmonitor.pipeline.send_tg") as mock_send_tg, \
              patch("statmonitor.pipeline.send_photo") as mock_send_photo, \
              patch("statmonitor.pipeline.place_paper_bet"):
@@ -379,6 +380,63 @@ class TestModularDecomposition(unittest.TestCase):
         self.assertEqual(len(ev_b), 1)
         self.assertEqual(ev_b[0][0], "ev_ok")
         self.assertEqual(len(o_raw), 1)
+
+    def test_to_decimal_odds_and_place_paper_bet_normalization(self):
+        from statmonitor.paper_trading import to_decimal_odds, place_paper_bet
+
+        self.assertEqual(to_decimal_odds(147.0), 2.47)
+        self.assertEqual(to_decimal_odds(-200.0), 1.50)
+        self.assertEqual(to_decimal_odds(2.05), 2.05)
+        self.assertIsNone(to_decimal_odds(1.0))
+        self.assertIsNone(to_decimal_odds(60.0))
+        self.assertIsNone(to_decimal_odds(1500.0))
+
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_cur.fetchone.side_effect = [None, (0.0, 0.0)]
+        ok = place_paper_bet(
+            mock_cur, mock_conn, "ev_dec", "soccer_epl", "A - B",
+            datetime.now(timezone.utc), "П1", 147.0, confidence=8,
+        )
+        self.assertTrue(ok)
+        inserted_args = mock_cur.execute.call_args[0][1]
+        self.assertEqual(inserted_args[5], 2.47)
+
+        mock_cur_bad = MagicMock()
+        self.assertFalse(place_paper_bet(
+            mock_cur_bad, mock_conn, "ev_bad", "soccer_epl", "A - B",
+            datetime.now(timezone.utc), "П1", 0.9, confidence=8,
+        ))
+        mock_cur_bad.execute.assert_not_called()
+
+    def test_pipeline_skips_paper_bet_without_ai_confidence(self):
+        import statmonitor.pipeline as pipe
+
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_cur.fetchone.return_value = None
+        mock_cur.fetchall.side_effect = [
+            [(
+                "ev_no_ai", "soccer_epl", "Arsenal - Chelsea",
+                datetime.now(timezone.utc) + timedelta(hours=3),
+                "Arsenal", 2.10, 1.80, -14.3, 1.80,
+            )],
+            [], [], [], [],
+        ]
+
+        with patch("statmonitor.pipeline.get_db", return_value=mock_conn), \
+             patch("statmonitor.pipeline.ensure_tables"), \
+             patch("statmonitor.pipeline.settle_and_report"), \
+             patch("statmonitor.pipeline.resolve_alert_from_history", return_value=(None, None, None, None)), \
+             patch("statmonitor.pipeline.get_cols", return_value={"event_id", "outcome", "price", "recorded_at"}), \
+             patch("statmonitor.pipeline.build_chart", return_value=b"fake_chart"), \
+             patch("statmonitor.pipeline.analyze_gemini", return_value=None), \
+             patch("statmonitor.pipeline.send_tg"), \
+             patch("statmonitor.pipeline.send_photo"), \
+             patch("statmonitor.pipeline.place_paper_bet") as mock_place:
+            pipe.check_alerts_and_notify({"soccer_epl": "EPL"})
+            mock_place.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -217,15 +217,18 @@ def check_alerts_and_notify(sports_map, t_start=None):
 
         # SPEC-21: Оцінка сили сигналу Gemini (Confidence Score 1-10) та Value Filtering
         conf_score, risk_lvl = extract_confidence_score(ai_verdict)
-        if conf_score is not None:
-            try:
-                cur.execute(
-                    "UPDATE ai_match_analysis SET confidence_score=%s, risk_level=%s WHERE event_id=%s;",
-                    (conf_score, risk_lvl, ev_id),
-                )
-                conn.commit()
-            except Exception:
-                conn.rollback()
+        if not ai_verdict or conf_score is None:
+            print(f"ℹ️ [Paper-Gate] Пропуск {f['match']}: відсутня реальна оцінка ШІ в БД.")
+            continue
+
+        try:
+            cur.execute(
+                "UPDATE ai_match_analysis SET confidence_score=%s, risk_level=%s WHERE event_id=%s;",
+                (conf_score, risk_lvl, ev_id),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
 
         short_pick = extract_short_pick(ai_verdict, top_pick)
 

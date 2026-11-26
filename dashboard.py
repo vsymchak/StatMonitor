@@ -2202,42 +2202,6 @@ def run_streamlit_app():
                 if cs is not None and not (pd is not None and pd.isna(cs)):
                     try:
                         val_cs = int(cs)
-                        if 1 <= val_cs <= 10 and val_cs != 8:
-                            return f"⭐ {val_cs}/10"
-                    except Exception:
-                        pass
-
-                st_code = str(r.get("status") or "")
-                if st_code == "PENDING":
-                    k_pct = r.get("kelly_pct")
-                    if k_pct is not None and not (pd is not None and pd.isna(k_pct)):
-                        try:
-                            kp = float(k_pct)
-                            if kp >= 3.5:
-                                return "⭐ 9/10"
-                            elif kp >= 2.5:
-                                return "⭐ 8/10"
-                            else:
-                                return "⭐ 7/10"
-                        except Exception:
-                            pass
-
-                    try:
-                        k_odds = float(r.get("odds") or 2.0)
-                        if k_odds <= 1.50:
-                            return "⭐ 9/10"
-                        elif k_odds <= 2.20:
-                            return "⭐ 8/10"
-                        else:
-                            return "⭐ 7/10"
-                    except Exception:
-                        pass
-
-                    return "⭐ 8/10"
-
-                if cs is not None and not (pd is not None and pd.isna(cs)):
-                    try:
-                        val_cs = int(cs)
                         if 1 <= val_cs <= 10:
                             return f"⭐ {val_cs}/10"
                     except Exception:
@@ -2299,9 +2263,22 @@ def run_streamlit_app():
             p_disp["Турнір"] = p_disp["sport"].apply(lambda sp: _get_league_name(sp, with_icon=True))
             p_disp["Подія"] = p_disp.get("match_name", "")
             p_disp["Маркет"] = p_disp.get("pick_label", "").apply(_clean_pick_label)
-            p_disp["Коеф."] = p_disp["odds"].apply(lambda x: f"{float(x):.2f}" if x else "—")
+            def _to_decimal_odds_ui(val):
+                try:
+                    v = float(val)
+                    if v < 0:
+                        v = 1.0 + (100.0 / abs(v))
+                    elif 100.0 <= v < 1000.0:
+                        v = 1.0 + (v / 100.0)
+                    return v if (1.0 < v < 50.0) else None
+                except Exception:
+                    return None
+
+            p_disp["Коеф."] = p_disp["odds"].apply(
+                lambda x: f"{d:.2f}" if (d := _to_decimal_odds_ui(x)) is not None else "—"
+            )
             p_disp["Поріг (Walkaway)"] = p_disp["walkaway_odds"].apply(
-                lambda x: f"≥ {float(x):.2f}" if (x is not None and not (pd is not None and pd.isna(x))) else "—"
+                lambda x: f"≥ {d:.2f}" if (x is not None and not (pd is not None and pd.isna(x)) and (d := _to_decimal_odds_ui(x)) is not None) else "—"
             ) if "walkaway_odds" in p_disp.columns else "—"
             p_disp["ШІ Сигнал"] = p_disp.apply(_get_ai_score_badge, axis=1)
             p_disp["Сума (Paper)"] = p_disp["stake_uah"].apply(lambda x: f"{float(x):,.2f} ₴" if x else "—")

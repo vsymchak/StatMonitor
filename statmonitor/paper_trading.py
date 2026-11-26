@@ -124,6 +124,25 @@ def resolve_alert_from_history(cur, event_id, bookmaker, price, outcome=None):
 
     return None, None, outcome, price
 
+def to_decimal_odds(val):
+    """Нормалізує коефіцієнт до десяткового формату; відсіює невалідні значення."""
+    if val is None:
+        return None
+    try:
+        v = float(val)
+    except (TypeError, ValueError):
+        return None
+    if v != v:  # NaN
+        return None
+    if v < 0:
+        v = 1.0 + (100.0 / abs(v))
+    elif 100.0 <= v < 1000.0:
+        v = 1.0 + (v / 100.0)
+    if v <= 1.0 or v >= 50.0:
+        return None
+    return round(v, 2)
+
+
 def get_market_median_odds(cur, event_id, pick_label, match_name="", fallback_odds=None, at_time=None):
     """
     Обчислює реальний медіанний коефіцієнт ринку або еталонних БК (pinnacle, betfair_ex_eu, unibet_eu, marathonbet)
@@ -131,7 +150,7 @@ def get_market_median_odds(cur, event_id, pick_label, match_name="", fallback_od
     Якщо вказано at_time, враховує коефіцієнти, актуальні на цей момент часу (для перерахунку розрахованих матчів).
     """
     mkt, out_name, pt = parse_pick_label(pick_label, match_name)
-    fb = float(fallback_odds) if fallback_odds is not None else 1.0
+    fb = to_decimal_odds(fallback_odds) or 1.0
     if not cur or not event_id or not mkt:
         return fb
 
@@ -246,8 +265,15 @@ def get_market_median_odds(cur, event_id, pick_label, match_name="", fallback_od
         if not rows:
             return fb
 
-        bm_prices = [float(p) for bm, p in rows if bm.lower() in BENCHMARK_BOOKMAKERS and float(p) > 1.0]
-        all_prices = [float(p) for _, p in rows if float(p) > 1.0]
+        bm_prices = []
+        all_prices = []
+        for bm, p in rows:
+            dec_p = to_decimal_odds(p)
+            if dec_p is None:
+                continue
+            all_prices.append(dec_p)
+            if bm.lower() in BENCHMARK_BOOKMAKERS:
+                bm_prices.append(dec_p)
 
         if bm_prices:
             return round(float(statistics.median(bm_prices)), 2)
@@ -478,11 +504,22 @@ def calculate_kelly_fraction(odds, drop_pct=None, confidence=None, fraction=0.25
 
 def place_paper_bet(cur, conn, ev_id, sport, match, c_time, pick_lbl, odds, drop_pct=None, confidence=None, risk_level=None, save_shadow=True, walkaway_odds=None, min_confidence=None):
     try:
+        norm_odds = to_decimal_odds(odds)
+        if norm_odds is None or norm_odds <= 1.0:
+            print(f"ℹ️ Ставку на {match} ({pick_lbl}) відхилено: невалідний коефіцієнт ({odds}).")
+            return False
+        odds = norm_odds
+
+        if walkaway_odds is not None:
+            walkaway_odds = to_decimal_odds(walkaway_odds)
+
         # SPEC-37: Розрахунок порогу беззбитковості (Walkaway Odds), якщо не передано явно
         if walkaway_odds is None and odds:
             try:
                 from statmonitor.novig import estimate_walkaway_odds
-                walkaway_odds = estimate_walkaway_odds(odds, drop_pct=drop_pct, confidence=confidence)
+                walkaway_odds = to_decimal_odds(
+                    estimate_walkaway_odds(odds, drop_pct=drop_pct, confidence=confidence)
+                )
             except Exception:
                 walkaway_odds = None
 
