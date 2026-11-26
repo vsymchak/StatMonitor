@@ -3561,7 +3561,18 @@ def run_streamlit_app():
                     return "🌐 SX Bet"
                 if "_" in sl:
                     return _get_league_name(sl, with_icon=True)
-                return sl
+                sl_low = sl.lower()
+                if "nfl" in sl_low or "american" in sl_low or "football" in sl_low:
+                    return f"🏈 {sl}"
+                if "nba" in sl_low or "basketball" in sl_low:
+                    return f"🏀 {sl}"
+                if "nhl" in sl_low or "hockey" in sl_low:
+                    return f"🏒 {sl}"
+                if "tennis" in sl_low or "atp" in sl_low or "wta" in sl_low:
+                    return f"🎾 {sl}"
+                if "soccer" in sl_low or "uefa" in sl_low or "premier" in sl_low or "serie" in sl_low or "liga" in sl_low:
+                    return f"⚽ {sl}"
+                return f"🏆 {sl}"
 
             with sx_sub1:
                 st.markdown(f"##### ⏳ Активні ставки на децентралізованій біржі ({len(sx_pending_df)})")
