@@ -3432,6 +3432,101 @@ def run_streamlit_app():
                 delta_color="normal" if sx_wr >= 50 else ("inverse" if sx_wr > 0 else "off"),
             )
 
+            # 1.5 ГРАФІКИ КАПІТАЛУ ТА ПРИБУТКУ SX BET (USDC)
+            if go is not None:
+                col_sx_ch1, col_sx_ch2 = st.columns([6, 6])
+                with col_sx_ch1:
+                    st.markdown("##### 📈 Динаміка капіталу SX Bet (Proxy USDC)")
+                    if isinstance(sx_tx_df, pd.DataFrame) and not sx_tx_df.empty and "balance_after_usdc" in sx_tx_df.columns:
+                        sx_tx_sorted = sx_tx_df.sort_values(by=["created_at", "id"], ascending=True).copy()
+                        sx_tx_sorted["Час"] = pd.to_datetime(sx_tx_sorted["created_at"], utc=True, errors="coerce")
+                        sx_tx_sorted = sx_tx_sorted.dropna(subset=["Час"])
+                        if not sx_tx_sorted.empty:
+                            fig_sx_bal = go.Figure()
+                            fig_sx_bal.add_trace(go.Scatter(
+                                x=sx_tx_sorted["Час"],
+                                y=sx_tx_sorted["balance_after_usdc"].astype(float),
+                                mode="lines+markers",
+                                line=dict(color="#2563EB" if not is_dark else "#60A5FA", width=2.8),
+                                marker=dict(size=6, color="#1D4ED8" if not is_dark else "#93C5FD"),
+                                fill="tozeroy",
+                                fillcolor="rgba(37, 99, 235, 0.09)" if not is_dark else "rgba(96, 165, 250, 0.12)",
+                                name="Баланс (USDC)",
+                                hovertemplate="<b>%{x|%d.%m %H:%M}</b><br>Баланс: $%{y:,.2f} USDC<extra></extra>",
+                            ))
+                            if sx_dep > 0:
+                                fig_sx_bal.add_hline(
+                                    y=sx_dep,
+                                    line_dash="dash",
+                                    line_color="#94A3B8",
+                                    annotation_text=f"Депозити: ${sx_dep:,.2f}",
+                                    annotation_position="bottom right",
+                                )
+                            fig_sx_bal.update_layout(
+                                height=235,
+                                margin=dict(l=10, r=10, t=20, b=10),
+                                template="plotly_dark" if is_dark else "plotly_white",
+                                plot_bgcolor="rgba(0,0,0,0)",
+                                paper_bgcolor="rgba(0,0,0,0)",
+                                xaxis=dict(showgrid=True, gridcolor="#1E293B" if is_dark else "#F1F5F9", tickformat="%d.%m\n%H:%M", tickfont=dict(size=10, color="#94A3B8" if is_dark else "#64748B")),
+                                yaxis=dict(showgrid=True, gridcolor="#1E293B" if is_dark else "#F1F5F9", tickprefix="$", tickfont=dict(size=10, color="#94A3B8" if is_dark else "#64748B")),
+                                showlegend=False,
+                            )
+                            st.plotly_chart(fig_sx_bal, use_container_width=True, config={"displayModeBar": False})
+                        else:
+                            st.info("ℹ️ Недостатньо даних для побудови графіка балансу.")
+                    else:
+                        st.info("ℹ️ Немає транзакцій для побудови графіка балансу.")
+
+                with col_sx_ch2:
+                    st.markdown("##### 💹 Крива прибутку (Cumulative PnL, USDC)")
+                    if isinstance(sx_settled_df, pd.DataFrame) and not sx_settled_df.empty and "profit_usdc" in sx_settled_df.columns:
+                        sort_col = "settled_at" if "settled_at" in sx_settled_df.columns else "created_at"
+                        sx_st_sorted = sx_settled_df.sort_values(by=[sort_col, "id"], ascending=True).copy()
+                        sx_st_sorted["Час"] = pd.to_datetime(sx_st_sorted[sort_col], utc=True, errors="coerce")
+                        sx_st_sorted = sx_st_sorted.dropna(subset=["Час"])
+                        if not sx_st_sorted.empty:
+                            sx_st_sorted["cum_pnl"] = sx_st_sorted["profit_usdc"].astype(float).cumsum().round(2)
+                            first_ts = sx_st_sorted["Час"].iloc[0] - pd.Timedelta(minutes=5)
+                            x_pts = [first_ts] + sx_st_sorted["Час"].tolist()
+                            y_pts = [0.0] + sx_st_sorted["cum_pnl"].tolist()
+                            lbl_pts = ["Старт ($0.00)"] + [
+                                f"{r.get('event_name', '')} ({float(r.get('profit_usdc') or 0):+.2f}$)"
+                                for _, r in sx_st_sorted.iterrows()
+                            ]
+                            pnl_clr = "#16A34A" if y_pts[-1] >= 0 else "#EF4444"
+                            fill_clr = "rgba(22, 163, 74, 0.10)" if y_pts[-1] >= 0 else "rgba(239, 68, 68, 0.10)"
+
+                            fig_sx_pnl = go.Figure()
+                            fig_sx_pnl.add_trace(go.Scatter(
+                                x=x_pts,
+                                y=y_pts,
+                                text=lbl_pts,
+                                mode="lines+markers",
+                                line=dict(color=pnl_clr, width=2.8),
+                                marker=dict(size=6, color=pnl_clr),
+                                fill="tozeroy",
+                                fillcolor=fill_clr,
+                                name="PnL (USDC)",
+                                hovertemplate="<b>%{x|%d.%m %H:%M}</b><br>%{text}<br>Кумулятивний PnL: $%{y:+,.2f}<extra></extra>",
+                            ))
+                            fig_sx_pnl.add_hline(y=0.0, line_dash="dot", line_color="#94A3B8")
+                            fig_sx_pnl.update_layout(
+                                height=235,
+                                margin=dict(l=10, r=10, t=20, b=10),
+                                template="plotly_dark" if is_dark else "plotly_white",
+                                plot_bgcolor="rgba(0,0,0,0)",
+                                paper_bgcolor="rgba(0,0,0,0)",
+                                xaxis=dict(showgrid=True, gridcolor="#1E293B" if is_dark else "#F1F5F9", tickformat="%d.%m\n%H:%M", tickfont=dict(size=10, color="#94A3B8" if is_dark else "#64748B")),
+                                yaxis=dict(showgrid=True, gridcolor="#1E293B" if is_dark else "#F1F5F9", tickprefix="$", tickfont=dict(size=10, color="#94A3B8" if is_dark else "#64748B")),
+                                showlegend=False,
+                            )
+                            st.plotly_chart(fig_sx_pnl, use_container_width=True, config={"displayModeBar": False})
+                        else:
+                            st.info("ℹ️ Недостатньо розрахованих ставок для кривої PnL.")
+                    else:
+                        st.info("ℹ️ Після перших розрахованих ставок тут з'явиться крива PnL.")
+
             # 2. ВНУТРІШНІ ВКЛАДКИ SX BET
             sub1_lbl = f"⏳ Активні ставки ({len(sx_pending_df)})"
             if sx_open_orders:
