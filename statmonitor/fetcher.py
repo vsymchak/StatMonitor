@@ -431,6 +431,7 @@ def fetch_and_save_odds(sports_map=None):
     propline_rem = "?"
     propline_polled = 0
     odds_api_polled = 0
+    seen_pl_sports = set()
 
     for sp in selected_sports:
         try:
@@ -449,6 +450,9 @@ def fetch_and_save_odds(sports_map=None):
         # 1. Пріоритетне джерело: PropLine API (з урахуванням аліасів ключів)
         if propline_key and not propline_exhausted:
             pl_sp = resolve_propline_sport_key(sp)
+            if pl_sp in seen_pl_sports:
+                polled_sports_success.append(sp)
+                continue
             pl_url = f"{PROPLINE_BASE_URL}/sports/{pl_sp}/odds"
             pl_params = {"regions": "eu", "markets": mkt_str, "oddsFormat": "decimal", "commenceTimeTo": to_str}
             try:
@@ -474,6 +478,7 @@ def fetch_and_save_odds(sports_map=None):
                         print(f"ℹ️ PropLine API повернув 0 подій для {sp} ({tiers.get(sp)}): fallback на The Odds API...")
                     else:
                         _append_events_and_odds(pl_events, sp, now_utc, events_batch, odds_raw)
+                        seen_pl_sports.add(pl_sp)
                         polled_sports_success.append(sp)
                         propline_polled += 1
                         continue
@@ -545,6 +550,8 @@ def fetch_and_save_odds(sports_map=None):
 
     ev_cols = get_cols(cur, "events")
     if events_batch:
+        # Дедуплікація за id, щоб ON CONFLICT DO UPDATE не падав з CardinalityViolation
+        events_batch = list({e[0]: e for e in events_batch}.values())
         id_c = pick(ev_cols, ("id", "event_id"), "id")
         if "home_team" in ev_cols and "match_name" in ev_cols:
             execute_values(cur, f"INSERT INTO events ({id_c}, sport, home_team, away_team, match_name, commence_time) VALUES %s ON CONFLICT ({id_c}) DO UPDATE SET commence_time=EXCLUDED.commence_time, match_name=EXCLUDED.match_name;", [(e[0], e[1], e[2], e[3], f"{e[2]} - {e[3]}", e[4]) for e in events_batch])

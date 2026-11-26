@@ -328,5 +328,30 @@ class TestModularDecomposition(unittest.TestCase):
             self.assertNotIn("soccer_ukraine_premier_league", res["common_keys"])
             self.assertEqual(res["mapping"].get("soccer_uefa_champs_league"), "soccer_uefa_champions_league")
 
+    def test_events_batch_dedup_on_alias_overlap(self):
+        from statmonitor.fetcher import fetch_and_save_odds
+
+        pl_200 = MagicMock(status_code=200, headers={"x-ratelimit-remaining": "950"})
+        pl_200.json.return_value = [{
+            "id": "ev_conf_1",
+            "home_team": "Jablonec",
+            "away_team": "Lugano",
+            "commence_time": "2026-11-26T17:45:00Z",
+            "bookmakers": [{
+                "key": "pinnacle",
+                "markets": [{"key": "h2h", "outcomes": [{"name": "Jablonec", "price": 2.10}]}]
+            }],
+        }]
+        with patch("requests.get", return_value=pl_200) as mock_get, \
+             patch("statmonitor.fetcher.PROPLINE_API_KEY", "pl_k_123"), \
+             patch("statmonitor.fetcher.get_db", return_value=None):
+            ev_cnt, odds_cnt, _ = fetch_and_save_odds({
+                "soccer_uefa_conference_league": "Ліга Конференцій",
+                "soccer_uefa_europa_conference_league": "Ліга Конференцій (alt)",
+            })
+            self.assertEqual(ev_cnt, 1)
+            self.assertEqual(odds_cnt, 1)
+            self.assertEqual(mock_get.call_count, 1)
+
 if __name__ == "__main__":
     unittest.main()
