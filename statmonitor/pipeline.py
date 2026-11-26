@@ -62,6 +62,10 @@ def check_alerts_and_notify(sports_map, t_start=None):
     items = []
     for r in cur.fetchall():
         d = dict(zip(v_cols, r))
+        start_k_chk = float(pick_v(d, ("start_odds", "first_odds"), 0) or 0)
+        drop_chk = abs(float(pick_v(d, ("drop_pct",), 0) or 0))
+        if start_k_chk >= 50.0 or drop_chk > 65.0:
+            continue
         ct_val = pick_v(d, ("commence_time", "start_time", "event_time"))
         if ct_val is not None:
             try:

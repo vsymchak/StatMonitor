@@ -370,11 +370,13 @@ def _append_events_and_odds(events_list, sp, now_utc, events_batch, odds_raw, ma
                             price_val = float(raw_price)
                         except (ValueError, TypeError):
                             continue
-                        # Конвертація випадкових мінусових американських коефіцієнтів (наприклад -110 -> 1.909)
+                        # Конвертація випадкових американських коефіцієнтів (-110 -> 1.909, +120 -> 2.20)
                         if price_val < 0:
                             price_val = 1.0 + (100.0 / abs(price_val))
-                        # Захист від overflow у PostgreSQL NUMERIC(6,3) (< 1000.0) та некоректних коефіцієнтів
-                        if price_val <= 1.0 or price_val >= 1000.0:
+                        elif 100.0 <= price_val < 1000.0:
+                            price_val = 1.0 + (price_val / 100.0)
+                        # Захист від overflow у PostgreSQL NUMERIC(6,3) (< 1000.0) та некоректних викидів
+                        if price_val <= 1.0 or price_val >= 50.0:
                             continue
                         price_val = round(price_val, 3)
 

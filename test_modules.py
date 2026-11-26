@@ -279,6 +279,7 @@ class TestModularDecomposition(unittest.TestCase):
                 "markets": [{"key": "h2h", "outcomes": [
                     {"name": "A", "price": 1200},
                     {"name": "B", "price": -150},
+                    {"name": "C", "price": 225},
                     {"name": "Draw", "price": 3.45},
                 ]}]
             }]
@@ -286,6 +287,7 @@ class TestModularDecomposition(unittest.TestCase):
         prices = {x["outcome"]: x["price"] for x in o_raw}
         self.assertNotIn("A", prices)
         self.assertAlmostEqual(prices["B"], 1.667, places=3)
+        self.assertAlmostEqual(prices["C"], 3.25, places=3)
         self.assertEqual(prices["Draw"], 3.45)
 
     def test_propline_odds_league_mapping_and_common_filter(self):
