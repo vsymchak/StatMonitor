@@ -340,7 +340,7 @@ def get_sports_map():
     return dict(SPORTS_MAP) if SPORTS_MAP else {k: k for k in TARGET_SPORTS}
 
 
-def _append_events_and_odds(events_list, sp, now_utc, events_batch, odds_raw):
+def _append_events_and_odds(events_list, sp, now_utc, events_batch, odds_raw, max_commence_utc=None):
     """Парсить події та коефіцієнти у спільному форматі PropLine / The Odds API."""
     for ev in events_list:
         if not isinstance(ev, dict):
@@ -349,6 +349,15 @@ def _append_events_and_odds(events_list, sp, now_utc, events_batch, odds_raw):
         commence_time = ev.get("commence_time")
         if not ev_id or not commence_time:
             continue
+        if max_commence_utc is not None:
+            try:
+                ev_dt = datetime.fromisoformat(str(commence_time).replace("Z", "+00:00"))
+                if ev_dt.tzinfo is None:
+                    ev_dt = ev_dt.replace(tzinfo=timezone.utc)
+                if ev_dt > max_commence_utc:
+                    continue
+            except Exception:
+                pass
         events_batch.append((ev_id, sp, ev.get("home_team", ""), ev.get("away_team", ""), commence_time))
         for bm in ev.get("bookmakers", []):
             bm_key = bm.get("key") or bm.get("title") or "unknown"
@@ -392,7 +401,8 @@ def fetch_and_save_odds(sports_map=None):
         sports_map = SPORTS_MAP
 
     now_utc = datetime.now(timezone.utc)
-    to_str = (now_utc + timedelta(days=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    max_commence_utc = now_utc + timedelta(days=5)
+    to_str = max_commence_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
 
     conn = get_db()
     cur = conn.cursor() if conn else None
@@ -477,7 +487,7 @@ def fetch_and_save_odds(sports_map=None):
                     if len(pl_events) == 0 and tiers.get(sp) in ("HOT", "WARM") and cur_key:
                         print(f"ℹ️ PropLine API повернув 0 подій для {sp} ({tiers.get(sp)}): fallback на The Odds API...")
                     else:
-                        _append_events_and_odds(pl_events, sp, now_utc, events_batch, odds_raw)
+                        _append_events_and_odds(pl_events, sp, now_utc, events_batch, odds_raw, max_commence_utc=max_commence_utc)
                         seen_pl_sports.add(pl_sp)
                         polled_sports_success.append(sp)
                         propline_polled += 1
@@ -523,7 +533,7 @@ def fetch_and_save_odds(sports_map=None):
                 continue
             polled_sports_success.append(sp)
             odds_api_polled += 1
-            _append_events_and_odds(_extract_api_items(r.json()), sp, now_utc, events_batch, odds_raw)
+            _append_events_and_odds(_extract_api_items(r.json()), sp, now_utc, events_batch, odds_raw, max_commence_utc=max_commence_utc)
         except Exception as e:
             err_msg = f"Помилка запиту котирувань для {sp}: {e}"
             print(f"API err {sp}: {e}")

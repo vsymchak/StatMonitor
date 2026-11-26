@@ -353,5 +353,30 @@ class TestModularDecomposition(unittest.TestCase):
             self.assertEqual(odds_cnt, 1)
             self.assertEqual(mock_get.call_count, 1)
 
+    def test_fetcher_skips_events_beyond_5_days(self):
+        from statmonitor.fetcher import _append_events_and_odds
+        now_utc = datetime(2026, 11, 26, 12, 0, tzinfo=timezone.utc)
+        max_utc = now_utc + timedelta(days=5)
+        ev_b, o_raw = [], []
+        _append_events_and_odds([
+            {
+                "id": "ev_ok",
+                "home_team": "A",
+                "away_team": "B",
+                "commence_time": "2026-11-30T20:00:00Z",
+                "bookmakers": [{"key": "bm", "markets": [{"key": "h2h", "outcomes": [{"name": "A", "price": 2.0}]}]}],
+            },
+            {
+                "id": "ev_too_far",
+                "home_team": "C",
+                "away_team": "D",
+                "commence_time": "2026-12-07T21:45:00Z",
+                "bookmakers": [{"key": "bm", "markets": [{"key": "h2h", "outcomes": [{"name": "C", "price": 1.7}]}]}],
+            },
+        ], "soccer_italy_serie_a", now_utc, ev_b, o_raw, max_commence_utc=max_utc)
+        self.assertEqual(len(ev_b), 1)
+        self.assertEqual(ev_b[0][0], "ev_ok")
+        self.assertEqual(len(o_raw), 1)
+
 if __name__ == "__main__":
     unittest.main()

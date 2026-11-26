@@ -1,6 +1,6 @@
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from statmonitor.config import KYIV_TZ
 from statmonitor.database import get_db, get_cols, pick, pick_v, ensure_tables
@@ -56,11 +56,22 @@ def check_alerts_and_notify(sports_map, t_start=None):
     from statmonitor.league_config import get_league_thresholds, load_leagues_config
     leagues_cfg = load_leagues_config()
 
+    max_commence_utc = datetime.now(timezone.utc) + timedelta(days=5)
     cur.execute("SELECT * FROM v_odds_alerts;")
     v_cols = [d[0] for d in cur.description]
     items = []
     for r in cur.fetchall():
         d = dict(zip(v_cols, r))
+        ct_val = pick_v(d, ("commence_time", "start_time", "event_time"))
+        if ct_val is not None:
+            try:
+                ct_dt = datetime.fromisoformat(str(ct_val).replace("Z", "+00:00")) if isinstance(ct_val, str) else ct_val
+                if ct_dt.tzinfo is None:
+                    ct_dt = ct_dt.replace(tzinfo=timezone.utc)
+                if ct_dt > max_commence_utc:
+                    continue
+            except Exception:
+                pass
         curr_k = float(pick_v(d, ("current_odds", "curr_odds", "last_odds", "odds", "price"), 0) or 0)
         pt = pick_v(d, ("point", "handicap", "line"))
         out = pick_v(d, ("outcome_name", "outcome", "selection", "side", "name"), "")
