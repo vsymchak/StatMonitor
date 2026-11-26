@@ -296,7 +296,18 @@ def check_alerts_and_notify(sports_map, t_start=None):
         hb_meta = {"events_checked": len(summary_rows)}
         try:
             from statmonitor.fetcher import check_odds_api_quota
-            hb_meta["odds_quota"] = check_odds_api_quota()
+            q_now = check_odds_api_quota()
+            has_any_key = any(
+                (q_now.get(s) or {}).get("status") not in (None, "not_configured")
+                for s in ("propline", "primary", "reserve", "reserve1", "reserve2", "reserve3")
+            )
+            if has_any_key:
+                hb_meta["odds_quota"] = q_now
+            else:
+                # Не затираємо реальну квоту з GitHub Actions порожнім знімком (якщо на Render не задані API-ключі)
+                cur.execute("SELECT metadata->'odds_quota' FROM system_heartbeat WHERE service_name = 'StatMonitor';")
+                prev_q = cur.fetchone()
+                hb_meta["odds_quota"] = (prev_q[0] if prev_q and prev_q[0] else q_now)
         except Exception as qe:
             print(f"Quota check metadata err: {qe}")
         record_heartbeat(cur, conn, duration_sec=elapsed, status="OK", metadata=hb_meta)
