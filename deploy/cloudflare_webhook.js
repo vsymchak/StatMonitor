@@ -210,8 +210,20 @@ export default {
     });
   },
 
-  // 2. Варіант А: плановий Cron вимкнено (лише запуск по кнопці з дашборду)
+  // 2. Безкоштовний зовнішній пінг Render.com (/healthz) кожні 10 хв, щоб сервіс не засинав
+  // (GitHub Actions не викликається — кнопка '⚡ Запуск' працює окремо через fetch)
   async scheduled(event, env, ctx) {
-    console.log(`[Cloudflare Cron] Вимкнено (режим button_only). Ігноруємо розклад: ${event.cron || "manual"}`);
+    const renderUrl = (env.RENDER_HEALTH_URL || "https://statmonitor.onrender.com/healthz").trim();
+    ctx.waitUntil((async () => {
+      try {
+        const res = await fetch(renderUrl, {
+          method: "GET",
+          headers: { "User-Agent": "StatMonitor-Cloudflare-KeepAlive" },
+        });
+        console.log(`[Render Keep-Alive] ${renderUrl} -> HTTP ${res.status}`);
+      } catch (err) {
+        console.error(`[Render Keep-Alive Error] ${renderUrl}:`, err.message);
+      }
+    })());
   },
 };

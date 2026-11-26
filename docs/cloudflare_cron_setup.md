@@ -11,7 +11,7 @@
 ### 1. Збірка та деплой (`Builds`)
 - Підключено репозиторій `vsymchak/StatMonitor` (гілка `main`).
 - Команда деплою: `npx wrangler deploy` (використовує кореневий `wrangler.toml`, який вказує на `deploy/cloudflare_webhook.js`).
-- Секцію `[triggers] crons` видалено — розклади не створюються при деплої, а `scheduled()` у коді працює як безпечна заглушка.
+- У `wrangler.toml` налаштовано безкоштовний `[triggers] crons = ["*/10 * * * *"]` **виключно для keep-alive пінгу Render** (`GET https://statmonitor.onrender.com/healthz` кожні 10 хв), щоб Render Free не засинав. GitHub Actions через цей крон **не** запускається.
 
 ### 2. Змінні та секрети (`Variables and secrets`)
 Переконайтеся, що налаштовані:
