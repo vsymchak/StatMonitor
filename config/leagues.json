@@ -1458,10 +1458,10 @@
     }
   ],
   "defaults": {
-    "min_drop_pct": 5.5,
-    "min_odds": 1.5,
-    "max_odds": 2.4,
-    "min_confidence": 8,
+    "min_drop_pct": 5.0,
+    "min_odds": 1.4,
+    "max_odds": 4.0,
+    "min_confidence": 7,
     "markets": [
       "h2h",
       "totals",

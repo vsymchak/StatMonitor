@@ -4,6 +4,14 @@ import requests
 from datetime import datetime, timezone
 from statmonitor.config import TG_BOT_TOKEN, TG_CHAT_ID, KYIV_TZ
 
+
+def _redact_secrets(text):
+    """Маскує Telegram bot token та секретні query-параметри у логах."""
+    s = str(text or "")
+    s = re.sub(r"bot\d+:[A-Za-z0-9_-]+", "bot<REDACTED>", s)
+    s = re.sub(r"([?&](?:key|apiKey|token)=)[^&\s]+", r"\1<REDACTED>", s, flags=re.IGNORECASE)
+    return s
+
 def esc(txt):
     return str(txt).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
@@ -44,7 +52,7 @@ def _post_tg_chunk(url, chunk, chat_id=None, reply_markup=None):
             time.sleep(0.45)
             return
         except Exception as e:
-            print(f"TG msg err: {e}")
+            print(f"TG msg err: {_redact_secrets(e)}")
 
 def send_tg(text, chat_id=None, reply_markup=None):
     cid = chat_id or TG_CHAT_ID
@@ -84,4 +92,4 @@ def send_photo(buf, caption):
             data["caption"] = re.sub(r"<[^>]+>", "", cap)
             requests.post(url, files={"photo": ("drop_chart.png", buf, "image/png")}, data=data, timeout=20)
     except Exception as e:
-        print(f"TG photo exc: {e}")
+        print(f"TG photo exc: {_redact_secrets(e)}")

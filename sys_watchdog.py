@@ -147,22 +147,23 @@ def format_watchdog_alert(missed_points=None, stale_info=None):
 
 def record_heartbeat(cur, conn, duration_sec=0.0, status="OK", metadata=None):
     """
-    Оновлює пульс сервісу в таблиці system_heartbeat.
+    Оновлює пульс сервісу в таблиці system_heartbeat ('StatMonitor' та 'scheduler_run' для Smart Gate).
     """
     ensure_heartbeat_table(cur, conn)
     meta_json = json.dumps(metadata or {})
-    cur.execute(
-        """
-        INSERT INTO system_heartbeat (service_name, last_ping_at, last_status, last_duration_sec, metadata)
-        VALUES ('StatMonitor', NOW(), %s, %s, %s::jsonb)
-        ON CONFLICT (service_name) DO UPDATE SET
-            last_ping_at = EXCLUDED.last_ping_at,
-            last_status = EXCLUDED.last_status,
-            last_duration_sec = EXCLUDED.last_duration_sec,
-            metadata = EXCLUDED.metadata;
-        """,
-        (status, duration_sec, meta_json),
-    )
+    for svc_name in ("StatMonitor", "scheduler_run"):
+        cur.execute(
+            """
+            INSERT INTO system_heartbeat (service_name, last_ping_at, last_status, last_duration_sec, metadata)
+            VALUES (%s, NOW(), %s, %s, %s::jsonb)
+            ON CONFLICT (service_name) DO UPDATE SET
+                last_ping_at = EXCLUDED.last_ping_at,
+                last_status = EXCLUDED.last_status,
+                last_duration_sec = EXCLUDED.last_duration_sec,
+                metadata = EXCLUDED.metadata;
+            """,
+            (svc_name, status, duration_sec, meta_json),
+        )
     conn.commit()
 
 def ping_external_watchdog(url=HEALTHCHECK_URL):

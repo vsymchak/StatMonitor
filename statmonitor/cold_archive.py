@@ -71,8 +71,11 @@ def upload_to_r2(
             endpoint = f"https://{acc_id}.r2.cloudflarestorage.com"
         
         endpoint = endpoint.rstrip("/")
+        import urllib.parse
+        encoded_bucket = urllib.parse.quote(str(bucket).strip("/"), safe="")
+        encoded_key = urllib.parse.quote(str(object_key).lstrip("/"), safe="/")
         # URL: https://<endpoint>/<bucket>/<object_key>
-        put_url = f"{endpoint}/{bucket}/{object_key}"
+        put_url = f"{endpoint}/{encoded_bucket}/{encoded_key}"
 
         now_utc = datetime.now(timezone.utc)
         amz_date = now_utc.strftime("%Y%m%dT%H%M%SZ")
@@ -81,7 +84,7 @@ def upload_to_r2(
         service = "s3"
 
         host = endpoint.replace("https://", "").replace("http://", "").split("/")[0]
-        canonical_uri = f"/{bucket}/{object_key}"
+        canonical_uri = f"/{encoded_bucket}/{encoded_key}"
 
         payload_hash = hashlib.sha256(data_bytes).hexdigest()
 

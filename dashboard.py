@@ -1704,8 +1704,8 @@ def run_streamlit_app():
                         <div style="display: flex; align-items: flex-start; gap: 8px; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px dashed {'#334155' if is_dark else '#E2E8F0'}; font-size: 12px;">
                             <span style="background: {tag_bg}; color: white; padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; margin-top: 2px;">{tag_txt}</span>
                             <div>
-                                <b>[{iss['source']}]</b> <span style="font-weight: 600;">{iss['title']}</span>
-                                <div style="font-size: 11px; opacity: 0.85; margin-top: 2px;">{iss['desc']}</div>
+                                <b>[{html.escape(str(iss['source']))}]</b> <span style="font-weight: 600;">{html.escape(str(iss['title']))}</span>
+                                <div style="font-size: 11px; opacity: 0.85; margin-top: 2px;">{html.escape(str(iss['desc']))}</div>
                             </div>
                         </div>
                     """, unsafe_allow_html=True)
@@ -2412,7 +2412,7 @@ def run_streamlit_app():
                                         for p in proposals:
                                             c_m1, c_m2, c_m3, c_m4 = st.columns([3.0, 1.0, 1.5, 1.8])
                                             with c_m1:
-                                                st.markdown(f"<b>#{p['id']}</b> {p['match_name']}<br><span style='font-size: 11px; color: #64748B;'>{p['pick_label']}</span>", unsafe_allow_html=True)
+                                                st.markdown(f"<b>#{int(p['id'])}</b> {html.escape(str(p['match_name']))}<br><span style='font-size: 11px; color: #64748B;'>{html.escape(str(p['pick_label']))}</span>", unsafe_allow_html=True)
                                             with c_m2:
                                                 st.markdown(f"Коеф: <b>{p['odds']:.2f}</b>", unsafe_allow_html=True)
                                                 if p.get('walkaway_odds'):
@@ -2547,8 +2547,8 @@ def run_streamlit_app():
                         bet_box_border = '#233044' if is_dark else '#E2E8F0'
                         st.markdown(f"""
                             <div style="background: {bet_box_bg}; border: 1px solid {bet_box_border}; border-radius: 8px; padding: 10px; margin-bottom: 12px; font-size: 13px;">
-                                <b>Подія:</b> {cur_bet_info.get('match_name', '—')} &nbsp;|&nbsp;
-                                <b>Маркет:</b> {cur_bet_info.get('pick_label', '—')} &nbsp;|&nbsp;
+                                <b>Подія:</b> {html.escape(str(cur_bet_info.get('match_name', '—')))} &nbsp;|&nbsp;
+                                <b>Маркет:</b> {html.escape(str(cur_bet_info.get('pick_label', '—')))} &nbsp;|&nbsp;
                                 <b>Коеф:</b> {float(cur_bet_info.get('odds', 0)):.2f} &nbsp;|&nbsp;
                                 <b>Сума:</b> {float(cur_bet_info.get('stake_uah', 0)):,.2f} ₴
                             </div>
@@ -3201,8 +3201,8 @@ def run_streamlit_app():
 
                         st.markdown(f"""
                             <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 10px; margin-bottom: 12px; font-size: 13px;">
-                                <b>Подія:</b> {cur_rbet_info.get('match_name', '—')} &nbsp;|&nbsp;
-                                <b>Маркет:</b> {cur_rbet_info.get('pick_label', '—')} &nbsp;|&nbsp;
+                                <b>Подія:</b> {html.escape(str(cur_rbet_info.get('match_name', '—')))} &nbsp;|&nbsp;
+                                <b>Маркет:</b> {html.escape(str(cur_rbet_info.get('pick_label', '—')))} &nbsp;|&nbsp;
                                 <b>Коеф:</b> {float(cur_rbet_info.get('real_odds') or cur_rbet_info.get('odds') or 0):.2f} &nbsp;|&nbsp;
                                 <b>Сума:</b> {float(cur_rbet_info.get('real_stake_uah') or cur_rbet_info.get('stake_uah') or 0):,.0f} ₴
                             </div>
@@ -3302,9 +3302,9 @@ def run_streamlit_app():
                     <div style="background: {acc_card_bg}; border: 1px solid {acc_card_border}; border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; font-size: 12px; color: {acc_t_clr};">
                         <div style="display: flex; gap: 16px; flex-wrap: wrap; align-items: center;">
                             <div>👤 <b>Акаунт:</b> <code>symchak</code></div>
-                            <div>🦊 <b>EOA Гаманець:</b> <code title="{wallet_addr}">{wallet_addr[:6]}...{wallet_addr[-4:]}</code></div>
-                            <div>📜 <b>Proxy Wallet:</b> <code title="{prx_addr}" style="color: #10B981;">{prx_addr[:6]}...{prx_addr[-4:]}</code> (Active)</div>
-                            <div>🛡️ <b>Safe Multisig:</b> <code title="{safe_addr}">{safe_addr[:6]}...{safe_addr[-4:]}</code></div>
+                            <div>🦊 <b>EOA Гаманець:</b> <code title="{html.escape(str(wallet_addr), quote=True)}">{html.escape(str(wallet_addr)[:6])}...{html.escape(str(wallet_addr)[-4:])}</code></div>
+                            <div>📜 <b>Proxy Wallet:</b> <code title="{html.escape(str(prx_addr), quote=True)}" style="color: #10B981;">{html.escape(str(prx_addr)[:6])}...{html.escape(str(prx_addr)[-4:])}</code> (Active)</div>
+                            <div>🛡️ <b>Safe Multisig:</b> <code title="{html.escape(str(safe_addr), quote=True)}">{html.escape(str(safe_addr)[:6])}...{html.escape(str(safe_addr)[-4:])}</code></div>
                             <div>⛓️ <b>Мережа:</b> <code>SX Network Rollup (ID 4162)</code></div>
                         </div>
                     </div>
@@ -3907,12 +3907,12 @@ def run_streamlit_app():
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 8px; font-size: 12px;">
                         <div style="background: #ECFDF5; border: 1px solid #A7F3D0; border-radius: 8px; padding: 10px; color: #065F46;">
-                            <b>✅ Сильна сторона: {best_title}</b><br>
-                            {best_txt}
+                            <b>✅ Сильна сторона: {html.escape(str(best_title))}</b><br>
+                            {html.escape(str(best_txt))}
                         </div>
                         <div style="background: #FFFBEB; border: 1px solid #FDE68A; border-radius: 8px; padding: 10px; color: #92400E;">
-                            <b>⚠️ Зона уваги: {worst_title}</b><br>
-                            {worst_txt}
+                            <b>⚠️ Зона уваги: {html.escape(str(worst_title))}</b><br>
+                            {html.escape(str(worst_txt))}
                         </div>
                         <div style="background: {ai_info_bg}; border: 1px solid {ai_info_border}; border-radius: 8px; padding: 10px; color: {ai_info_clr};">
                             <b>📊 Ризик-менеджмент (Дробовий Критерій Келлі)</b><br>

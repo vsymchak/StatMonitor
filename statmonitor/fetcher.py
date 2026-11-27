@@ -443,9 +443,6 @@ def _append_events_and_odds(events_list, sp, now_utc, events_batch, odds_raw, ma
         odds_raw.extend(dedup_map.values())
 
 def fetch_and_save_odds(sports_map=None):
-    if sports_map is None:
-        sports_map = SPORTS_MAP
-
     now_utc = datetime.now(timezone.utc)
     max_commence_utc = now_utc + timedelta(days=5)
     to_str = max_commence_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -455,12 +452,26 @@ def fetch_and_save_odds(sports_map=None):
     if conn and cur:
         ensure_tables(cur, conn)
         try:
-            from statmonitor.league_config import auto_enable_tennis_tournaments
-            newly_enabled = auto_enable_tennis_tournaments(cur, conn, sports_map)
-            if newly_enabled:
-                print(f"🎾 Автоматично додано/увімкнено тенісні турніри: {newly_enabled}")
+            from statmonitor.league_config import auto_enable_tennis_tournaments, load_leagues_config, get_active_sports_map
+            if sports_map is not None:
+                auto_enable_tennis_tournaments(cur, conn, sports_map)
+            live_cfg = load_leagues_config(cur=cur)
+            if sports_map is None:
+                sports_map = get_active_sports_map(config=live_cfg)
+            else:
+                disabled_keys = {
+                    lg.get("key")
+                    for lg in live_cfg.get("leagues", [])
+                    if lg.get("enabled") is False and lg.get("key")
+                }
+                if disabled_keys:
+                    sports_map = {k: v for k, v in sports_map.items() if k not in disabled_keys}
         except Exception as te:
-            print(f"Tennis auto-enable err: {te}")
+            print(f"Dynamic league config / tennis auto-enable err: {te}")
+            if sports_map is None:
+                sports_map = SPORTS_MAP
+    elif sports_map is None:
+        sports_map = SPORTS_MAP
 
     # 1. Smart Rate-Limiter (SPEC-10)
     selected_sports = sports_map

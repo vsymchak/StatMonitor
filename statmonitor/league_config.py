@@ -657,9 +657,6 @@ def auto_enable_tennis_tournaments(cur, conn, sports_map):
                         (sp_key, str(sp_title or sp_key), json.dumps(["h2h", "totals", "spreads"])),
                     )
                     added_or_enabled.append(sp_key)
-                elif not bool(row[0]):
-                    cur.execute("UPDATE league_thresholds SET enabled = TRUE WHERE sport_key = %s;", (sp_key,))
-                    added_or_enabled.append(sp_key)
             if added_or_enabled:
                 conn.commit()
         except Exception as e:

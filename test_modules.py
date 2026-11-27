@@ -529,7 +529,8 @@ class TestModularDecomposition(unittest.TestCase):
                 "soccer_epl": "EPL",
             },
         )
-        self.assertEqual(res, ["tennis_atp_dubai", "tennis_davis_cup"])
+        # Навмисно вимкнена тенісна ліга (tennis_davis_cup=False) НЕ перевмикається автоматично (A-04)
+        self.assertEqual(res, ["tennis_atp_dubai"])
         mock_conn.commit.assert_called_once()
 
     def test_reject_high_odds_and_low_hockey_totals(self):
@@ -678,6 +679,217 @@ class TestModularDecomposition(unittest.TestCase):
                 mock_rp.assert_not_called()
             finally:
                 render_service.PIPELINE_LOCK.release()
+
+    def test_audit_security_and_ai_fixes(self):
+        import time as _t
+        from statmonitor.notifier import _redact_secrets
+        from statmonitor.ai import analyze_gemini, _is_model_available, _MODEL_EXHAUSTED_UNTIL
+        from statmonitor.config import EXHAUSTED_MODELS
+        from statmonitor.cold_archive import upload_to_r2
+
+        # 1. Notifier redacts bot token and query API key
+        red = _redact_secrets("HTTPS error for https://api.telegram.org/bot123456:SECRET_ABC/sendMessage?key=XYZ999")
+        self.assertNotIn("SECRET_ABC", red)
+        self.assertNotIn("XYZ999", red)
+        self.assertIn("bot<REDACTED>", red)
+
+        # 2. Gemini API key sent in header (never query param) + TTL expiry restores model
+        EXHAUSTED_MODELS.clear()
+        _MODEL_EXHAUSTED_UNTIL.clear()
+        with patch("statmonitor.ai.GEMINI_API_KEY", "test_gem_key"), \
+             patch("statmonitor.ai.requests.post") as mock_post:
+            mock_post.side_effect = [
+                MagicMock(status_code=429),
+                MagicMock(status_code=429),
+                MagicMock(
+                    status_code=200,
+                    json=lambda: {"candidates": [{"content": {"parts": [{"text": "📌 Коротка ставка: П1\nВпевнений прогноз на фаворита матчу та хороший тонус."}]}}]},
+                ),
+            ]
+            out = analyze_gemini("Arsenal - Chelsea", "АПЛ", "27.11 22:00", "drop 8%")
+            self.assertIsNotNone(out)
+            called_url = mock_post.call_args_list[0][0][0]
+            called_hdrs = mock_post.call_args_list[0][1]["headers"]
+            self.assertNotIn("?key=", called_url)
+            self.assertEqual(called_hdrs.get("x-goog-api-key"), "test_gem_key")
+            self.assertFalse(_is_model_available("gemini-3.5-flash-lite", now_ts=_t.time()))
+            # Expired TTL makes model available again
+            _MODEL_EXHAUSTED_UNTIL["gemini-3.5-flash-lite"] = _t.time() - 5
+            self.assertTrue(_is_model_available("gemini-3.5-flash-lite", now_ts=_t.time()))
+            EXHAUSTED_MODELS.clear()
+            _MODEL_EXHAUSTED_UNTIL.clear()
+
+        # 3. Cold archive URL-encodes '=' in partition key per SigV4
+        with patch("statmonitor.cold_archive.R2_ACCOUNT_ID", "acc"), \
+             patch("statmonitor.cold_archive.R2_ACCESS_KEY_ID", "kid"), \
+             patch("statmonitor.cold_archive.R2_SECRET_ACCESS_KEY", "sec"), \
+             patch("statmonitor.cold_archive.R2_BUCKET_NAME", "bkt"), \
+             patch("statmonitor.cold_archive.requests.put", return_value=MagicMock(status_code=200)) as mock_put:
+            ok_r2, uri_r2, kind_r2 = upload_to_r2(b"abc", "odds_history/year=2026/month=11/d.parquet")
+            self.assertTrue(ok_r2)
+            self.assertEqual(kind_r2, "R2")
+            put_url = mock_put.call_args[0][0]
+            self.assertIn("year%3D2026/month%3D11", put_url)
+
+    def test_audit_sx_bet_derby_and_guardrails(self):
+        from statmonitor.sx_bet import (
+            SXBetClient,
+            match_paper_bet_and_side,
+            evaluate_sx_risk_guardrails,
+            sync_sx_exchange_full,
+        )
+
+        # 1. Derby rejection: Real Madrid vs Atletico Madrid / Manchester City vs Manchester United
+        markets = [
+            {
+                "marketHash": "0x_derby_1",
+                "type": 1,
+                "teamOneName": "Atletico Madrid",
+                "teamTwoName": "Sevilla FC",
+                "outcomeOneName": "Atletico Madrid",
+                "outcomeTwoName": "Not Atletico Madrid",
+            },
+            {
+                "marketHash": "0x_derby_2",
+                "type": 226,
+                "teamOneName": "Manchester United",
+                "teamTwoName": "Manchester City",
+                "outcomeOneName": "Manchester United",
+                "outcomeTwoName": "Manchester City",
+            },
+        ]
+        m_rm, _ = match_paper_bet_and_side({"match_name": "Real Madrid - Sevilla", "pick_label": "П1 (Real Madrid)"}, markets)
+        self.assertIsNone(m_rm)
+        m_wrong, _ = match_paper_bet_and_side({"match_name": "Manchester City - Arsenal", "pick_label": "П1"}, [markets[1]])
+        self.assertIsNone(m_wrong)
+        m_mc, is_one_mc = match_paper_bet_and_side({"match_name": "Manchester City - Manchester United", "pick_label": "П1 (Manchester City)"}, markets)
+        self.assertIsNotNone(m_mc)
+        self.assertFalse(is_one_mc)
+
+        # 2. Kill-switch and guardrails
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+        mock_cur.fetchall.return_value = [("sx_autostake_enabled", False)]
+        ok_g, reason_g = evaluate_sx_risk_guardrails(mock_conn, 2.0, free_usdc=50.0, portfolio_usdc=50.0)
+        self.assertFalse(ok_g)
+        self.assertIn("kill-switch", reason_g.lower())
+
+        # Stop-loss triggered (-10 USDC on $100 portfolio >= 7%)
+        mock_cur.fetchall.return_value = [("sx_autostake_enabled", True)]
+        mock_cur.fetchone.return_value = (-10.0, 0.0, 0.0)
+        ok_sl, reason_sl = evaluate_sx_risk_guardrails(mock_conn, 2.0, free_usdc=90.0, portfolio_usdc=100.0)
+        self.assertFalse(ok_sl)
+        self.assertIn("Stop-Loss", reason_sl)
+
+        # 3. RPC error returns None instead of misleading 0.0
+        cli = SXBetClient(proxy_address="0x" + "1" * 40)
+        with patch("statmonitor.sx_bet.requests.post", side_effect=RuntimeError("rpc down")):
+            self.assertIsNone(cli.get_proxy_usdc_balance())
+
+        # 4. Sync reconciliation uses RECONCILIATION_DIFF (never synthetic DEPOSIT/WITHDRAWAL)
+        cli_ok = SXBetClient(api_key="k", proxy_address="0x" + "1" * 40)
+        cli_ok.get_proxy_usdc_balance = lambda: 65.0
+        cli_ok.get_user_trades = lambda: [{"tradeId": "tr1", "marketHash": "0x1", "totalStake": "1000000", "totalReturn": "2000000", "status": "MATCHED", "betTime": 1700000000}]
+        cli_ok.get_user_positions = lambda *a, **kw: []
+        cli_ok.get_orders = lambda *a, **kw: []
+        cli_ok.get_markets_by_hashes = lambda *a, **kw: {}
+        sync_conn = MagicMock()
+        sync_cur = MagicMock()
+        sync_conn.cursor.return_value.__enter__.return_value = sync_cur
+        sync_cur.fetchone.side_effect = [
+            None,               # existing sx_bets
+            None,               # existing tx BET_PLACED
+            (50.0, 0.0, 0.0),   # deposits, withdrawals, recon
+            (0.0, 1.0),         # net_pnl, active_risked -> expected=49, diff=+16
+        ]
+        sync_cur.fetchall.side_effect = [[], [], [(1, 16.0)]]
+        sync_sx_exchange_full(sync_conn, client=cli_ok)
+        ins_sqls = [str(c[0][0]) for c in sync_cur.execute.call_args_list if "RECONCILIATION_DIFF" in str(c[0][0])]
+        self.assertTrue(len(ins_sqls) >= 1)
+
+    def test_audit_ledger_settlement_and_analytics(self):
+        from statmonitor.analytics import classify_market_group
+        from statmonitor.real_bankroll import record_real_transaction, get_real_bankroll_summary
+        from statmonitor.paper_trading import place_paper_bet, capture_closing_lines, settle_and_report, eval_outcome
+        import sys_watchdog
+
+        # 1. Q-06 market classification precedence
+        self.assertEqual(classify_market_group("Atlético-MG"), "1X2 / Переможець")
+        self.assertEqual(classify_market_group("Футбол: П1"), "1X2 / Переможець")
+        self.assertEqual(classify_market_group("Arsenal (+0.5)"), "Фори")
+        self.assertEqual(classify_market_group("ТМ 2.5"), "Тотали")
+
+        # 2. F-06 WITHDRAWAL overdraft rejected + Q-09 NULL real_profit_uah not fallen back to paper
+        cur_w = MagicMock()
+        conn_w = MagicMock()
+        cur_w.fetchone.return_value = (100.00,)
+        ok_w, bal_w, msg_w = record_real_transaction(cur_w, conn_w, "WITHDRAWAL", 500.00, "Overdraft test")
+        self.assertFalse(ok_w)
+        self.assertEqual(bal_w, 100.0)
+        self.assertIn("Недостатньо коштів", msg_w)
+
+        cur_sum = MagicMock()
+        cur_sum.fetchone.side_effect = [(1000.0, 1000.0), (1000.0, 0.0), (1, 0, 1, 0, 0, 100.0, 0.0)]
+        sum_res = get_real_bankroll_summary(cur_sum)
+        q_sql = str(cur_sum.execute.call_args_list[-1][0][0])
+        self.assertIn("COALESCE(real_profit_uah, 0.0)", q_sql)
+        self.assertEqual(sum_res["real_profit"], 0.0)
+
+        # 3. F-02 fail-closed on missing AI confidence
+        cur_p = MagicMock()
+        conn_p = MagicMock()
+        cur_p.fetchone.return_value = None
+        ok_p = place_paper_bet(cur_p, conn_p, "ev_no_ai", "soccer_epl", "A - B", datetime.now(timezone.utc), "П1", 2.0, confidence=None)
+        self.assertFalse(ok_p)
+        ins_calls = [str(c[0][1]) for c in cur_p.execute.call_args_list if "INSERT INTO paper_bets" in str(c[0][0])]
+        self.assertTrue(any("AI_UNAVAILABLE" in c for c in ins_calls))
+
+        # 4. F-12 capture_closing_lines never fakes closing_odds = bet_k
+        cur_clv = MagicMock()
+        conn_clv = MagicMock()
+        cur_clv.fetchall.return_value = [(77, "ev_no_close", "A - B", "П1", 2.15, datetime.now(timezone.utc), "PENDING")]
+        with patch("statmonitor.paper_trading.get_market_median_odds", return_value=None):
+            res_clv = capture_closing_lines(cur_clv, conn_clv)
+        self.assertEqual(res_clv, [])
+
+        # 5. Q-07 Inter vs Inter Miami team boundary
+        self.assertEqual(eval_outcome("Inter Miami", "Inter - Inter Miami", 0, 2), "WON")
+        self.assertEqual(eval_outcome("Inter Miami", "Inter - Inter Miami", 2, 0), "LOST")
+
+        # 6. F-08 Tennis non-h2h auto-settlement skipped when score is only set count
+        cur_t = MagicMock()
+        conn_t = MagicMock()
+        cur_t.fetchall.return_value = [
+            (91, "ev_ten_1", "tennis_atp_dubai", "Player A - Player B", "ТБ 22.5", 1.90, 200.0, False, None, None, "PENDING", False, datetime.now(timezone.utc)),
+        ]
+        fake_ev = {"id": "ev_ten_1", "home_team": "Player A", "away_team": "Player B", "completed": True, "scores": [{"name": "Player A", "score": "2"}, {"name": "Player B", "score": "0"}]}
+        with patch("statmonitor.config.PROPLINE_API_KEY", ""), \
+             patch("statmonitor.paper_trading.API_KEY", "k_test"), \
+             patch("statmonitor.paper_trading.requests.get", return_value=MagicMock(status_code=200, json=lambda: [fake_ev])), \
+             patch("statmonitor.paper_trading.fetch_espn_scores_for_sport", return_value=[]):
+            settle_and_report(cur_t, conn_t)
+        upd_calls = [str(c[0][0]) for c in cur_t.execute.call_args_list if "UPDATE paper_bets" in str(c[0][0])]
+        self.assertEqual(len(upd_calls), 0)
+
+        # 7. A-02 record_heartbeat updates both StatMonitor and scheduler_run
+        cur_hb = MagicMock()
+        conn_hb = MagicMock()
+        sys_watchdog.record_heartbeat(cur_hb, conn_hb, duration_sec=1.2)
+        hb_svcs = [c[0][1][0] for c in cur_hb.execute.call_args_list if len(c[0]) > 1 and c[0][1] and "INSERT INTO system_heartbeat" in str(c[0][0])]
+        self.assertIn("StatMonitor", hb_svcs)
+        self.assertIn("scheduler_run", hb_svcs)
+
+        # 8. A-01 run_pipeline aborts when pg_try_advisory_lock returns False
+        mock_lock_conn = MagicMock()
+        mock_lock_conn.server_version = 160000
+        mock_lock_cur = MagicMock()
+        mock_lock_cur.fetchone.return_value = (False,)
+        mock_lock_conn.cursor.return_value = mock_lock_cur
+        with patch("main.get_db", return_value=mock_lock_conn), \
+             patch("main.get_sports_map") as mock_sm:
+            main.run_pipeline(force=True)
+            mock_sm.assert_not_called()
 
 
 if __name__ == "__main__":

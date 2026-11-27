@@ -10,7 +10,7 @@ from statmonitor.config import (
     KYIV_TZ,
 )
 from statmonitor.database import get_db
-from statmonitor.notifier import send_tg, esc, fmt_kyiv
+from statmonitor.notifier import send_tg, esc, fmt_kyiv, _redact_secrets
 
 DEFAULT_KEYBOARD = {
     "keyboard": [
@@ -22,11 +22,25 @@ DEFAULT_KEYBOARD = {
     "one_time_keyboard": False,
 }
 
-def is_authorized(chat_id):
-    """Перевіряє, чи має користувач доступ до бота (захист від сторонніх запитів)."""
-    if not TG_CHAT_ID:
-        return True
-    return str(chat_id).strip() == str(TG_CHAT_ID).strip()
+def is_authorized(chat_id, user_id=None):
+    """Перевіряє, чи має користувач доступ до бота (fail-closed + перевірка chat_id і user_id)."""
+    if not TG_CHAT_ID or not str(TG_CHAT_ID).strip():
+        return False
+    allowed = {x.strip() for x in str(TG_CHAT_ID).split(",") if x.strip()}
+    if not allowed or chat_id is None:
+        return False
+    chat_ok = str(chat_id).strip() in allowed
+    if not chat_ok:
+        return False
+    if user_id is not None:
+        return str(user_id).strip() in allowed
+    # У групових чатах (від'ємний ID) обов'язково вимагаємо підтверджений from.id
+    try:
+        if int(str(chat_id).strip()) < 0:
+            return False
+    except (ValueError, TypeError):
+        pass
+    return True
 
 def cmd_start_help():
     from statmonitor.config import DASHBOARD_URL
@@ -112,7 +126,6 @@ def cmd_bank(cur):
             turnover += stk
         elif st == "VOID":
             void += 1
-            turnover += stk
         elif st == "PENDING":
             pending += 1
             locked_pending += stk
@@ -527,7 +540,11 @@ def process_telegram_update(update, cur, conn):
         return None
 
     chat_id = msg.get("chat", {}).get("id")
+    from_id = (msg.get("from") or {}).get("id")
     if not chat_id:
+        return None
+    if not is_authorized(chat_id, user_id=from_id):
+        send_tg("⛔ Доступ обмежено.", chat_id=chat_id)
         return None
 
     text = msg.get("text")
@@ -552,7 +569,7 @@ def poll_updates(offset=None, limit=25, timeout=8):
         if r.status_code == 200:
             return r.json().get("result", [])
     except Exception as e:
-        print(f"poll_updates err: {e}")
+        print(f"poll_updates err: {_redact_secrets(e)}")
     return []
 
 def run_bot_worker(single_iteration=False):
@@ -585,6 +602,9 @@ def run_bot_worker(single_iteration=False):
                     print(f"Помилка обробки оновлення {u.get('update_id')}: {ex}")
 
             if single_iteration:
+                # Підтверджуємо offset у Telegram, щоб при наступному --once команди не повторювались
+                if offset is not None:
+                    poll_updates(offset=offset, limit=1, timeout=0)
                 break
             time.sleep(1)
     finally:

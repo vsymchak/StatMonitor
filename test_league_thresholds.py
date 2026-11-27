@@ -155,14 +155,22 @@ class TestLeagueThresholds(unittest.TestCase):
         self.assertIn("min_confidence", d)
         self.assertEqual(d["min_confidence"], 7)
 
-        # 2. Збереження дефолтів у БД
-        ok, msg = save_global_defaults(
-            cur=mock_cur, conn=mock_conn,
-            min_drop_pct=5.5, min_odds=1.50, max_odds=2.40, min_confidence=8,
-            markets=["h2h", "totals", "spreads", "btts"], enabled=True
-        )
-        self.assertTrue(ok)
-        mock_conn.commit.assert_called()
+        # 2. Збереження дефолтів у БД (у тимчасовий файл, щоб не змінювати config/leagues.json)
+        with tempfile.NamedTemporaryFile("w", delete=False, suffix=".json") as tf:
+            tf.write("{}")
+            tmp_cfg_path = tf.name
+        try:
+            ok, msg = save_global_defaults(
+                cur=mock_cur, conn=mock_conn,
+                min_drop_pct=5.5, min_odds=1.50, max_odds=2.40, min_confidence=8,
+                markets=["h2h", "totals", "spreads", "btts"], enabled=True,
+                config_path=tmp_cfg_path,
+            )
+            self.assertTrue(ok)
+            mock_conn.commit.assert_called()
+        finally:
+            if os.path.exists(tmp_cfg_path):
+                os.remove(tmp_cfg_path)
 
         # 3. Перевірка повернення збережених дефолтів
         mock_cur.fetchone.return_value = (5.5, 1.50, 2.40, '["h2h", "totals", "btts"]', True)

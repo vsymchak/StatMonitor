@@ -545,7 +545,7 @@ class SXBetClient:
                 logger.warning(f"Помилка отримання балансу USDC через RPC {rpc_url}: {e}")
                 continue
 
-        return 0.0
+        return None
 
     def _get_order_with_status(self, order_id: str) -> Tuple[Optional[Dict[str, Any]], int]:
         """Отримати деталі ордера та HTTP статус-код (200 / 404 / тощо)."""
@@ -832,8 +832,11 @@ def sync_sx_exchange_full(conn, client: Optional[SXBetClient] = None) -> Dict[st
         "tx_synced": 0,
     }
 
-    free_balance = sx_client.get_proxy_usdc_balance()
-    stats["free_balance_usdc"] = free_balance
+    raw_free_balance = sx_client.get_proxy_usdc_balance()
+    rpc_balance_ok = raw_free_balance is not None
+    free_balance = float(raw_free_balance) if rpc_balance_ok else 0.0
+    stats["free_balance_usdc"] = raw_free_balance
+    stats["rpc_balance_ok"] = rpc_balance_ok
 
     trades = sx_client.get_user_trades()
     positions = sx_client.get_user_positions(["MATCHED", "LOCKED", "SETTLED"])
@@ -1116,16 +1119,19 @@ def sync_sx_exchange_full(conn, client: Optional[SXBetClient] = None) -> Dict[st
                         updated_count += 1
 
         # Звіряємо фінансовий стан з ончейн Proxy Wallet (враховуємо лише реально виконані LOCKED ставки!)
-        if free_balance > 0 and trades:
+        # Використовуємо RECONCILIATION_DIFF замість фіктивних DEPOSIT/WITHDRAWAL, щоб не спотворювати KPI поповнень.
+        if rpc_balance_ok and trades:
             cur.execute("""
                 SELECT
                     COALESCE(SUM(amount_usdc) FILTER (WHERE type = 'DEPOSIT'), 0.0),
-                    COALESCE(SUM(ABS(amount_usdc)) FILTER (WHERE type = 'WITHDRAWAL'), 0.0)
+                    COALESCE(SUM(ABS(amount_usdc)) FILTER (WHERE type = 'WITHDRAWAL'), 0.0),
+                    COALESCE(SUM(amount_usdc) FILTER (WHERE type = 'RECONCILIATION_DIFF'), 0.0)
                 FROM sx_transactions;
             """)
-            dep_sum, with_sum = cur.fetchone()
+            dep_sum, with_sum, recon_sum = cur.fetchone()
             dep_sum = float(dep_sum or 0.0)
             with_sum = float(with_sum or 0.0)
+            recon_sum = float(recon_sum or 0.0)
 
             cur.execute("""
                 SELECT
@@ -1137,19 +1143,18 @@ def sync_sx_exchange_full(conn, client: Optional[SXBetClient] = None) -> Dict[st
             net_pnl = float(net_pnl or 0.0)
             active_risked = float(active_risked or 0.0)
 
-            expected_free = round(dep_sum - with_sum + net_pnl - active_risked, 2)
+            expected_free = round(dep_sum - with_sum + recon_sum + net_pnl - active_risked, 2)
             diff = round(free_balance - expected_free, 2)
             if abs(diff) >= 0.50:
-                if diff > 0:
-                    cur.execute("""
-                        INSERT INTO sx_transactions (tx_hash, type, amount_usdc, balance_after_usdc, notes)
-                        VALUES (%s, 'DEPOSIT', %s, %s, %s);
-                    """, (f"dep_sync_{int(time.time())}", diff, free_balance, "Автосинхронізація поповнення Proxy Wallet USDC"))
-                else:
-                    cur.execute("""
-                        INSERT INTO sx_transactions (tx_hash, type, amount_usdc, balance_after_usdc, notes)
-                        VALUES (%s, 'WITHDRAWAL', %s, %s, %s);
-                    """, (f"with_sync_{int(time.time())}", diff, free_balance, "Автосинхронізація виведення з Proxy Wallet USDC"))
+                cur.execute("""
+                    INSERT INTO sx_transactions (tx_hash, type, amount_usdc, balance_after_usdc, notes)
+                    VALUES (%s, 'RECONCILIATION_DIFF', %s, %s, %s);
+                """, (
+                    f"recon_{int(time.time())}",
+                    diff,
+                    free_balance,
+                    f"Звірка балансу Proxy Wallet USDC (expected {expected_free:.2f}, on-chain {free_balance:.2f})",
+                ))
                 stats["tx_synced"] += 1
 
         # Перераховуємо хронологічний balance_after_usdc у sx_transactions
@@ -1160,8 +1165,8 @@ def sync_sx_exchange_full(conn, client: Optional[SXBetClient] = None) -> Dict[st
             running_bal = round(running_bal + float(tx_amt or 0.0), 2)
             cur.execute("UPDATE sx_transactions SET balance_after_usdc = %s WHERE id = %s;", (running_bal, tx_id))
 
-        # Фіксуємо точний ончейн баланс на останній транзакції, якщо відхилення лише в копійках комісій
-        if free_balance > 0 and all_txs:
+        # Фіксуємо точний ончейн баланс на останній транзакції лише при підтвердженому RPC-читанні
+        if rpc_balance_ok and all_txs:
             cur.execute("UPDATE sx_transactions SET balance_after_usdc = %s WHERE id = %s;", (free_balance, all_txs[-1][0]))
 
         conn.commit()
@@ -1222,12 +1227,12 @@ def fetch_sx_summary(conn, client: Optional[SXBetClient] = None) -> Dict[str, An
     """
     sx_client = client or SXBetClient()
 
-    # 1. Ончейн вільний баланс
-    free_balance = sx_client.get_proxy_usdc_balance()
+    # 1. Ончейн вільний баланс (None = помилка RPC; 0.0 = реальний нульовий вільний баланс)
+    raw_free = sx_client.get_proxy_usdc_balance()
+    free_balance = float(raw_free) if raw_free is not None else 0.0
 
-    # Якщо ончейн RPC повернув 0.0 (через тимчасовий таймаут чи мережеві затримки),
-    # використовуємо останній зафіксований баланс із бази даних sx_transactions
-    if free_balance == 0.0 and conn:
+    # Лише при збої RPC (raw_free is None) беремо останній зафіксований баланс із sx_transactions
+    if raw_free is None and conn:
         try:
             with conn.cursor() as cur_fb:
                 cur_fb.execute("SELECT balance_after_usdc FROM sx_transactions WHERE balance_after_usdc IS NOT NULL ORDER BY created_at DESC, id DESC LIMIT 1")
@@ -1309,6 +1314,61 @@ def normalize_team_text(text: str) -> str:
     if not tokens:
         tokens = [t for t in cleaned.split() if len(t) > 1]
     return " ".join(tokens)
+
+
+_DERBY_CONFLICT_PAIRS = (
+    ("real", "atletico"),
+    ("united", "city"),
+    ("roma", "lazio"),
+    ("everton", "liverpool"),
+    ("espanyol", "barcelona"),
+    ("celtic", "rangers"),
+    ("wednesday", "united"),
+    ("rovers", "city"),
+    ("dynamo", "shakhtar"),
+    ("spartak", "cska"),
+    ("olympiacos", "panathinaikos"),
+)
+
+
+def _raw_tokens(text: str) -> set:
+    if not text:
+        return set()
+    decomposed = unicodedata.normalize("NFKD", str(text))
+    ascii_text = "".join(c for c in decomposed if not unicodedata.combining(c))
+    cleaned = re.sub(r"[^\w\s]", " ", ascii_text.lower())
+    return set(cleaned.split())
+
+
+def _derby_compatible(raw_a: str, raw_b: str) -> bool:
+    """
+    Запобігає переплутуванню дербі-клубів одного міста
+    (Real Madrid vs Atletico Madrid, Manchester United vs Manchester City, Inter vs AC Milan).
+    """
+    ta = _raw_tokens(raw_a)
+    tb = _raw_tokens(raw_b)
+    if not ta or not tb:
+        return True
+
+    for p, q in _DERBY_CONFLICT_PAIRS:
+        if (p in ta and q not in ta) and (q in tb and p not in tb):
+            return False
+        if (q in ta and p not in ta) and (p in tb and q not in tb):
+            return False
+
+    # Inter Milan / Internazionale vs AC Milan
+    a_inter = ("inter" in ta or "internazionale" in ta) and ("ac" not in ta)
+    b_inter = ("inter" in tb or "internazionale" in tb) and ("ac" not in tb)
+    a_ac = ("ac" in ta or "milan" in ta) and ("inter" not in ta and "internazionale" not in ta)
+    b_ac = ("ac" in tb or "milan" in tb) and ("inter" not in tb and "internazionale" not in tb)
+    if (a_inter and b_ac) or (b_inter and a_ac):
+        return False
+
+    # Athletic Club/Bilbao vs Real Sociedad/Madrid
+    if ("athletic" in ta and "real" in tb) or ("athletic" in tb and "real" in ta):
+        return False
+
+    return True
 
 
 def _teams_similar(p_team: str, sx_team: str) -> bool:
@@ -1463,16 +1523,31 @@ def match_paper_bet_and_side(
         if m_sp:
             target_line = float(m_sp.group(1).replace(",", "."))
 
-    # Збираємо кандидатів за командами та часом матчу
+    # Збираємо кандидатів за командами, дербі-токенами та часом матчу
     candidates: List[Dict[str, Any]] = []
     for m in active_markets:
-        sx_t1 = normalize_team_text(m.get("teamOneName", ""))
-        sx_t2 = normalize_team_text(m.get("teamTwoName", ""))
+        raw_m1 = str(m.get("teamOneName", ""))
+        raw_m2 = str(m.get("teamTwoName", ""))
+        sx_t1 = normalize_team_text(raw_m1)
+        sx_t2 = normalize_team_text(raw_m2)
         if not sx_t1 or not sx_t2:
             continue
 
-        match_direct = _teams_similar(p_t1, sx_t1) and _teams_similar(p_t2, sx_t2)
-        match_rev = _teams_similar(p_t1, sx_t2) and _teams_similar(p_t2, sx_t1)
+        match_direct = (
+            _teams_similar(p_t1, sx_t1)
+            and _teams_similar(p_t2, sx_t2)
+            and _derby_compatible(parts[0], raw_m1)
+            and _derby_compatible(parts[1], raw_m2)
+        )
+        match_rev = (
+            _teams_similar(p_t1, sx_t2)
+            and _teams_similar(p_t2, sx_t1)
+            and _derby_compatible(parts[0], raw_m2)
+            and _derby_compatible(parts[1], raw_m1)
+        )
+        # Якщо обидва напрямки збігаються одночасно (неоднозначний дербі-збіг) — відхиляємо
+        if match_direct and match_rev:
+            continue
         if not (match_direct or match_rev):
             continue
 
@@ -1534,7 +1609,9 @@ def match_paper_bet_and_side(
         return None, True
 
     if is_spread:
-        want_team = p_t2 if ("ф2" in pick_lbl or (_teams_similar(p_t2, normalize_team_text(pick_raw)) and "ф1" not in pick_lbl)) else p_t1
+        want_away = "ф2" in pick_lbl or (_teams_similar(p_t2, normalize_team_text(pick_raw)) and "ф1" not in pick_lbl and _derby_compatible(parts[1], pick_raw))
+        want_team = p_t2 if want_away else p_t1
+        want_raw = parts[1] if want_away else parts[0]
         spread_mkts = []
         for m in candidates:
             m_type = m.get("type")
@@ -1547,7 +1624,7 @@ def match_paper_bet_and_side(
             o1_str = str(m.get("outcomeOneName", ""))
             o2_str = str(m.get("outcomeTwoName", ""))
             for idx_one, o_txt in [(True, o1_str), (False, o2_str)]:
-                if _teams_similar(want_team, normalize_team_text(o_txt)):
+                if _teams_similar(want_team, normalize_team_text(o_txt)) and _derby_compatible(want_raw, o_txt):
                     o_val = _extract_number_from_pick(o_txt)
                     if target_line is None or (o_val is not None and abs(o_val - target_line) <= 0.05):
                         return m, idx_one
@@ -1555,17 +1632,23 @@ def match_paper_bet_and_side(
 
     # Moneyline / 1X2
     want_team = None
+    want_raw = parts[0]
     if not is_draw:
         if "п2" in pick_lbl or pick_lbl == "2" or "(2)" in pick_lbl:
             want_team = p_t2
+            want_raw = parts[1]
         elif "п1" in pick_lbl or pick_lbl == "1" or "(1)" in pick_lbl:
             want_team = p_t1
-        elif _teams_similar(p_t2, normalize_team_text(pick_raw)):
+            want_raw = parts[0]
+        elif _teams_similar(p_t2, normalize_team_text(pick_raw)) and _derby_compatible(parts[1], pick_raw):
             want_team = p_t2
-        elif _teams_similar(p_t1, normalize_team_text(pick_raw)):
+            want_raw = parts[1]
+        elif _teams_similar(p_t1, normalize_team_text(pick_raw)) and _derby_compatible(parts[0], pick_raw):
             want_team = p_t1
+            want_raw = parts[0]
         else:
             want_team = p_t1
+            want_raw = parts[0]
 
     # 1) Шукаємо 2-way Moneyline (type 226)
     for m in candidates:
@@ -1576,34 +1659,39 @@ def match_paper_bet_and_side(
         ):
             if is_draw:
                 continue
-            o1_norm = normalize_team_text(m.get("outcomeOneName", ""))
-            o2_norm = normalize_team_text(m.get("outcomeTwoName", ""))
-            if _teams_similar(want_team, o1_norm):
+            raw_o1 = str(m.get("outcomeOneName", ""))
+            raw_o2 = str(m.get("outcomeTwoName", ""))
+            o1_norm = normalize_team_text(raw_o1)
+            o2_norm = normalize_team_text(raw_o2)
+            if _teams_similar(want_team, o1_norm) and _derby_compatible(want_raw, raw_o1):
                 return m, True
-            if _teams_similar(want_team, o2_norm):
+            if _teams_similar(want_team, o2_norm) and _derby_compatible(want_raw, raw_o2):
                 return m, False
 
     # 2) Шукаємо футбольний 1X2 ринок (type 1: Team / Not Team або Tie / Not tie)
     for m in candidates:
         if m.get("type") == 1 or "not " in str(m.get("outcomeTwoName", "")).lower():
-            o1_str = str(m.get("outcomeOneName", "")).lower()
+            raw_o1 = str(m.get("outcomeOneName", ""))
+            o1_str = raw_o1.lower()
             if is_draw:
                 if "tie" in o1_str or "draw" in o1_str:
                     return m, True
             else:
-                o1_norm = normalize_team_text(m.get("outcomeOneName", ""))
-                if _teams_similar(want_team, o1_norm):
+                o1_norm = normalize_team_text(raw_o1)
+                if _teams_similar(want_team, o1_norm) and _derby_compatible(want_raw, raw_o1):
                     return m, True
 
     # 3) Fallback на Draw No Bet (type 52), якщо 1X2 недоступний
     if not is_draw:
         for m in candidates:
             if m.get("type") == 52:
-                o1_norm = normalize_team_text(m.get("outcomeOneName", ""))
-                o2_norm = normalize_team_text(m.get("outcomeTwoName", ""))
-                if _teams_similar(want_team, o1_norm):
+                raw_o1 = str(m.get("outcomeOneName", ""))
+                raw_o2 = str(m.get("outcomeTwoName", ""))
+                o1_norm = normalize_team_text(raw_o1)
+                o2_norm = normalize_team_text(raw_o2)
+                if _teams_similar(want_team, o1_norm) and _derby_compatible(want_raw, raw_o1):
                     return m, True
-                if _teams_similar(want_team, o2_norm):
+                if _teams_similar(want_team, o2_norm) and _derby_compatible(want_raw, raw_o2):
                     return m, False
 
     return None, True
@@ -1619,6 +1707,94 @@ def match_paper_bet_to_sx_market(
     return m
 
 
+def is_sx_autostake_enabled(conn=None) -> Tuple[bool, str]:
+    """Перевіряє глобальний kill-switch (env + таблиця system_flags) для авто-стейкінгу SX Bet."""
+    env_flag = os.environ.get("SX_AUTOSTAKE_ENABLED")
+    if env_flag is not None and str(env_flag).strip().lower() in ("0", "false", "no", "off"):
+        return False, "Активовано аварійний kill-switch SX_AUTOSTAKE_ENABLED=false"
+
+    if conn is not None:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SAVEPOINT sp_sx_flags;")
+                try:
+                    cur.execute(
+                        "SELECT key, enabled FROM system_flags WHERE key IN ('sx_autostake_enabled', 'trading_enabled');"
+                    )
+                    rows = cur.fetchall()
+                    cur.execute("RELEASE SAVEPOINT sp_sx_flags;")
+                    for k, enabled in rows:
+                        if enabled is False:
+                            return False, f"Активовано kill-switch у system_flags ({k}=FALSE)"
+                except Exception:
+                    try:
+                        cur.execute("ROLLBACK TO SAVEPOINT sp_sx_flags;")
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    return True, "OK"
+
+
+def evaluate_sx_risk_guardrails(
+    conn,
+    new_stake_usdc: float,
+    event_id: Optional[str] = None,
+    free_usdc: float = 0.0,
+    portfolio_usdc: float = 0.0,
+    max_daily_loss_pct: float = 7.0,
+    max_exposure_pct: float = 25.0,
+) -> Tuple[bool, str]:
+    """
+    Запобіжники ризиків для реальних ставок SX Bet (USDC):
+    1. Kill-switch (system_flags / env)
+    2. Захист від дубльованого ризику на ту саму подію (PENDING/OPEN_ORDER)
+    3. Резервування відкритих лімітних ордерів (OPEN_ORDER) проти free_usdc
+    4. Добовий Stop-Loss (24h realized loss >= max_daily_loss_pct)
+    5. Ліміт сумарної експозиції (PENDING + OPEN_ORDER <= max_exposure_pct)
+    """
+    enabled, flag_msg = is_sx_autostake_enabled(conn)
+    if not enabled:
+        return False, flag_msg
+
+    base_port = max(float(portfolio_usdc or 0.0), float(free_usdc or 0.0), 1.0)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    COALESCE(SUM(profit_usdc) FILTER (WHERE status IN ('WON', 'LOST', 'VOID') AND settled_at >= NOW() - INTERVAL '24 hours'), 0.0),
+                    COALESCE(SUM(stake_usdc) FILTER (WHERE status = 'PENDING'), 0.0),
+                    COALESCE(SUM(stake_usdc) FILTER (WHERE status = 'OPEN_ORDER'), 0.0)
+                FROM sx_bets;
+            """)
+            daily_pnl, pending_usdc, open_order_usdc = [float(x or 0.0) for x in cur.fetchone()]
+
+            if daily_pnl < 0 and (abs(daily_pnl) / base_port) * 100.0 >= float(max_daily_loss_pct):
+                return False, f"SX Stop-Loss 24h: збиток {daily_pnl:.2f} USDC (>= {max_daily_loss_pct}% портфелю)"
+
+            effective_free = max(0.0, float(free_usdc or 0.0) - open_order_usdc)
+            if float(new_stake_usdc) > effective_free:
+                return False, f"Недостатньо вільного USDC з урахуванням OPEN_ORDER ({effective_free:.2f} < {float(new_stake_usdc):.2f})"
+
+            active_exp = pending_usdc + open_order_usdc
+            max_exp_usdc = base_port * (float(max_exposure_pct) / 100.0)
+            if active_exp > 0 and (active_exp + float(new_stake_usdc)) > max_exp_usdc:
+                return False, f"Ліміт експозиції SX Bet ({active_exp + float(new_stake_usdc):.2f} > {max_exp_usdc:.2f} USDC)"
+
+            if event_id:
+                cur.execute(
+                    "SELECT 1 FROM sx_bets WHERE event_id = %s AND status IN ('PENDING', 'OPEN_ORDER') LIMIT 1;",
+                    (str(event_id),),
+                )
+                if cur.fetchone():
+                    return False, f"На подію {event_id} вже відкрита/очікує ставка SX Bet"
+    except Exception as e:
+        return False, f"Помилка перевірки SX Risk Guardrails: {e}"
+
+    return True, "OK"
+
+
 def auto_sync_and_stake_from_paper(
     conn,
     client: Optional[SXBetClient] = None,
@@ -1628,14 +1804,19 @@ def auto_sync_and_stake_from_paper(
     """
     Автоматичний сканер та стейкер SX Bet:
     1. Завантажує налаштування ризик-менеджменту (% від банку USDC, мін. 1.00 USDC, поріг впевненості).
-    2. Отримує кандидатів з paper_bets (PENDING, is_shadow=FALSE), які ще не мають активної/закритої ставки на біржі.
-    3. Пошук ринків виконується з пагінацією за відповідними лігами/видами спорту, перевіркою часу матчу та лінії.
-    4. Розраховує ставку як % від поточного портфелю/вільного балансу USDC (але не менше 1.00 USDC).
-    5. Перевіряє реальний стакан (GET /orderbook-v3/snapshot/market) для миттєвого виконання (Taker) або виставляє лімітний ордер.
+    2. Перевіряє глобальний kill-switch (system_flags / env) та USDC-запобіжники (Stop-Loss, Max Exposure, OPEN_ORDER reserve).
+    3. Отримує кандидатів з paper_bets (PENDING, is_shadow=FALSE), які ще не мають активної/закритої ставки на біржі.
+    4. Пошук ринків виконується з пагінацією за відповідними лігами/видами спорту, перевіркою дербі-токенів, часу та лінії.
+    5. Розраховує ставку як % від поточного портфелю/вільного балансу USDC та підтверджує реальний orderId.
     """
     sx_client = client or SXBetClient()
     if not sx_client.api_key or not sx_client.private_key:
         logger.warning("API-ключ або приватний ключ SX Bet не налаштовано. Пропуск авто-стейкінгу.")
+        return []
+
+    enabled, flag_msg = is_sx_autostake_enabled(conn)
+    if not enabled:
+        logger.warning(f"[SX Bet] Авто-стейкінг зупинено: {flag_msg}")
         return []
 
     cfg = get_sx_staking_config(conn)
@@ -1684,6 +1865,7 @@ def auto_sync_and_stake_from_paper(
             continue
 
         market_hash = matched_m["marketHash"]
+        sx_ev_id = matched_m.get("sportXeventId")
         paper_odds = _normalize_decimal_odds(pb.get("odds", 1.90))
         raw_walkaway = float(pb.get("walkaway_odds") or 0.0)
         walkaway = _normalize_decimal_odds(raw_walkaway) if raw_walkaway > 1.05 else 0.0
@@ -1705,6 +1887,17 @@ def auto_sync_and_stake_from_paper(
 
         if bet_size_usdc < 1.0 or free_usdc < bet_size_usdc:
             logger.info(f"Недостатньо вільного USDC ({free_usdc:.2f}) для ставки {bet_size_usdc:.2f} по #{pb['id']}")
+            continue
+
+        guard_ok, guard_reason = evaluate_sx_risk_guardrails(
+            conn,
+            new_stake_usdc=bet_size_usdc,
+            event_id=sx_ev_id,
+            free_usdc=free_usdc,
+            portfolio_usdc=portfolio_usdc,
+        )
+        if not guard_ok:
+            logger.warning(f"[SX Risk Guard] Заблоковано ставку #{pb['id']} ({pb.get('match_name')}): {guard_reason}")
             continue
 
         # Перевіряємо живий стакан SX Bet (ліквідність для миттєвого виконання)
@@ -1735,8 +1928,11 @@ def auto_sync_and_stake_from_paper(
             sig = sx_client.sign_order(order)
             res = sx_client.place_order(order, signature=sig, dry_run=False)
 
-            order_data = res.get("data", {}).get("orders", [{}])[0]
-            order_id = order_data.get("orderId") or order.get("marketHash")
+            orders_list = ((res or {}).get("data") or {}).get("orders") or []
+            order_data = orders_list[0] if orders_list and isinstance(orders_list[0], dict) else {}
+            order_id = order_data.get("orderId")
+            if (res or {}).get("status") != "success" or not order_id:
+                raise RuntimeError(f"SX Bet API не підтвердив створення ордера: {res}")
 
             with conn.cursor() as cur:
                 cur.execute("""

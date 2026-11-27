@@ -27,9 +27,9 @@ def classify_market_group(pick_label):
     if not pick_label:
         return "1X2 / Переможець"
     lbl = str(pick_label).lower()
-    if any(k in lbl for k in ("тотал", "більше", "менше", "over", "under", "тб", "тм")):
+    if any(k in lbl for k in ("тотал", "більше", "менше", "over", "under")) or re.search(r"(?:^|[\s(])(?:тб|тм)(?:[\s()\d.]|$)", lbl):
         return "Тотали"
-    if any(k in lbl for k in ("фора", "handicap", "spread")) or ("+" in lbl or "-" in lbl and "(" in lbl):
+    if any(k in lbl for k in ("фора", "handicap", "spread")) or re.search(r"(?:ф[12]\s*\(?[+-]|\([+-]\d+(?:[.,]\d+)?\))", lbl):
         return "Фори"
     if any(k in lbl for k in ("обидві", "btts", "обе забьют", "оз:", "оз -", "оз (")) or re.search(r"(?:^|\b|\()оз(?:\b|\)|$)", lbl):
         return "Обидві заб'ють"

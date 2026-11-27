@@ -61,34 +61,68 @@ def run_pipeline(force=False):
 
     trigger_src = "force" if force else os.environ.get("TRIGGER_SOURCE", "manual")
 
-    # Розумний шлюз виконання (Smart 5-min Gate)
-    if trigger_src.lower() in ("cron_5m", "schedule", "cron"):
-        from scheduler import should_execute_pipeline
-        conn_gate = get_db()
-        if conn_gate:
-            cur_gate = conn_gate.cursor()
-            try:
-                should_run, reason, run_mode = should_execute_pipeline(cur_gate, conn_gate, trigger_source=trigger_src)
-                if not should_run:
-                    print("💤 [Smart Gate] Пропуск виконання (0 витрат квоти The Odds API та Gemini).")
-                    print(f"   Причина: {reason}")
-                    print("=" * 60)
-                    cur_gate.close()
-                    conn_gate.close()
-                    return
-                else:
-                    print(f"⚡ [Smart Gate] Запуск дозволено! Режим: {run_mode}")
-                    print(f"   Причина: {reason}")
-            except Exception as ge:
-                print(f"⚠️ Помилка перевірки Smart Gate: {ge}. Продовжуємо виконання.")
-            finally:
-                if not conn_gate.closed:
-                    cur_gate.close()
-                    conn_gate.close()
+    # Глобальний однопоточний замок (pg_try_advisory_lock) проти гонки Render / GH Actions / Daemon
+    lock_conn = None
+    lock_cur = None
+    has_advisory_lock = False
+    try:
+        lock_conn = get_db()
+        if lock_conn is not None and hasattr(lock_conn, "server_version"):
+            lock_cur = lock_conn.cursor()
+            lock_cur.execute("SELECT pg_try_advisory_lock(hashtext('statmonitor_pipeline'));")
+            locked_row = lock_cur.fetchone()
+            if locked_row and locked_row[0] is False:
+                print("⏸️ [Single-Flight] Інший процес пайплайну вже триває. Вихід без дублювання.")
+                lock_cur.close()
+                lock_conn.close()
+                return
+            has_advisory_lock = True
+    except Exception as le:
+        print(f"⚠️ Single-flight lock warning: {le}")
 
-    s_map = get_sports_map()
-    fetch_and_save_odds(s_map)
-    check_alerts_and_notify(s_map, t_start=t_start)
+    try:
+        # Розумний шлюз виконання (Smart 5-min Gate)
+        if trigger_src.lower() in ("cron_5m", "schedule", "cron"):
+            from scheduler import should_execute_pipeline
+            conn_gate = get_db()
+            if conn_gate:
+                cur_gate = conn_gate.cursor()
+                try:
+                    should_run, reason, run_mode = should_execute_pipeline(cur_gate, conn_gate, trigger_source=trigger_src)
+                    if not should_run:
+                        print("💤 [Smart Gate] Пропуск виконання (0 витрат квоти The Odds API та Gemini).")
+                        print(f"   Причина: {reason}")
+                        print("=" * 60)
+                        cur_gate.close()
+                        conn_gate.close()
+                        return
+                    else:
+                        print(f"⚡ [Smart Gate] Запуск дозволено! Режим: {run_mode}")
+                        print(f"   Причина: {reason}")
+                except Exception as ge:
+                    print(f"⚠️ Помилка перевірки Smart Gate: {ge}. Продовжуємо виконання.")
+                finally:
+                    if not conn_gate.closed:
+                        cur_gate.close()
+                        conn_gate.close()
+
+        s_map = get_sports_map()
+        fetch_and_save_odds(s_map)
+        check_alerts_and_notify(s_map, t_start=t_start)
+    finally:
+        if lock_conn is not None:
+            try:
+                if has_advisory_lock and lock_cur is not None and not lock_conn.closed:
+                    lock_cur.execute("SELECT pg_advisory_unlock(hashtext('statmonitor_pipeline'));")
+            except Exception:
+                pass
+            try:
+                if lock_cur is not None:
+                    lock_cur.close()
+                if not lock_conn.closed:
+                    lock_conn.close()
+            except Exception:
+                pass
 
 def run_recalc(db_url=None):
     """Перерахунок коефіцієнтів у вже розрахованих та активних ставках paper_bets."""

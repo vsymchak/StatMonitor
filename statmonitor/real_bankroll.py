@@ -102,7 +102,7 @@ def get_real_bankroll_summary(cur, conn=None):
                 COUNT(*) FILTER (WHERE status = 'LOST'),
                 COUNT(*) FILTER (WHERE status = 'VOID'),
                 COALESCE(SUM(COALESCE(real_stake_uah, stake_uah)) FILTER (WHERE status IN ('WON', 'LOST', 'VOID')), 0),
-                COALESCE(SUM(COALESCE(real_profit_uah, profit_uah)) FILTER (WHERE status IN ('WON', 'LOST', 'VOID')), 0)
+                COALESCE(SUM(COALESCE(real_profit_uah, 0.0)) FILTER (WHERE status IN ('WON', 'LOST', 'VOID')), 0)
             FROM paper_bets
             WHERE is_real_bet = TRUE;
         """)
@@ -129,54 +129,72 @@ def get_real_bankroll_summary(cur, conn=None):
     return summary
 
 
-def record_real_transaction(cur, conn, tx_type, amount, description="", bet_id=None, is_delta=False):
+def _to_money(val) -> "Decimal":
+    from decimal import Decimal, ROUND_HALF_UP
+    return Decimal(str(val if val is not None else 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def record_real_transaction(cur, conn, tx_type, amount, description="", bet_id=None, is_delta=False, commit=True):
     """
     Записує фінансову транзакцію в журнал реального банку з гарантією атомарності (SPEC-38):
-    - tx_type: 'INITIAL', 'DEPOSIT', 'WITHDRAWAL', 'BET_RESULT', 'ADJUSTMENT'
+    - tx_type: 'INITIAL', 'DEPOSIT', 'WITHDRAWAL', 'BET_RESULT', 'ADJUSTMENT', 'REVERSAL'
     - amount: сума транзакції (позитивна або від'ємна)
     - is_delta: чи є сума дельтою (+/- до балансу) при коригуванні ADJUSTMENT
-    - Гарантує SUM(amount_uah) == balance_after_uah для будь-якої транзакції.
+    - Гарантує SUM(amount_uah) == balance_after_uah та захист від овердрафту.
     """
+    from decimal import Decimal
     try:
+        if hasattr(conn, "server_version"):
+            cur.execute("SELECT pg_advisory_xact_lock(hashtext('real_bankroll_ledger'));")
+
         cur.execute("SELECT balance_after_uah FROM real_bankroll_ledger ORDER BY created_at DESC, id DESC LIMIT 1;")
         row_last = cur.fetchone()
-        current_b = float(row_last[0]) if (row_last and row_last[0] is not None) else 0.0
+        current_dec = _to_money(row_last[0]) if (row_last and row_last[0] is not None) else Decimal("0.00")
 
-        amt = float(amount)
+        amt_dec = _to_money(amount)
         tx_type_upper = str(tx_type).upper()
 
         if tx_type_upper == "DEPOSIT":
-            amt_signed = abs(amt)
-            new_balance = round(current_b + amt_signed, 2)
+            amt_signed_dec = abs(amt_dec)
+            new_balance_dec = current_dec + amt_signed_dec
         elif tx_type_upper == "WITHDRAWAL":
-            amt_signed = -abs(amt)
-            new_balance = round(max(0.0, current_b - abs(amt)), 2)
-        elif tx_type_upper == "BET_RESULT":
-            amt_signed = amt
-            new_balance = round(current_b + amt, 2)
+            req_dec = abs(amt_dec)
+            if req_dec > current_dec:
+                return False, float(current_dec), (
+                    f"Недостатньо коштів для виведення ({float(req_dec):,.2f} ₴ > {float(current_dec):,.2f} ₴)."
+                )
+            amt_signed_dec = -req_dec
+            new_balance_dec = current_dec + amt_signed_dec
+        elif tx_type_upper in ("BET_RESULT", "REVERSAL"):
+            amt_signed_dec = amt_dec
+            new_balance_dec = current_dec + amt_dec
         elif tx_type_upper == "ADJUSTMENT":
-            if is_delta or amt < 0:
-                new_balance = round(max(0.0, current_b + amt), 2)
-                amt_signed = round(new_balance - current_b, 2)
+            if is_delta or amt_dec < Decimal("0.00"):
+                new_balance_dec = max(Decimal("0.00"), current_dec + amt_dec)
+                amt_signed_dec = new_balance_dec - current_dec
             else:
-                new_balance = round(amt, 2)
-                amt_signed = round(new_balance - current_b, 2)
+                new_balance_dec = amt_dec
+                amt_signed_dec = new_balance_dec - current_dec
         elif tx_type_upper == "INITIAL":
-            new_balance = round(amt, 2)
-            amt_signed = amt
+            new_balance_dec = amt_dec
+            amt_signed_dec = amt_dec
         else:
-            amt_signed = amt
-            new_balance = round(current_b + amt, 2)
+            amt_signed_dec = amt_dec
+            new_balance_dec = current_dec + amt_dec
+
+        amt_signed = float(amt_signed_dec)
+        new_balance = float(new_balance_dec)
 
         cur.execute("""
             INSERT INTO real_bankroll_ledger (transaction_type, amount_uah, balance_after_uah, bet_id, description)
             VALUES (%s, %s, %s, %s, %s)
             RETURNING id;
         """, (tx_type_upper, amt_signed, new_balance, bet_id, description))
-        conn.commit()
+        if commit and conn:
+            conn.commit()
         return True, new_balance, f"Транзакцію [{tx_type_upper}] на суму {amt_signed:+.2f} ₴ успішно збережено. Новий баланс: {new_balance:,.2f} ₴."
     except Exception as e:
-        if conn:
+        if commit and conn:
             conn.rollback()
         return False, 0.0, f"Помилка запису транзакції: {e}"
 
@@ -332,7 +350,52 @@ def update_real_bet_params(cur, conn, bet_id, new_odds=None, new_stake=None):
         return False, f"Помилка коригування реальної ставки: {e}"
 
 
-def settle_real_bet_in_ledger(cur, conn, bet_id, status, profit_uah, stake_uah=None):
+def reverse_real_bet_in_ledger(cur, conn, bet_id, reason="Ручне коригування результату", commit=False):
+    """
+    Відкочує попередні проводки ставки у real_bankroll_ledger компенсуючим записом REVERSAL
+    (без руйнівного DELETE, зі збереженням аудиторського сліду).
+    """
+    from decimal import Decimal
+    try:
+        cur.execute("""
+            SELECT COALESCE(SUM(amount_uah), 0)
+            FROM real_bankroll_ledger
+            WHERE bet_id = %s AND transaction_type IN ('BET_RESULT', 'REVERSAL');
+        """, (bet_id,))
+        row = cur.fetchone()
+        net_posted = _to_money(row[0] if row and row[0] is not None else 0)
+        if net_posted == Decimal("0.00"):
+            return True, "Немає активних проводок для скасування."
+        rev_amount = float(-net_posted)
+        desc = f"Сторнування результату ставки #{bet_id} ({reason}): {rev_amount:+.2f} ₴"
+        ok, _, msg = record_real_transaction(cur, conn, "REVERSAL", rev_amount, description=desc, bet_id=bet_id, commit=False)
+        if ok and hasattr(conn, "server_version"):
+            try:
+                cur.execute("SAVEPOINT sp_superseded;")
+                cur.execute(
+                    """
+                    UPDATE real_bankroll_ledger
+                    SET is_superseded = TRUE
+                    WHERE bet_id = %s AND transaction_type = 'BET_RESULT' AND is_superseded = FALSE;
+                    """,
+                    (bet_id,),
+                )
+                cur.execute("RELEASE SAVEPOINT sp_superseded;")
+            except Exception:
+                try:
+                    cur.execute("ROLLBACK TO SAVEPOINT sp_superseded;")
+                except Exception:
+                    pass
+        if ok and commit and conn:
+            conn.commit()
+        return ok, msg
+    except Exception as e:
+        if commit and conn:
+            conn.rollback()
+        return False, f"Помилка сторнування ставки в леджері: {e}"
+
+
+def settle_real_bet_in_ledger(cur, conn, bet_id, status, profit_uah, stake_uah=None, allow_reopen=False, commit=True):
     """
     При розрахунку ставки, якщо вона позначена як is_real_bet,
     фіксує результат у real_bankroll_ledger (атомарний захист від повторних записів SPEC-38).
@@ -344,17 +407,22 @@ def settle_real_bet_in_ledger(cur, conn, bet_id, status, profit_uah, stake_uah=N
             return False, "Ставка не є реальною."
 
         m_name = row[1]
-        # Атомарна перевірка: чи вже був зафіксований результат ставки у леджері
-        cur.execute("SELECT 1 FROM real_bankroll_ledger WHERE bet_id = %s AND transaction_type = 'BET_RESULT';", (bet_id,))
-        if cur.fetchone():
-            return False, f"Результат ставки #{bet_id} вже зафіксовано в леджері."
+        if allow_reopen:
+            rev_ok, rev_msg = reverse_real_bet_in_ledger(cur, conn, bet_id, reason=f"Перерахунок -> {status}", commit=False)
+            if not rev_ok:
+                return False, rev_msg
+        else:
+            # Атомарна перевірка: чи вже був зафіксований результат ставки у леджері
+            cur.execute("SELECT 1 FROM real_bankroll_ledger WHERE bet_id = %s AND transaction_type = 'BET_RESULT';", (bet_id,))
+            if cur.fetchone():
+                return False, f"Результат ставки #{bet_id} вже зафіксовано в леджері."
 
         p_val = float(profit_uah or 0.0)
         desc = f"Результат ставки #{bet_id} ({m_name}): {status} ({p_val:+.2f} ₴)"
-        ok, _, msg = record_real_transaction(cur, conn, "BET_RESULT", p_val, description=desc, bet_id=bet_id)
+        ok, _, msg = record_real_transaction(cur, conn, "BET_RESULT", p_val, description=desc, bet_id=bet_id, commit=commit)
         return ok, msg
     except Exception as e:
-        if conn:
+        if commit and conn:
             conn.rollback()
         return False, f"Помилка фіксації результату ставки в леджері: {e}"
 

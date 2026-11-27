@@ -46,7 +46,7 @@ class TestKellyStaking(unittest.TestCase):
             (0.0, 0.0),          # prof, locked -> avail = 10000.0
         ]
 
-        res = place_paper_bet(cur, conn, "ev_test_kelly", "soccer_epl", "Arsenal - Chelsea", "2026-11-17T20:00:00Z", "П1 (Arsenal)", 1.85, drop_pct=12.0)
+        res = place_paper_bet(cur, conn, "ev_test_kelly", "soccer_epl", "Arsenal - Chelsea", "2026-11-17T20:00:00Z", "П1 (Arsenal)", 1.85, drop_pct=12.0, confidence=8)
         self.assertTrue(res)
 
         # Verify execute was called with kelly_pct

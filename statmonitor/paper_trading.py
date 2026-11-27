@@ -407,12 +407,12 @@ def capture_closing_lines(cur, conn):
                 continue
             bid, eid, m_name, pk, odds_val, c_time, st = row[:7]
             bet_k = float(odds_val)
-            # Шукаємо коефіцієнт закриття на момент початку матчу
+            # Шукаємо коефіцієнт закриття на момент початку матчу (без фіктивної підстановки bet_k — F-12)
             closing_k = get_market_median_odds(cur, eid, pk, m_name, fallback_odds=None, at_time=c_time)
             
-            # Якщо закриття не знайдено точно на commence_time, спробуємо знайти останній запис до старту гри
+            # Якщо закриття не знайдено точно на commence_time, беремо останній реальний ринковий запис або лишаємо NULL
             if not closing_k or closing_k <= 1.0:
-                closing_k = get_market_median_odds(cur, eid, pk, m_name, fallback_odds=bet_k)
+                closing_k = get_market_median_odds(cur, eid, pk, m_name, fallback_odds=None)
 
             if closing_k and closing_k > 1.0:
                 clv_pct, beat_line = calculate_clv_value(bet_k, closing_k)
@@ -549,13 +549,15 @@ def place_paper_bet(cur, conn, ev_id, sport, match, c_time, pick_lbl, odds, drop
         filter_reason = None
         if any(w in str(pick_lbl).lower() for w in ("пропустити", "утриматися")):
             filter_reason = "AI_SKIP"
-        elif confidence is not None:
+        elif confidence is None:
+            filter_reason = "AI_UNAVAILABLE"
+        else:
             try:
                 conf_val = int(confidence)
                 if conf_val < effective_min_conf:
                     filter_reason = f"LOW_CONFIDENCE ({conf_val}/10 < {effective_min_conf})"
             except (ValueError, TypeError):
-                pass
+                filter_reason = "AI_UNAVAILABLE"
 
         if filter_reason:
             if not save_shadow:
@@ -676,7 +678,10 @@ def place_paper_bet(cur, conn, ev_id, sport, match, c_time, pick_lbl, odds, drop
                         "INSERT INTO paper_bets (event_id, sport, match_name, commence_time, pick_label, odds, stake_uah) VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING;",
                         (ev_id, sport, match, c_time, pick_lbl, k, stake),
                     )
+        inserted = getattr(cur, "rowcount", 1)
         conn.commit()
+        if isinstance(inserted, int) and inserted == 0:
+            return False
         return True
     except Exception as e:
         if conn:
@@ -757,10 +762,14 @@ def eval_outcome_from_score(pick_lbl, match_name, score_str):
     h_games = parsed["h_games"]
     a_games = parsed["a_games"]
 
-    # 1. Moneyline (П1 / П2 / Перемога)
-    if re.search(r"(?:^|\b|\()п1(?:\b|\)|$)", p) or (h_t and h_t in p):
+    # 1. Moneyline (П1 / П2 / Перемога) з захистом від збігу підрядків команд ("Inter" vs "Inter Miami")
+    h_ex = bool(h_t and re.search(rf"(?<![\w]){re.escape(h_t)}(?![\w])", p))
+    a_ex = bool(a_t and re.search(rf"(?<![\w]){re.escape(a_t)}(?![\w])", p))
+    h_match = h_ex and (not a_ex or len(h_t) > len(a_t))
+    a_match = a_ex and (not h_ex or len(a_t) > len(h_t))
+    if re.search(r"(?:^|\b|\()п1(?:\b|\)|$)", p) or h_match:
         return "WON" if h_sets > a_sets else ("LOST" if a_sets > h_sets else ("WON" if h_games > a_games else "LOST"))
-    if re.search(r"(?:^|\b|\()п2(?:\b|\)|$)", p) or (a_t and a_t in p):
+    if re.search(r"(?:^|\b|\()п2(?:\b|\)|$)", p) or a_match:
         return "WON" if a_sets > h_sets else ("LOST" if h_sets > a_sets else ("WON" if a_games > h_games else "LOST"))
     if re.search(r"(?:^|\b|\()[хx](?:\b|\)|$)", p) or "нічия" in p:
         return "WON" if (h_sets == a_sets and h_games == a_games) else "LOST"
@@ -823,9 +832,13 @@ def eval_outcome(pick_lbl, match_name, h_sc, a_sc):
         hv = float(m_f.group(2))
         diff = (h_sc + hv - a_sc) if m_f.group(1) == "1" else (a_sc + hv - h_sc)
         return "WON" if diff > 0 else ("LOST" if diff < 0 else "VOID")
-    if re.search(r"(?:^|\b|\()п1(?:\b|\)|$)", p) or (h_t and h_t in p):
+    h_ex = bool(h_t and re.search(rf"(?<![\w]){re.escape(h_t)}(?![\w])", p))
+    a_ex = bool(a_t and re.search(rf"(?<![\w]){re.escape(a_t)}(?![\w])", p))
+    h_match = h_ex and (not a_ex or len(h_t) > len(a_t))
+    a_match = a_ex and (not h_ex or len(a_t) > len(h_t))
+    if re.search(r"(?:^|\b|\()п1(?:\b|\)|$)", p) or h_match:
         return "WON" if h_sc > a_sc else "LOST"
-    if re.search(r"(?:^|\b|\()п2(?:\b|\)|$)", p) or (a_t and a_t in p):
+    if re.search(r"(?:^|\b|\()п2(?:\b|\)|$)", p) or a_match:
         return "WON" if a_sc > h_sc else "LOST"
     if re.search(r"(?:^|\b|\()[хx](?:\b|\)|$)", p) or "нічия" in p:
         return "WON" if h_sc == a_sc else "LOST"
@@ -956,10 +969,13 @@ def manual_settle_bet(cur, conn, bet_id, score_str, forced_status=None):
 
             # Розрахунок профіту для реальної ставки (якщо ставка була відмічена як реальна)
             real_prof = None
+            eff_st = 0.0
             if is_real:
                 eff_st = float(r_stake) if r_stake else 0.0
                 eff_k = float(r_odds) if r_odds else paper_k
                 real_prof = round(eff_st * (eff_k - 1.0), 2) if res == "WON" else (round(-eff_st, 2) if res == "LOST" else 0.0)
+
+            was_settled = str(b_status or "").upper() in ("WON", "LOST", "VOID")
 
             cur.execute("""
                 UPDATE paper_bets 
@@ -967,16 +983,36 @@ def manual_settle_bet(cur, conn, bet_id, score_str, forced_status=None):
                     real_profit_uah = COALESCE(%s, real_profit_uah), settled_at = NOW() 
                 WHERE id = %s;
             """, (res, score_str, prof, real_prof if is_real else None, bid))
-            conn.commit()
 
-            # SPEC-31: Якщо це реальна ставка, проводимо розрахунок у реальному леджері
+            if hasattr(conn, "server_version"):
+                try:
+                    cur.execute("SAVEPOINT sp_audit_log;")
+                    cur.execute(
+                        """
+                        INSERT INTO bet_audit_log (bet_id, action, old_status, new_status, old_score, new_score, actor)
+                        VALUES (%s, 'MANUAL_SETTLE', %s, %s, NULL, %s, 'manual_settle_bet');
+                        """,
+                        (bid, b_status, res, score_str),
+                    )
+                    cur.execute("RELEASE SAVEPOINT sp_audit_log;")
+                except Exception:
+                    try:
+                        cur.execute("ROLLBACK TO SAVEPOINT sp_audit_log;")
+                    except Exception:
+                        pass
+
+            # SPEC-31: Якщо це реальна ставка, проводимо розрахунок (або сторнування при перерахунку) у тій же транзакції
             if is_real and real_prof is not None:
                 try:
                     from statmonitor.real_bankroll import settle_real_bet_in_ledger
-                    settle_real_bet_in_ledger(cur, conn, bid, res, real_prof, eff_st)
+                    settle_real_bet_in_ledger(
+                        cur, conn, bid, res, real_prof, eff_st,
+                        allow_reopen=was_settled, commit=False,
+                    )
                 except Exception as real_err:
                     print(f"Помилка фіксації реального результату в леджері: {real_err}")
 
+            conn.commit()
             return True, f"Ставку #{bid} ({m_name}) успішно розраховано як {res} ({score_str}) з профітом {prof:+.2f} грн."
         return False, f"Не вдалося визначити статус WON/LOST/VOID для рахунку '{score_str}'."
     except Exception as e:
@@ -1226,6 +1262,13 @@ def settle_and_report(cur, conn):
                 ev = _find_score_event(eid, m_name, scores, score_events_by_sport.get(sp, []))
                 if not ev:
                     continue
+                # F-08: API рахунки для тенісу повертають рахунок за СЕТАМИ (напр. 2:0), не за геймами —
+                # авто-розрахунок дозволений лише для h2h (перемога), а фори/тотали потребують повного сет-рахунку!
+                if str(sp or "").lower().startswith("tennis"):
+                    sp_mkt, _, _ = parse_pick_label(pk, m_name)
+                    if sp_mkt in ("spreads", "totals"):
+                        print(f"ℹ️ [Tennis-Settle-Guard] Пропуск авто-розрахунку #{bid} ({m_name}, {pk}): API містить лише сети.")
+                        continue
                 sc_map = {s["name"]: int(re.findall(r"\d+", str(s["score"]))[0]) for s in ev["scores"] if re.findall(r"\d+", str(s.get("score", "")))}
                 hs, as_ = sc_map.get(ev.get("home_team")), sc_map.get(ev.get("away_team"))
                 if hs is None or as_ is None:
@@ -1264,12 +1307,13 @@ def settle_and_report(cur, conn):
                             UPDATE paper_bets 
                             SET status = %s, match_score = %s, profit_uah = %s, 
                                 real_profit_uah = COALESCE(%s, real_profit_uah), settled_at = NOW() 
-                            WHERE id = %s;
+                            WHERE id = %s AND status = 'PENDING';
                         """, (res, f"{hs}:{as_}", prof, real_prof if is_real else None, bid))
-                        if is_real and real_prof is not None:
+                        updated_rows = getattr(cur, "rowcount", 1)
+                        if is_real and real_prof is not None and (not isinstance(updated_rows, int) or updated_rows > 0):
                             try:
                                 from statmonitor.real_bankroll import settle_real_bet_in_ledger
-                                settle_real_bet_in_ledger(cur, conn, bid, res, real_prof, eff_st)
+                                settle_real_bet_in_ledger(cur, conn, bid, res, real_prof, eff_st, commit=False)
                             except Exception as real_err:
                                 print(f"settle_real_bet_in_ledger err: {real_err}")
             conn.commit()

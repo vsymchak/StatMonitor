@@ -1,7 +1,34 @@
 import re
+import time
 import requests
 from statmonitor.config import GEMINI_API_KEY, EXHAUSTED_MODELS
 from statmonitor.notifier import esc
+
+_MODEL_EXHAUSTED_UNTIL = {}
+_TTL_RATE_LIMIT_SEC = 600
+_TTL_NOT_FOUND_SEC = 86400
+
+
+def _is_model_available(model: str, now_ts: float = None) -> bool:
+    """Перевіряє, чи не перебуває модель у тимчасовому cooldown після 429/404."""
+    now = time.time() if now_ts is None else now_ts
+    until = _MODEL_EXHAUSTED_UNTIL.get(model)
+    if until is not None:
+        if now < until:
+            return False
+        _MODEL_EXHAUSTED_UNTIL.pop(model, None)
+        EXHAUSTED_MODELS.discard(model)
+    if model in EXHAUSTED_MODELS and until is None:
+        return False
+    return True
+
+
+def _mark_model_exhausted(model: str, status_code: int, now_ts: float = None) -> None:
+    now = time.time() if now_ts is None else now_ts
+    ttl = _TTL_NOT_FOUND_SEC if status_code == 404 else _TTL_RATE_LIMIT_SEC
+    _MODEL_EXHAUSTED_UNTIL[model] = now + ttl
+    EXHAUSTED_MODELS.add(model)
+
 
 def analyze_gemini(match, title, c_str, drops):
     if not GEMINI_API_KEY:
@@ -20,10 +47,15 @@ def analyze_gemini(match, title, c_str, drops):
         f"🗣️ **Інсайди, чутки та суть прогрузу:** (чому саме сюди йдуть великі гроші: інсайд про проблеми, зміна тактики чи пастка бука)\n"
         f"⚖️ **Оцінка валую (Value):** (чи вигідний поточний коефіцієнт після падіння, чи лінію вже віджали занадто низько)"
     )
+    req_headers = {
+        "Content-Type": "application/json",
+        "x-goog-api-key": GEMINI_API_KEY,
+    }
+    now_ts = time.time()
     for model in ["gemini-3.5-flash-lite", "gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-3.8-flash"]:
-        if model in EXHAUSTED_MODELS:
+        if not _is_model_available(model, now_ts):
             continue
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
         cfg = {"temperature": 0.35, "maxOutputTokens": 1200}
         if "2.5" in model:
             cfg["thinkingConfig"] = {"thinkingBudget": 0}
@@ -35,11 +67,11 @@ def analyze_gemini(match, title, c_str, drops):
             "generationConfig": cfg,
         }
         try:
-            r = requests.post(url, json=payload_with_search, timeout=35)
+            r = requests.post(url, json=payload_with_search, headers=req_headers, timeout=35)
             # Якщо модель не підтримує tools у даному режимі, повторюємо чистий запит
             if r.status_code != 200:
                 payload_pure = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": cfg}
-                r = requests.post(url, json=payload_pure, timeout=30)
+                r = requests.post(url, json=payload_pure, headers=req_headers, timeout=30)
 
             if r.status_code == 200:
                 parts = r.json().get("candidates", [{}])[0].get("content", {}).get("parts", [])
@@ -49,9 +81,13 @@ def analyze_gemini(match, title, c_str, drops):
                     clean = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", clean)
                     return clean
             elif r.status_code in (404, 429):
-                EXHAUSTED_MODELS.add(model)
-        except Exception:
-            pass
+                _mark_model_exhausted(model, r.status_code, now_ts)
+                print(f"⚠️ Gemini HTTP {r.status_code} ({model}): тимчасово відкладено.")
+            else:
+                print(f"⚠️ Gemini HTTP {r.status_code} ({model}): помилка генерації.")
+        except Exception as e:
+            err_clean = re.sub(r"([?&]key=)[^&\s]+", r"\1<REDACTED>", str(e))
+            print(f"⚠️ Gemini request err ({model}): {err_clean}")
     return None
 
 def extract_short_pick(ai_verdict, fallback):

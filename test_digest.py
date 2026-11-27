@@ -84,6 +84,7 @@ class TestWeeklyDigest(unittest.TestCase):
         cur.execute.assert_called()
         conn.commit.assert_called()
 
+    @patch("statmonitor.bot.TG_CHAT_ID", "12345")
     @patch("statmonitor.digest.generate_weekly_digest")
     def test_bot_cmd_digest(self, mock_digest):
         mock_digest.return_value = {

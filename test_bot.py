@@ -38,8 +38,15 @@ class TestBot(unittest.TestCase):
     def test_authorization(self):
         self.assertTrue(is_authorized(123456789))
         self.assertTrue(is_authorized("123456789"))
+        self.assertTrue(is_authorized(123456789, user_id=123456789))
+        self.assertFalse(is_authorized(123456789, user_id=987654321))
         self.assertFalse(is_authorized(987654321))
         self.assertFalse(is_authorized("attacker_chat"))
+
+    @patch("statmonitor.bot.TG_CHAT_ID", "")
+    def test_authorization_fail_closed_when_unconfigured(self):
+        self.assertFalse(is_authorized(123456789))
+        self.assertFalse(is_authorized(123456789, user_id=123456789))
 
     def test_cmd_start_help(self):
         txt = cmd_start_help()
@@ -90,7 +97,7 @@ class TestBot(unittest.TestCase):
         self.assertIn("10,070.00 грн", txt) # Поточний капітал: 10000 + 70 = 10070
         self.assertIn("9,820.00 грн", txt)  # Вільні кошти: 10070 - 250 = 9820
         self.assertIn("+70.00 грн", txt)    # Чистий профіт
-        self.assertIn("11.67%", txt)        # ROI
+        self.assertIn("+14.0%", txt)        # ROI: +70 / 500 (VOID excluded from turnover)
         self.assertIn("50.0%", txt)         # Вінрейт: 1 won / 2 settled
 
     def test_cmd_bank_with_clv(self):

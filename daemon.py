@@ -66,6 +66,7 @@ def run_daemon(interval_minutes: int = 30, force: bool = False, once: bool = Fal
         print(f"\n▶ [{iteration}] Запуск пайплайну о {now_str}...")
 
         try:
+            os.environ.setdefault("TRIGGER_SOURCE", "daemon")
             run_pipeline(force=force)
             print(f"✅ [{iteration}] Пайплайн завершено успішно.")
         except Exception as e:
