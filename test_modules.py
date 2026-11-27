@@ -480,12 +480,12 @@ class TestModularDecomposition(unittest.TestCase):
                             {
                                 "key": "totals",
                                 "outcomes": [
+                                    {"name": "Over", "point": 0.5, "price": 1.60},
+                                    {"name": "Under", "point": 0.5, "price": 2.22},
                                     {"name": "Over", "point": 0.5, "price": 1.09},
                                     {"name": "Under", "point": 0.5, "price": 6.15},
                                     {"name": "Over", "point": 0.5, "price": 1.30},
                                     {"name": "Under", "point": 0.5, "price": 3.25},
-                                    {"name": "Over", "point": 0.5, "price": 1.60},
-                                    {"name": "Under", "point": 0.5, "price": 2.22},
                                 ],
                             },
                             {
@@ -501,7 +501,10 @@ class TestModularDecomposition(unittest.TestCase):
             }
         ], "soccer_spain_la_liga", now_utc, ev_b, o_raw)
         self.assertEqual(len(o_raw), 2)
+        over_rows = [r for r in o_raw if r["outcome"] == "Over"]
         under_rows = [r for r in o_raw if r["outcome"] == "Under"]
+        self.assertEqual(len(over_rows), 1)
+        self.assertEqual(over_rows[0]["price"], 1.09)
         self.assertEqual(len(under_rows), 1)
         self.assertEqual(under_rows[0]["price"], 6.15)
 
@@ -579,6 +582,33 @@ class TestModularDecomposition(unittest.TestCase):
         ], "icehockey_nhl", now_utc, ev_b, o_raw)
         self.assertEqual(len(o_raw), 1)
         self.assertEqual(o_raw[0]["point"], 5.5)
+
+        # 4. Баскетбол: тотали < 150.0 відхиляються в fetcher та place_paper_bet
+        self.assertFalse(place_paper_bet(
+            mock_cur, mock_conn, "ev_bk116", "basketball_nba", "Blazers - Warriors",
+            datetime.now(timezone.utc), "ТБ 116.5", 2.11, confidence=8,
+        ))
+        ev_bk, o_bk = [], []
+        _append_events_and_odds([
+            {
+                "id": "bk_1",
+                "home_team": "Pistons",
+                "away_team": "Bucks",
+                "commence_time": "2026-11-28T01:00:00Z",
+                "bookmakers": [{
+                    "key": "pinnacle",
+                    "markets": [{
+                        "key": "totals",
+                        "outcomes": [
+                            {"name": "Over", "point": 116.5, "price": 1.90},
+                            {"name": "Over", "point": 224.5, "price": 1.91},
+                        ],
+                    }],
+                }],
+            }
+        ], "basketball_nba", now_utc, ev_bk, o_bk)
+        self.assertEqual(len(o_bk), 1)
+        self.assertEqual(o_bk[0]["point"], 224.5)
 
 
 if __name__ == "__main__":

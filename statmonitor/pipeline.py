@@ -113,6 +113,8 @@ def check_alerts_and_notify(sports_map, t_start=None):
             continue
         if str(sp_key or "").lower().startswith("icehockey") and mkt == "totals" and pt is not None and float(pt) < 4.0:
             continue
+        if str(sp_key or "").lower().startswith("basketball") and mkt == "totals" and pt is not None and float(pt) < 150.0:
+            continue
         if re.search(r"\d+\.(?:25|75)\b", str(out)):
             continue
 
@@ -238,6 +240,9 @@ def check_alerts_and_notify(sports_map, t_start=None):
         sp_mkt, _, sp_pt = parse_pick_label(short_pick, f["match"])
         if str(f.get("sport") or "").lower().startswith("icehockey") and sp_mkt == "totals" and sp_pt is not None and float(sp_pt) < 4.0:
             print(f"ℹ️ [Hockey-Gate] Пропуск {f['match']} ({short_pick}): тотал хокею < 4.0 заборонено.")
+            continue
+        if str(f.get("sport") or "").lower().startswith("basketball") and sp_mkt == "totals" and sp_pt is not None and float(sp_pt) < 150.0:
+            print(f"ℹ️ [Basket-Gate] Пропуск {f['match']} ({short_pick}): тотал баскетболу < 150.0 заборонено.")
             continue
 
         # 2. Розрахунок РЕАЛЬНОГО медіанного коефіцієнта ринку або еталонних БК (SPEC-18)

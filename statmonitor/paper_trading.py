@@ -504,6 +504,7 @@ def calculate_kelly_fraction(odds, drop_pct=None, confidence=None, fraction=0.25
 
 MAX_PAPER_ODDS = 4.0
 HOCKEY_MIN_TOTAL = 4.0
+BASKETBALL_MIN_TOTAL = 150.0
 
 
 def place_paper_bet(cur, conn, ev_id, sport, match, c_time, pick_lbl, odds, drop_pct=None, confidence=None, risk_level=None, save_shadow=True, walkaway_odds=None, min_confidence=None, max_odds=MAX_PAPER_ODDS):
@@ -515,10 +516,16 @@ def place_paper_bet(cur, conn, ev_id, sport, match, c_time, pick_lbl, odds, drop
         if max_odds is not None and norm_odds > float(max_odds):
             print(f"ℹ️ Ставку на {match} ({pick_lbl}) відхилено: коефіцієнт {norm_odds:.2f} перевищує ліміт {float(max_odds):.2f}.")
             return False
-        if str(sport or "").lower().startswith("icehockey"):
+        sp_low = str(sport or "").lower()
+        if sp_low.startswith("icehockey"):
             hk_mkt, _, hk_pt = parse_pick_label(pick_lbl, match)
             if hk_mkt == "totals" and hk_pt is not None and float(hk_pt) < HOCKEY_MIN_TOTAL:
                 print(f"ℹ️ Ставку на {match} ({pick_lbl}) відхилено: тотал хокею {hk_pt} < {HOCKEY_MIN_TOTAL}.")
+                return False
+        elif sp_low.startswith("basketball"):
+            bk_mkt, _, bk_pt = parse_pick_label(pick_lbl, match)
+            if bk_mkt == "totals" and bk_pt is not None and float(bk_pt) < BASKETBALL_MIN_TOTAL:
+                print(f"ℹ️ Ставку на {match} ({pick_lbl}) відхилено: тотал баскетболу {bk_pt} < {BASKETBALL_MIN_TOTAL}.")
                 return False
         odds = norm_odds
 

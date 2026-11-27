@@ -368,7 +368,7 @@ def _append_events_and_odds(events_list, sp, now_utc, events_batch, odds_raw, ma
             except Exception:
                 pass
         events_batch.append((ev_id, sp, ev.get("home_team", ""), ev.get("away_team", ""), commence_time))
-        seen_odds_keys = set()
+        dedup_map = {}
         for bm in ev.get("bookmakers", []):
             bm_key = bm.get("key") or bm.get("title") or "unknown"
             for mkt in bm.get("markets", []):
@@ -410,19 +410,30 @@ def _append_events_and_odds(events_list, sp, now_utc, events_batch, odds_raw, ma
                                 # Хокей (NHL тощо): відсікаємо командні/періодні тотали < 4.0 (0.5..3.5, включно з 2.5)
                                 if str(sp or "").lower().startswith("icehockey") and mkt_key == "totals" and pt_f < 4.0:
                                     continue
+                                # Баскетбол (NBA тощо): відсікаємо командні/половинові тотали < 150.0
+                                if str(sp or "").lower().startswith("basketball") and mkt_key == "totals" and pt_f < 150.0:
+                                    continue
                                 pt_val = round(pt_f, 2)
                             except (ValueError, TypeError):
                                 pt_val = None
                         out_name = out.get("name", "")
                         dedup_key = (ev_id, bm_key, mkt_key, out_name, pt_val)
-                        if dedup_key in seen_odds_keys:
-                            continue
-                        seen_odds_keys.add(dedup_key)
-                        odds_raw.append({
+                        row_obj = {
                             "event_id": ev_id, "bookmaker": bm_key, "market": mkt_key,
                             "outcome": out_name, "point": pt_val,
                             "price": price_val, "time": now_utc
-                        })
+                        }
+                        if dedup_key in dedup_map:
+                            if mkt_key == "totals":
+                                on_l = out_name.lower()
+                                # Для Full-Match totals: Over завжди має MIN ціну, Under — MAX ціну серед однакових тоталів
+                                if "over" in on_l and price_val < dedup_map[dedup_key]["price"]:
+                                    dedup_map[dedup_key] = row_obj
+                                elif "under" in on_l and price_val > dedup_map[dedup_key]["price"]:
+                                    dedup_map[dedup_key] = row_obj
+                            continue
+                        dedup_map[dedup_key] = row_obj
+        odds_raw.extend(dedup_map.values())
 
 def fetch_and_save_odds(sports_map=None):
     if sports_map is None:
