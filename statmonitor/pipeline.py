@@ -13,6 +13,7 @@ from statmonitor.paper_trading import (
     settle_and_report,
     resolve_alert_from_history,
     get_market_median_odds,
+    parse_pick_label,
 )
 from statmonitor.novig import estimate_walkaway_odds
 
@@ -102,12 +103,15 @@ def check_alerts_and_notify(sports_map, t_start=None):
         thresh = get_league_thresholds(sp_key, config=leagues_cfg)
         if not thresh.get("enabled", True):
             continue
-        if curr_k < thresh["min_odds"] or curr_k > thresh["max_odds"]:
+        eff_max_odds = min(4.0, float(thresh.get("max_odds", 4.0)))
+        if curr_k < thresh["min_odds"] or curr_k > eff_max_odds:
             continue
         drop_val = abs(float(pick_v(d, ("drop_pct", "change_pct", "diff_pct", "drop"), 0) or 0))
         if drop_val < thresh.get("min_drop_pct", 5.0):
             continue
         if pt is not None and abs((float(pt) * 100) % 50) != 0:
+            continue
+        if str(sp_key or "").lower().startswith("icehockey") and mkt == "totals" and pt is not None and float(pt) < 4.0:
             continue
         if re.search(r"\d+\.(?:25|75)\b", str(out)):
             continue
@@ -231,9 +235,19 @@ def check_alerts_and_notify(sports_map, t_start=None):
             conn.rollback()
 
         short_pick = extract_short_pick(ai_verdict, top_pick)
+        sp_mkt, _, sp_pt = parse_pick_label(short_pick, f["match"])
+        if str(f.get("sport") or "").lower().startswith("icehockey") and sp_mkt == "totals" and sp_pt is not None and float(sp_pt) < 4.0:
+            print(f"ℹ️ [Hockey-Gate] Пропуск {f['match']} ({short_pick}): тотал хокею < 4.0 заборонено.")
+            continue
 
         # 2. Розрахунок РЕАЛЬНОГО медіанного коефіцієнта ринку або еталонних БК (SPEC-18)
         real_odds = get_market_median_odds(cur, ev_id, short_pick, f["match"], fallback_odds=f["curr_k"])
+        thresh_f = get_league_thresholds(f["sport"], config=leagues_cfg)
+        eff_min_f = float(thresh_f.get("min_odds", 1.30))
+        eff_max_f = min(4.0, float(thresh_f.get("max_odds", 4.0)))
+        if real_odds < eff_min_f or real_odds > eff_max_f:
+            print(f"ℹ️ [Paper-Gate] Пропуск {f['match']} ({short_pick}): коефіцієнт {real_odds:.2f} поза лімітом [{eff_min_f:.2f}, {eff_max_f:.2f}].")
+            continue
         bet_walkaway = estimate_walkaway_odds(real_odds, drop_pct=f.get("drop"), confidence=conf_score)
         placed = place_paper_bet(
             cur, conn, ev_id, f["sport"], f["match"], f["c_time"], short_pick, real_odds,

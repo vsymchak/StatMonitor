@@ -529,6 +529,57 @@ class TestModularDecomposition(unittest.TestCase):
         self.assertEqual(res, ["tennis_atp_dubai", "tennis_davis_cup"])
         mock_conn.commit.assert_called_once()
 
+    def test_reject_high_odds_and_low_hockey_totals(self):
+        from statmonitor.paper_trading import place_paper_bet
+        from statmonitor.fetcher import _append_events_and_odds
+
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        # 1. Коеф > 4.0 має відхилятися на рівні place_paper_bet
+        self.assertFalse(place_paper_bet(
+            mock_cur, mock_conn, "ev_high", "soccer_epl", "A - B",
+            datetime.now(timezone.utc), "П1", 4.50, confidence=8,
+        ))
+        # 2. Хокей тотал < 4.0 має відхилятися (2.5 та 3.5), а 5.5 — проходити
+        self.assertFalse(place_paper_bet(
+            mock_cur, mock_conn, "ev_hk25", "icehockey_nhl", "Devils - Flames",
+            datetime.now(timezone.utc), "ТМ 2.5", 3.64, confidence=8,
+        ))
+        self.assertFalse(place_paper_bet(
+            mock_cur, mock_conn, "ev_hk35", "icehockey_nhl", "Bruins - Leafs",
+            datetime.now(timezone.utc), "ТМ 3.5", 2.10, confidence=8,
+        ))
+        mock_cur.fetchone.side_effect = [None, (0.0, 0.0)]
+        self.assertTrue(place_paper_bet(
+            mock_cur, mock_conn, "ev_hk55", "icehockey_nhl", "Bruins - Leafs",
+            datetime.now(timezone.utc), "ТМ 5.5", 2.10, confidence=8,
+        ))
+
+        # 3. _append_events_and_odds фільтрує хокейні тотали < 4.0
+        now_utc = datetime(2026, 11, 27, 18, 0, tzinfo=timezone.utc)
+        ev_b, o_raw = [], []
+        _append_events_and_odds([
+            {
+                "id": "hk_1",
+                "home_team": "Devils",
+                "away_team": "Flames",
+                "commence_time": "2026-11-28T01:00:00Z",
+                "bookmakers": [{
+                    "key": "pinnacle",
+                    "markets": [{
+                        "key": "totals",
+                        "outcomes": [
+                            {"name": "Under", "point": 2.5, "price": 3.64},
+                            {"name": "Under", "point": 3.5, "price": 2.40},
+                            {"name": "Under", "point": 5.5, "price": 1.95},
+                        ],
+                    }],
+                }],
+            }
+        ], "icehockey_nhl", now_utc, ev_b, o_raw)
+        self.assertEqual(len(o_raw), 1)
+        self.assertEqual(o_raw[0]["point"], 5.5)
+
 
 if __name__ == "__main__":
     unittest.main()

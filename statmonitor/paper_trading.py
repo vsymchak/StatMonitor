@@ -502,12 +502,24 @@ def calculate_kelly_fraction(odds, drop_pct=None, confidence=None, fraction=0.25
     clamped = max(min_pct, min(max_pct, frac_kelly))
     return round(clamped, 4)
 
-def place_paper_bet(cur, conn, ev_id, sport, match, c_time, pick_lbl, odds, drop_pct=None, confidence=None, risk_level=None, save_shadow=True, walkaway_odds=None, min_confidence=None):
+MAX_PAPER_ODDS = 4.0
+HOCKEY_MIN_TOTAL = 4.0
+
+
+def place_paper_bet(cur, conn, ev_id, sport, match, c_time, pick_lbl, odds, drop_pct=None, confidence=None, risk_level=None, save_shadow=True, walkaway_odds=None, min_confidence=None, max_odds=MAX_PAPER_ODDS):
     try:
         norm_odds = to_decimal_odds(odds)
         if norm_odds is None or norm_odds <= 1.0:
             print(f"ℹ️ Ставку на {match} ({pick_lbl}) відхилено: невалідний коефіцієнт ({odds}).")
             return False
+        if max_odds is not None and norm_odds > float(max_odds):
+            print(f"ℹ️ Ставку на {match} ({pick_lbl}) відхилено: коефіцієнт {norm_odds:.2f} перевищує ліміт {float(max_odds):.2f}.")
+            return False
+        if str(sport or "").lower().startswith("icehockey"):
+            hk_mkt, _, hk_pt = parse_pick_label(pick_lbl, match)
+            if hk_mkt == "totals" and hk_pt is not None and float(hk_pt) < HOCKEY_MIN_TOTAL:
+                print(f"ℹ️ Ставку на {match} ({pick_lbl}) відхилено: тотал хокею {hk_pt} < {HOCKEY_MIN_TOTAL}.")
+                return False
         odds = norm_odds
 
         if walkaway_odds is not None:

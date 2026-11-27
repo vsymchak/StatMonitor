@@ -27,7 +27,7 @@ def _load_default_leagues():
             {"key": "soccer_uefa_europa_league", "title": "Ліга Європи УЄФА", "category": "soccer", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.40, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads"]},
             {"key": "soccer_uefa_conference_league", "title": "Ліга Конференцій УЄФА", "category": "soccer", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.40, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads"]},
             {"key": "soccer_uefa_nations_league", "title": "Ліга Націй УЄФА", "category": "soccer", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.40, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads"]},
-            {"key": "basketball_nba", "title": "США (NBA)", "category": "basketball", "enabled": True, "min_drop_pct": 4.0, "min_odds": 1.35, "max_odds": 4.20, "markets": ["h2h", "totals", "spreads"]},
+            {"key": "basketball_nba", "title": "США (NBA)", "category": "basketball", "enabled": True, "min_drop_pct": 4.0, "min_odds": 1.35, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads"]},
             {"key": "tennis_atp", "title": "Теніс (ATP Tour)", "category": "tennis", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.35, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads"]},
             {"key": "tennis_wta", "title": "Теніс (WTA Tour)", "category": "tennis", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.35, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads"]},
             {"key": "tennis_davis_cup", "title": "Теніс (Кубок Девіса)", "category": "tennis", "enabled": True, "min_drop_pct": 5.0, "min_odds": 1.35, "max_odds": 4.00, "markets": ["h2h", "totals", "spreads"]},
@@ -593,7 +593,7 @@ def get_league_thresholds(sport_key, config=None, cur=None):
             return {
                 "min_drop_pct": float(item.get("min_drop_pct", glob["min_drop_pct"])),
                 "min_odds": float(item.get("min_odds", glob["min_odds"])),
-                "max_odds": float(item.get("max_odds", glob["max_odds"])),
+                "max_odds": min(4.0, float(item.get("max_odds", glob["max_odds"]))),
                 "markets": mkts if isinstance(mkts, list) and mkts else glob["markets"],
                 "enabled": bool(item.get("enabled", glob["enabled"])),
             }

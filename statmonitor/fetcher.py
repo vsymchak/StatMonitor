@@ -407,6 +407,9 @@ def _append_events_and_odds(events_list, sp, now_utc, events_batch, odds_raw, ma
                                 # SPEC-23: Clean Totals Filtering (відсікання азіатських четвертних тоталів .25 / .75)
                                 if mkt_key == "totals" and round(abs(pt_f * 100)) % 50 != 0:
                                     continue
+                                # Хокей (NHL тощо): відсікаємо командні/періодні тотали < 4.0 (0.5..3.5, включно з 2.5)
+                                if str(sp or "").lower().startswith("icehockey") and mkt_key == "totals" and pt_f < 4.0:
+                                    continue
                                 pt_val = round(pt_f, 2)
                             except (ValueError, TypeError):
                                 pt_val = None
