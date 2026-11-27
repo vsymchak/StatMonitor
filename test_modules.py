@@ -437,6 +437,32 @@ class TestModularDecomposition(unittest.TestCase):
             pipe.check_alerts_and_notify({"soccer_epl": "EPL"})
             mock_place.assert_not_called()
 
+    def test_find_score_event_fallback_by_team_names(self):
+        from statmonitor.paper_trading import _find_score_event
+        score_events = [
+            {
+                "id": "espn_999",
+                "home_team": "Sunderland",
+                "away_team": "Jagiellonia Bialystok",
+                "completed": True,
+                "scores": [{"name": "Sunderland", "score": "1"}, {"name": "Jagiellonia Bialystok", "score": "1"}],
+            },
+            {
+                "id": "espn_888",
+                "home_team": "Inter Milan",
+                "away_team": "VfB Stuttgart",
+                "completed": True,
+                "scores": [{"name": "Inter Milan", "score": "2"}, {"name": "VfB Stuttgart", "score": "0"}],
+            },
+        ]
+        ev1 = _find_score_event("old_propline_id", "Sunderland - Jagiellonia Białystok", {}, score_events)
+        self.assertIsNotNone(ev1)
+        self.assertEqual(ev1["id"], "espn_999")
+
+        ev2 = _find_score_event("missing_id", "Inter Milan - VfB Stuttgart", {}, score_events)
+        self.assertIsNotNone(ev2)
+        self.assertEqual(ev2["id"], "espn_888")
+
 
 if __name__ == "__main__":
     unittest.main()

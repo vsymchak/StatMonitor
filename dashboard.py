@@ -491,8 +491,14 @@ def get_sx_bet_dashboard_data(db_url):
             fetch_sx_bets,
             fetch_sx_transactions,
             get_sx_staking_config,
+            sync_sx_exchange_full,
         )
         client = SXBetClient()
+        if client.api_key or client.wallet_address:
+            try:
+                sync_sx_exchange_full(conn, client)
+            except Exception as sync_e:
+                print(f"SX auto-sync err: {sync_e}")
         summary = fetch_sx_summary(conn, client)
         summary["_staking_config"] = get_sx_staking_config(conn)
         all_bets = fetch_sx_bets(conn) or []

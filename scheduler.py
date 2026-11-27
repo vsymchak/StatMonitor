@@ -59,11 +59,14 @@ def cluster_events(events, threshold_minutes=25):
 
     return clusters
 
+SETTLE_INTERVAL_HOURS = 3
+
+
 def generate_schedule_points(events, pending_bets, now_utc=None, horizon_hours=36, require_pending=True):
     """
     Генерує контрольні точки розкладу:
     1. PRE_MATCH: за 15 хвилин до старту гри (тільки для матчів з активними ставками у Paper Bank).
-    2. SETTLE: через 115 хвилин після старту гри для активних ставок у Paper Bank.
+    2. SETTLE: фіксовані періодичні перевірки нерозрахованих подій кожні 3 години (без вгадування кінця гри).
     Матчі без активних ставок не створюють зобов'язувальних точок у scheduler_plan, щоб уникнути хибних тривог Watchdog.
     """
     if now_utc is None:
@@ -113,23 +116,38 @@ def generate_schedule_points(events, pending_bets, now_utc=None, horizon_hours=3
                 "description": desc,
             })
 
-    # 2. Точки розрахунку ставок (SETTLE)
-    for b in (pending_bets or []):
-        c_time = b.get("commence_time")
-        if not c_time:
-            continue
-        if c_time.tzinfo is None:
-            c_time = c_time.replace(tzinfo=timezone.utc)
-        # Розрахунок через 95 хвилин після початку (футбол/теніс ~95хв, захищено completed=True)
-        settle_t = c_time + timedelta(minutes=95)
-        if settle_t >= now_utc - timedelta(minutes=15) and settle_t <= now_utc + timedelta(hours=horizon_hours):
-            m_name = b.get("match_name") or b.get("event_id") or "матч"
-            points.append({
-                "target_time": settle_t,
-                "trigger_type": "SETTLE",
-                "event_ids": [b.get("event_id", "")],
-                "description": f"Розрахунок: {m_name}",
-            })
+    # 2. Періодичні точки розрахунку нерозрахованих подій (SETTLE кожні 3 години, без вгадування кінця гри)
+    if pending_bets:
+        pending_times = []
+        pending_ids_all = []
+        for b in pending_bets:
+            bid = str(b.get("event_id") or "")
+            if bid:
+                pending_ids_all.append(bid)
+            c_time = b.get("commence_time")
+            if c_time:
+                if c_time.tzinfo is None:
+                    c_time = c_time.replace(tzinfo=timezone.utc)
+                pending_times.append(c_time)
+
+        if pending_times:
+            earliest_start = min(pending_times)
+            start_slot_anchor = now_utc.replace(minute=0, second=0, microsecond=0)
+            remainder_h = start_slot_anchor.hour % SETTLE_INTERVAL_HOURS
+            slot = start_slot_anchor - timedelta(hours=remainder_h)
+            min_settle_t = max(now_utc - timedelta(minutes=15), earliest_start + timedelta(hours=SETTLE_INTERVAL_HOURS))
+            while slot < min_settle_t:
+                slot += timedelta(hours=SETTLE_INTERVAL_HOURS)
+
+            end_horizon = now_utc + timedelta(hours=horizon_hours)
+            while slot <= end_horizon:
+                points.append({
+                    "target_time": slot,
+                    "trigger_type": "SETTLE",
+                    "event_ids": list(dict.fromkeys(pending_ids_all)),
+                    "description": f"Перевірка нерозрахованих подій ({len(pending_bets)} активних)",
+                })
+                slot += timedelta(hours=SETTLE_INTERVAL_HOURS)
 
     # Сортування та об'єднання точок з дельтою < 15 хвилин
     points.sort(key=lambda p: p["target_time"])
@@ -326,19 +344,33 @@ def should_execute_pipeline(cur, conn, trigger_source="manual", now_utc=None):
         c_id, trig_type, desc, t_target = checkpoint
         return True, f"Контрольна точка розкладу [{trig_type}]: {desc}", trig_type
 
-    # 3. Перевірка завершених матчів для розрахунку ставок (SETTLE):
-    # Якщо є активна ставка у paper_bets, матч якої почався > 85 хв тому, розраховуємо негайно!
+    # 3. Перевірка нерозрахованих подій (SETTLE кожні 3-4 год):
+    # Якщо є активна ставка у paper_bets, матч якої почався > 3 год тому, перевіряємо якщо з останнього скану минуло >= 180 хв
     cur.execute("""
         SELECT id, match_name, commence_time 
         FROM paper_bets 
-        WHERE status = 'PENDING' AND commence_time < NOW() - INTERVAL '85 minutes'
+        WHERE status = 'PENDING' AND commence_time < NOW() - INTERVAL '3 hours'
         ORDER BY commence_time ASC
         LIMIT 1;
     """)
     due_settle = cur.fetchone()
     if due_settle:
-        b_id, m_name, c_t = due_settle
-        return True, f"Матч завершено ({m_name}), очікує негайного розрахунку", "SETTLE"
+        cur.execute("""
+            SELECT last_ping_at
+            FROM system_heartbeat
+            WHERE service_name = 'scheduler_run';
+        """)
+        hb_settle = cur.fetchone()
+        allow_settle = True
+        if hb_settle and hb_settle[0] is not None:
+            lp_s = hb_settle[0]
+            if lp_s.tzinfo is None:
+                lp_s = lp_s.replace(tzinfo=timezone.utc)
+            if (now_utc - lp_s).total_seconds() < SETTLE_INTERVAL_HOURS * 3600:
+                allow_settle = False
+        if allow_settle:
+            b_id, m_name, c_t = due_settle
+            return True, f"Періодична перевірка нерозрахованих подій ({m_name})", "SETTLE"
 
     # 4. Періодичний фоновий скан (Discovery Heartbeat):
     # Якщо не було повного сканування понад 80 хвилин, виконуємо оновлення ліній і розкладу

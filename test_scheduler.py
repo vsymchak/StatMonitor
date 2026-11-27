@@ -33,17 +33,17 @@ def test_generate_schedule_points():
     ]
 
     points = generate_schedule_points(events, pending_bets, now_utc=now)
-    assert len(points) == 2
+    assert len(points) >= 2
 
     # PRE_MATCH: kickoff - 15 min -> 18:45
     pre_point = points[0]
     assert pre_point["trigger_type"] == "PRE_MATCH"
     assert pre_point["target_time"] == datetime(2026, 11, 16, 18, 45, tzinfo=timezone.utc)
 
-    # SETTLE: kickoff + 115 min -> 20:55
-    settle_point = points[1]
-    assert settle_point["trigger_type"] == "SETTLE"
-    assert settle_point["target_time"] == datetime(2026, 11, 16, 20, 55, tzinfo=timezone.utc)
+    # SETTLE: періодично кожні 3 год (перший слот >= kickoff + 3h = 22:00 -> 00:00 UTC)
+    settle_points = [p for p in points if p["trigger_type"] == "SETTLE"]
+    assert len(settle_points) >= 1
+    assert settle_points[0]["target_time"] == datetime(2026, 11, 17, 0, 0, tzinfo=timezone.utc)
 
 def test_generate_schedule_points_no_pending_bets_no_noise():
     now = datetime(2026, 11, 16, 15, 0, tzinfo=timezone.utc)
@@ -130,9 +130,10 @@ def test_should_execute_pipeline():
     assert run is True
     assert mode == "PRE_MATCH"
 
-    # 3. cron_5m з матчем, готовим до розрахунку (SETTLE)
+    # 3. cron_5m з матчем, готовим до розрахунку (SETTLE кожні 3 год)
     cur = SmartMockCursor(
-        due_settle=(10, "Arsenal - Chelsea", datetime.now(timezone.utc) - timedelta(minutes=90))
+        due_settle=(10, "Arsenal - Chelsea", datetime.now(timezone.utc) - timedelta(hours=4)),
+        last_ping=datetime.now(timezone.utc) - timedelta(hours=3, minutes=10),
     )
     run, reason, mode = should_execute_pipeline(cur, MockConn(), trigger_source="cron_5m")
     assert run is True

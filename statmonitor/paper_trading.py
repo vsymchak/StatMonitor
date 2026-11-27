@@ -1,7 +1,7 @@
 import re
 import requests
 import statistics
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from statmonitor.config import (
     INITIAL_BANKROLL,
     DEFAULT_MIN_CONFIDENCE,
@@ -963,6 +963,132 @@ def manual_settle_bet(cur, conn, bet_id, score_str, forced_status=None):
             conn.rollback()
         return False, f"Помилка розрахунку ставки: {e}"
 
+ESPN_SCOREBOARD_MAP = {
+    "soccer_epl": "soccer/eng.1",
+    "soccer_spain_la_liga": "soccer/esp.1",
+    "soccer_germany_bundesliga": "soccer/ger.1",
+    "soccer_italy_serie_a": "soccer/ita.1",
+    "soccer_france_ligue_one": "soccer/fra.1",
+    "soccer_netherlands_eredivisie": "soccer/ned.1",
+    "soccer_portugal_primeira_liga": "soccer/por.1",
+    "soccer_turkey_super_lig": "soccer/tur.1",
+    "soccer_brazil_campeonato": "soccer/bra.1",
+    "soccer_usa_mls": "soccer/usa.1",
+    "soccer_uefa_champs_league": "soccer/uefa.champions",
+    "soccer_uefa_europa_league": "soccer/uefa.europa",
+    "soccer_uefa_europa_conference_league": "soccer/uefa.europa.conf",
+    "soccer_uefa_conference_league": "soccer/uefa.europa.conf",
+    "basketball_nba": "basketball/nba",
+    "basketball_euroleague": "basketball/eur.euroleague",
+    "icehockey_nhl": "hockey/nhl",
+    "americanfootball_nfl": "football/nfl",
+    "americanfootball_ncaaf": "football/college-football",
+}
+
+_TEAM_STOPWORDS = {
+    "fc", "fk", "nk", "cm", "sc", "gnk", "pfc", "cf", "vfb", "sk", "ac", "as",
+    "ssc", "afc", "rc", "cd", "ud", "sd", "sv", "tsg", "fsv", "bsc", "rb",
+    "club", "athletic", "real", "sporting", "city", "united", "town", "de",
+}
+
+
+def _norm_team_tokens(name):
+    s = re.sub(r"[^a-z0-9\s]", " ", str(name or "").lower())
+    # Прибираємо типові польські/німецькі/іспанські діакритики після простого мапінгу
+    for src, dst in (("ł", "l"), ("ą", "a"), ("ć", "c"), ("ę", "e"), ("ń", "n"), ("ó", "o"), ("ś", "s"), ("ź", "z"), ("ż", "z"), ("ü", "u"), ("ö", "o"), ("ä", "a"), ("á", "a"), ("é", "e"), ("í", "i")):
+        s = s.replace(src, dst)
+    tokens = [t for t in s.split() if len(t) >= 3 and not t.isdigit() and t not in _TEAM_STOPWORDS]
+    return set(tokens), re.sub(r"\s+", " ", s).strip()
+
+
+def _teams_match(name_a, name_b):
+    tok_a, full_a = _norm_team_tokens(name_a)
+    tok_b, full_b = _norm_team_tokens(name_b)
+    if not full_a or not full_b:
+        return False
+    if full_a == full_b or full_a in full_b or full_b in full_a:
+        return True
+    if tok_a and tok_b and (tok_a & tok_b):
+        return True
+    # Порівняння за префіксом (>= 5 літер, напр. Internazionale vs Inter, Jagiellonia vs Jagiellonia)
+    for ta in tok_a:
+        for tb in tok_b:
+            if len(ta) >= 5 and len(tb) >= 5 and (ta[:5] == tb[:5]):
+                return True
+    return False
+
+
+def fetch_espn_scores_for_sport(sport, target_dates=None):
+    """Безкоштовний резерв рахунків через публічний ESPN Scoreboard API."""
+    ep = ESPN_SCOREBOARD_MAP.get(str(sport or "").lower())
+    if not ep:
+        return []
+    if not target_dates:
+        now_d = datetime.now(timezone.utc)
+        target_dates = [(now_d - timedelta(days=d)).strftime("%Y%m%d") for d in range(0, 4)]
+    results = []
+    seen_ids = set()
+    for dt_str in sorted(set(target_dates)):
+        try:
+            r = requests.get(
+                f"https://site.api.espn.com/apis/site/v2/sports/{ep}/scoreboard",
+                params={"dates": dt_str},
+                timeout=8,
+            )
+            if r.status_code != 200:
+                continue
+            for ev in (r.json().get("events") or []):
+                st = ((ev.get("status") or {}).get("type") or {})
+                if not st.get("completed"):
+                    continue
+                comp = (ev.get("competitions") or [{}])[0]
+                teams = comp.get("competitors") or []
+                if len(teams) != 2:
+                    continue
+                home = next((t for t in teams if t.get("homeAway") == "home"), teams[0])
+                away = next((t for t in teams if t.get("homeAway") == "away"), teams[1])
+                h_name = (home.get("team") or {}).get("displayName") or ""
+                a_name = (away.get("team") or {}).get("displayName") or ""
+                h_sc = home.get("score")
+                a_sc = away.get("score")
+                if not h_name or not a_name or h_sc is None or a_sc is None:
+                    continue
+                ev_id = f"espn_{ev.get('id')}"
+                if ev_id in seen_ids:
+                    continue
+                seen_ids.add(ev_id)
+                results.append({
+                    "id": ev_id,
+                    "home_team": h_name,
+                    "away_team": a_name,
+                    "completed": True,
+                    "scores": [
+                        {"name": h_name, "score": str(h_sc)},
+                        {"name": a_name, "score": str(a_sc)},
+                    ],
+                })
+        except Exception as espn_e:
+            print(f"ESPN scores err ({sport}, {dt_str}): {espn_e}")
+    return results
+
+
+def _find_score_event(eid, match_name, scores_by_id, score_events):
+    """Знаходить завершений матч по event_id або fallback за назвами команд."""
+    if eid and eid in scores_by_id:
+        return scores_by_id[eid]
+    m_str = str(match_name or "")
+    parts = re.split(r"\s+-\s+|\s+vs\.?\s+", m_str, maxsplit=1, flags=re.I)
+    if len(parts) != 2:
+        return None
+    p_home, p_away = parts[0].strip(), parts[1].strip()
+    for ev in score_events:
+        ev_h = ev.get("home_team") or ""
+        ev_a = ev.get("away_team") or ""
+        if _teams_match(p_home, ev_h) and _teams_match(p_away, ev_a):
+            return ev
+    return None
+
+
 def settle_and_report(cur, conn):
     # SPEC-Fix: Автоматичне виправлення некоректно розрахованої ставки #56 (Ben Shelton - Rafael Jodar 7:6, 7:5 -> WON)
     try:
@@ -1009,20 +1135,26 @@ def settle_and_report(cur, conn):
         cur.execute("""
             SELECT id, event_id, sport, match_name, pick_label, odds, stake_uah,
                    COALESCE(is_real_bet, FALSE), real_stake_uah, real_odds,
-                   status, COALESCE(is_shadow, FALSE)
+                   status, COALESCE(is_shadow, FALSE), commence_time
             FROM paper_bets 
             WHERE (
                 status = 'PENDING'
                 OR (status = 'FILTERED' AND (shadow_status = 'PENDING' OR shadow_status IS NULL))
             )
-            AND commence_time < NOW() - INTERVAL '85 minutes';
+            AND commence_time < NOW() - INTERVAL '90 minutes';
         """)
         pending = cur.fetchall()
         if pending:
             scores = {}
+            score_events_by_sport = {}
             keys_pool = [k for k in (API_KEY, API_KEY_RESERVE, API_KEY_RESERVE1, API_KEY_RESERVE2, API_KEY_RESERVE3) if k]
             key_idx = 0
-            for sp in {r[2] for r in pending}:
+            pending_by_sport = {}
+            for r_p in pending:
+                pending_by_sport.setdefault(r_p[2], []).append(r_p)
+
+            for sp, sp_rows in pending_by_sport.items():
+                sp_events = []
                 success = False
                 # 1. Пріоритет: PropLine API (якщо задано PROPLINE_API)
                 try:
@@ -1040,10 +1172,14 @@ def settle_and_report(cur, conn):
                             pl_raw = r_pl.json()
                             pl_events = pl_raw if isinstance(pl_raw, list) else (pl_raw.get("data") or pl_raw.get("events") or [])
                             if isinstance(pl_events, list):
+                                pl_added = 0
                                 for ev in pl_events:
                                     if ev.get("completed") and ev.get("scores"):
                                         scores[ev["id"]] = ev
-                                success = True
+                                        sp_events.append(ev)
+                                        pl_added += 1
+                                if pl_added > 0:
+                                    success = True
                 except Exception as pl_e:
                     print(f"PropLine scores fallback ({sp}): {pl_e}")
 
@@ -1057,6 +1193,7 @@ def settle_and_report(cur, conn):
                             for ev in r.json():
                                 if ev.get("completed") and ev.get("scores"):
                                     scores[ev["id"]] = ev
+                                    sp_events.append(ev)
                         elif r.status_code in (401, 402, 429):
                             print(f"Ключ #{key_idx + 1} вичерпано/помилка [{r.status_code}]. Ротація до наступного...")
                             key_idx += 1
@@ -1065,6 +1202,31 @@ def settle_and_report(cur, conn):
                     except Exception as req_e:
                         print(f"Помилка запиту рахунків для {sp}: {req_e}")
                         break
+
+                # 3. Безкоштовний резерв: ESPN Scoreboard API (якщо ще є не знайдені матчі)
+                unmatched = [
+                    rp for rp in sp_rows
+                    if _find_score_event(rp[1], rp[3], scores, sp_events) is None
+                ]
+                if unmatched:
+                    espn_dates = set()
+                    for rp in unmatched:
+                        ct = rp[12] if len(rp) > 12 else None
+                        if ct is not None:
+                            try:
+                                if getattr(ct, "tzinfo", None) is None:
+                                    ct = ct.replace(tzinfo=timezone.utc)
+                                for d_off in (-1, 0, 1):
+                                    espn_dates.add((ct + timedelta(days=d_off)).strftime("%Y%m%d"))
+                            except Exception:
+                                pass
+                    espn_evs = fetch_espn_scores_for_sport(sp, target_dates=espn_dates or None)
+                    for ev in espn_evs:
+                        scores[ev["id"]] = ev
+                        sp_events.append(ev)
+
+                score_events_by_sport[sp] = sp_events
+
             for r_p in pending:
                 bid, eid, sp, m_name, pk, odds, st = r_p[:7]
                 is_real = bool(r_p[7]) if len(r_p) > 7 and r_p[7] is not None else False
@@ -1073,7 +1235,7 @@ def settle_and_report(cur, conn):
                 b_status = r_p[10] if len(r_p) > 10 else "PENDING"
                 is_shadow_bet = (b_status == "FILTERED") or (bool(r_p[11]) if len(r_p) > 11 and r_p[11] is not None else False)
 
-                ev = scores.get(eid)
+                ev = _find_score_event(eid, m_name, scores, score_events_by_sport.get(sp, []))
                 if not ev:
                     continue
                 sc_map = {s["name"]: int(re.findall(r"\d+", str(s["score"]))[0]) for s in ev["scores"] if re.findall(r"\d+", str(s.get("score", "")))}
