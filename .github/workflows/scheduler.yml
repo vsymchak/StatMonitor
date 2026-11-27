@@ -47,6 +47,8 @@ jobs:
           SX_BET_WALLET_ADDRESS: ${{ secrets.SX_BET_WALLET_ADDRESS }}
           SX_BET_PROXY_ADDRESS: ${{ secrets.SX_BET_PROXY_ADDRESS }}
           SX_BET_SAFE_ADDRESS: ${{ secrets.SX_BET_SAFE_ADDRESS }}
+          SX_BET_PROXY_URL: ${{ secrets.SX_BET_PROXY_URL }}
+          SX_AUTOSTAKE_ENABLED: ${{ secrets.SX_AUTOSTAKE_ENABLED }}
           TRIGGER_SOURCE: ${{ github.event.inputs.trigger_source || (github.event_name == 'schedule' && 'cron_5m' || 'manual') }}
         run: |
           python -u main.py
