@@ -322,6 +322,26 @@ class TestSXBetClient(unittest.TestCase):
             self.assertIsNotNone(offer_one)
             self.assertAlmostEqual(offer_one["decimal_odds"], 1.667, delta=0.01)
 
+    def test_place_order_surfaces_403_body_and_uses_proxy_ua(self):
+        from unittest.mock import patch, MagicMock
+        import requests as _req
+        with patch.dict("os.environ", {"SX_BET_PROXY_URL": "http://eu-proxy:8080"}):
+            client = SXBetClient(api_key="k", private_key="0x4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a0f3674ff")
+        self.assertIn("User-Agent", client.headers)
+        self.assertEqual(client._proxies, {"http": "http://eu-proxy:8080", "https": "http://eu-proxy:8080"})
+
+        bad_resp = MagicMock()
+        bad_resp.status_code = 403
+        bad_resp.reason = "Forbidden"
+        bad_resp.url = "https://api.sx.bet/orders-v3"
+        bad_resp.text = '{"error":"Geo blocked"}'
+        order = client.build_order_payload("0x" + "1" * 64, 1.0, 2.0, True)
+        with patch("statmonitor.sx_bet.requests.post", return_value=bad_resp) as mock_post:
+            with self.assertRaises(_req.HTTPError) as ctx:
+                client.place_order(order, dry_run=False)
+            self.assertIn("Geo blocked", str(ctx.exception))
+            self.assertEqual(mock_post.call_args[1]["proxies"]["https"], "http://eu-proxy:8080")
+
 
 if __name__ == "__main__":
     unittest.main()

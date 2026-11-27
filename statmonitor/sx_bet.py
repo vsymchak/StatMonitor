@@ -146,6 +146,8 @@ class SXBetClient:
             or DEFAULT_SX_SAFE_ADDRESS
         )
         self.timeout = timeout
+        proxy_url = get_secret("SX_BET_PROXY_URL") or get_secret("SX_BET_HTTP_PROXY")
+        self._proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
 
         if self.private_key and not wallet_address:
             try:
@@ -159,6 +161,7 @@ class SXBetClient:
         headers = {
             "Content-Type": "application/json",
             "Accept": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         }
         if self.api_key:
             headers["x-sx-api-key"] = self.api_key
@@ -480,8 +483,16 @@ class SXBetClient:
         order_with_sig["orderSignature"] = sig
 
         payload = {"orders": [order_with_sig]}
-        r = requests.post(f"{self.base_url}/orders-v3", json=payload, headers=self.headers, timeout=self.timeout)
-        r.raise_for_status()
+        req_kwargs = {"json": payload, "headers": self.headers, "timeout": self.timeout}
+        if getattr(self, "_proxies", None):
+            req_kwargs["proxies"] = self._proxies
+        r = requests.post(f"{self.base_url}/orders-v3", **req_kwargs)
+        if r.status_code >= 400:
+            body_preview = (r.text or "").strip().replace("\n", " ")[:240]
+            raise requests.HTTPError(
+                f"{r.status_code} {r.reason} for url: {r.url} | {body_preview}",
+                response=r,
+            )
         return r.json()
 
     def get_proxy_info(self) -> Dict[str, Any]:
@@ -1974,19 +1985,29 @@ def auto_sync_and_stake_from_paper(
                 f"Авто-ставка SX Bet ({exec_mode}) для paper #{pb['id']}: ${bet_size_usdc:.2f} USDC ({applied_pct}%) @ {order_odds} | order {order_id}"
             )
         except Exception as e:
-            logger.error(f"Помилка розміщення авто-ставки для #{pb['id']}: {e}")
+            err_str = str(e)
+            is_geo_403 = "403" in err_str or "Forbidden" in err_str
+            msg_hint = (
+                f"{err_str} (можливе гео-/IP-блокування US датацентру на SX Bet; потрібен EU-регіон або SX_BET_PROXY_URL)"
+                if is_geo_403
+                else err_str
+            )
+            logger.error(f"Помилка розміщення авто-ставки для #{pb['id']}: {msg_hint}")
             try:
                 from statmonitor.database import log_system_error
                 log_system_error(
                     conn,
                     "sx_bet",
-                    f"Помилка авто-ставки SX Bet (Paper #{pb['id']} {pb.get('match_name')}): {e}",
+                    f"Помилка авто-ставки SX Bet (Paper #{pb['id']} {pb.get('match_name')}): {msg_hint}",
                     severity="ERROR",
                     error_code="STAKE_FAILED",
-                    details={"paper_id": pb["id"], "match": pb.get("match_name"), "error": str(e)},
+                    details={"paper_id": pb["id"], "match": pb.get("match_name"), "error": err_str},
                 )
             except Exception:
                 pass
+            if is_geo_403:
+                logger.warning("[SX Bet] Виявлено 403 Forbidden для поточного IP; зупиняємо цикл розміщення до наступного запуску.")
+                break
 
     # Даємо блокчейну SX Rollup 2 сек для фіналізації Taker-трейдів і синхронізуємо угоди та баланси
     if placed_results:
