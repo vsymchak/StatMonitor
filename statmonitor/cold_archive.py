@@ -193,7 +193,7 @@ def archive_cold_odds(
     if not time_col:
         return {"success": False, "error": "No time column in odds_history", "total_records": 0, "files_created": 0}
 
-    # Вибірка даних перед ротацією
+    # Вибірка даних перед ротацією (параметризований SQL)
     sql = f"""
         SELECT 
             oh.id,
@@ -209,11 +209,11 @@ def archive_cold_odds(
             oh.{time_col} AS recorded_at
         FROM odds_history oh
         LEFT JOIN events e ON oh.event_id = e.id
-        WHERE oh.{time_col} < NOW() - INTERVAL '{min_age_days} days'
+        WHERE oh.{time_col} < NOW() - (INTERVAL '1 day' * %s)
         ORDER BY oh.{time_col} ASC
-        LIMIT {batch_limit};
+        LIMIT %s;
     """
-    cur.execute(sql)
+    cur.execute(sql, (float(min_age_days), int(batch_limit)))
     rows = cur.fetchall()
     if not rows:
         return {"success": True, "total_records": 0, "files_created": 0, "partitions": []}

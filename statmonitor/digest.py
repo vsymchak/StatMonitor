@@ -118,10 +118,10 @@ def generate_weekly_digest(cur, conn, force=False, days=7, send_telegram=True):
         f"• Win Rate: <b>{win_rate:.1f}%</b>",
     ]
 
-    if clv_metrics.get("clv_tracked_count", 0) > 0:
+    if clv_metrics.get("total_with_clv", 0) > 0:
         clv_sign = "+" if clv_metrics["avg_clv_pct"] >= 0 else ""
         caption_lines.append(
-            f"• Сер. CLV: <b>{clv_sign}{clv_metrics['avg_clv_pct']:.1f}%</b> | Beat Line: <b>{clv_metrics['beat_closing_line_pct']:.1f}%</b>"
+            f"• Сер. CLV: <b>{clv_sign}{clv_metrics['avg_clv_pct']:.1f}%</b> | Beat Line: <b>{clv_metrics['beat_line_pct']:.1f}%</b>"
         )
 
     if top_3:

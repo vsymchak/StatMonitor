@@ -5,7 +5,10 @@ import tempfile
 import shutil
 from datetime import datetime, timezone
 from unittest.mock import patch, MagicMock
-import pandas as pd
+try:
+    import pandas as pd
+except ImportError:
+    pd = None
 
 from statmonitor.cold_archive import (
     records_to_parquet_bytes,
@@ -16,6 +19,7 @@ from statmonitor.cold_archive import (
     _sign,
 )
 
+@unittest.skipIf(pd is None, "pandas is not installed in local Python environment")
 class TestColdOddsArchive(unittest.TestCase):
     def setUp(self):
         self.test_dir = tempfile.mkdtemp()

@@ -358,7 +358,9 @@ def should_execute_pipeline(cur, conn, trigger_source="manual", now_utc=None):
         cur.execute("""
             SELECT last_ping_at
             FROM system_heartbeat
-            WHERE service_name = 'scheduler_run';
+            WHERE service_name IN ('StatMonitor', 'scheduler_run')
+            ORDER BY last_ping_at DESC
+            LIMIT 1;
         """)
         hb_settle = cur.fetchone()
         allow_settle = True
@@ -377,7 +379,9 @@ def should_execute_pipeline(cur, conn, trigger_source="manual", now_utc=None):
     cur.execute("""
         SELECT last_ping_at 
         FROM system_heartbeat 
-        WHERE service_name = 'scheduler_run';
+        WHERE service_name IN ('StatMonitor', 'scheduler_run')
+        ORDER BY last_ping_at DESC
+        LIMIT 1;
     """)
     hb_row = cur.fetchone()
     if not hb_row or hb_row[0] is None:

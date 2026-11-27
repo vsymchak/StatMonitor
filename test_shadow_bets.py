@@ -26,7 +26,7 @@ class TestShadowCounterfactualBets(unittest.TestCase):
         self.assertTrue(len(insert_calls) > 0)
         sql, params = insert_calls[0][0][0], insert_calls[0][0][1]
         self.assertIn("'FILTERED'", sql)
-        self.assertIn("LOW_CONFIDENCE (5/10 < 8)", params)
+        self.assertIn("LOW_CONFIDENCE (5/10 < 7)", params)
         conn.commit.assert_called()
 
     def test_place_shadow_bet_skip_recommendation(self):
@@ -105,7 +105,7 @@ class TestShadowCounterfactualBets(unittest.TestCase):
                     settle_and_report(cur, conn)
 
         # Check live bet update: status='WON', profit_uah=100.0
-        live_up = [c for c in cur.execute.call_args_list if "UPDATE paper_bets SET status=" in str(c[0][0])]
+        live_up = [c for c in cur.execute.call_args_list if "UPDATE paper_bets" in str(c[0][0]) and "SET status =" in str(c[0][0])]
         self.assertTrue(len(live_up) > 0)
         self.assertEqual(live_up[0][0][1][0], "WON")
         self.assertEqual(live_up[0][0][1][2], 100.0)

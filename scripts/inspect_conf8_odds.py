@@ -7,8 +7,11 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from statmonitor.backtest import run_backtest
+from statmonitor.config import SUPABASE_DB_URL
 
-DB_URL = "postgresql://postgres.qmjeomovyoyogkjbgerr:ALTECsrs1989_@aws-1-eu-central-1.pooler.supabase.com:5432/postgres"
+DB_URL = os.environ.get("DATABASE_URL") or SUPABASE_DB_URL
+if not DB_URL:
+    raise RuntimeError("Встановіть DATABASE_URL або SUPABASE_DB_URL у .env перед запуском.")
 
 def main():
     conn = psycopg2.connect(DB_URL, connect_timeout=10)

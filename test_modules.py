@@ -610,6 +610,75 @@ class TestModularDecomposition(unittest.TestCase):
         self.assertEqual(len(o_bk), 1)
         self.assertEqual(o_bk[0]["point"], 224.5)
 
+    def test_security_and_runtime_audit_fixes(self):
+        from statmonitor.config import get_secret
+        from trigger_dispatch import trigger_via_webhook
+        from statmonitor.digest import generate_weekly_digest
+        from statmonitor.paper_trading import get_market_median_odds
+        from scheduler import should_execute_pipeline
+
+        # 1. get_secret без Streamlit читає env і не падає
+        with patch.dict("os.environ", {"TEST_SECRET_KEY": "abc_secret_123"}):
+            self.assertEqual(get_secret("TEST_SECRET_KEY"), "abc_secret_123")
+        self.assertEqual(get_secret("MISSING_SECRET_KEY_XYZ", "fallback_v"), "fallback_v")
+
+        # 2. trigger_via_webhook перевіряє секрет і статус відповіді
+        ok_no_sec, _ = trigger_via_webhook(secret="", url="https://example.com")
+        self.assertFalse(ok_no_sec)
+        with patch("trigger_dispatch.requests.get", return_value=MagicMock(status_code=202)) as mock_trig:
+            ok_trig, msg_trig = trigger_via_webhook(secret="topsecret", source="telegram_bot", url="https://example.com/trigger")
+            self.assertTrue(ok_trig)
+            self.assertIn("202", msg_trig)
+            mock_trig.assert_called_once()
+
+        # 3. digest.py використовує total_with_clv та beat_line_pct
+        mock_cur_dig = MagicMock()
+        mock_conn_dig = MagicMock()
+        mock_cur_dig.description = [
+            ("id",), ("match_name",), ("sport",), ("pick_label",), ("odds",),
+            ("stake_uah",), ("status",), ("profit_uah",), ("settled_at",),
+            ("created_at",), ("closing_odds",), ("clv_pct",), ("beat_closing_line",),
+        ]
+        now_t = datetime.now(timezone.utc)
+        mock_cur_dig.fetchall.return_value = [
+            (1, "A - B", "soccer_epl", "П1", 2.0, 200.0, "WON", 200.0, now_t, now_t, 1.85, 8.1, True),
+            (2, "C - D", "soccer_epl", "П2", 2.1, 200.0, "LOST", -200.0, now_t, now_t, 2.0, 5.0, True),
+        ]
+        with patch("statmonitor.digest.calculate_clv_metrics", return_value={"total_with_clv": 5, "avg_clv_pct": 4.2, "beat_line_pct": 80.0}), \
+             patch("statmonitor.digest.build_weekly_equity_chart", return_value=None), \
+             patch("statmonitor.digest.send_tg") as mock_dig_tg:
+            generate_weekly_digest(mock_cur_dig, mock_conn_dig, force=True, send_telegram=True)
+            cap = mock_dig_tg.call_args[0][0]
+            self.assertIn("4.2%", cap)
+            self.assertIn("80.0%", cap)
+
+        # 4. get_market_median_odds query_any_time підтримує btts без IndexError
+        mock_cur_btts = MagicMock()
+        mock_cur_btts.fetchall.side_effect = [[], [("pinnacle", 1.88)]]
+        res_btts = get_market_median_odds(mock_cur_btts, "ev_btts", "Обидві заб'ють (Так)", "A - B", fallback_odds=1.80)
+        self.assertEqual(res_btts, 1.88)
+
+        # 5. scheduler.should_execute_pipeline шукає 'StatMonitor' або 'scheduler_run'
+        mock_cur_sch = MagicMock()
+        mock_conn_sch = MagicMock()
+        fresh_ping = datetime.now(timezone.utc) - timedelta(minutes=10)
+        mock_cur_sch.fetchone.side_effect = [None, None, (fresh_ping,), None]
+        should_run, _, mode = should_execute_pipeline(mock_cur_sch, mock_conn_sch, trigger_source="cron_5m")
+        self.assertFalse(should_run)
+        self.assertEqual(mode, "SKIP")
+        q_joined = "\n".join(str(c[0][0]) for c in mock_cur_sch.execute.call_args_list)
+        self.assertIn("StatMonitor", q_joined)
+
+        # 6. render_service PIPELINE_LOCK не дозволяє одночасного запуску
+        import render_service
+        with patch("main.run_pipeline") as mock_rp:
+            self.assertTrue(render_service.PIPELINE_LOCK.acquire(blocking=False))
+            try:
+                render_service._run_pipeline_guarded(force=True)
+                mock_rp.assert_not_called()
+            finally:
+                render_service.PIPELINE_LOCK.release()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -6,6 +6,22 @@ import requests
 DEFAULT_REPO = os.environ.get("GH_REPO", "vsymchak/StatMonitor")
 DEFAULT_WORKFLOW = os.environ.get("GH_WORKFLOW", "scheduler.yml")
 DEFAULT_TOKEN = os.environ.get("GH_PAT") or os.environ.get("GITHUB_TOKEN")
+WEBHOOK_URL = os.environ.get("TRIGGER_WEBHOOK_URL", "https://statmonitor.symchak.workers.dev")
+
+
+def trigger_via_webhook(secret=None, source="telegram_bot", url=None):
+    """Викликає HTTP-вебхук (Cloudflare Worker або Oracle/Render /trigger)."""
+    sec = (secret or os.environ.get("SECRET_KEY") or "").strip()
+    target_url = (url or WEBHOOK_URL).strip()
+    if not sec:
+        return False, "Не задано SECRET_KEY у змінних середовища."
+    try:
+        r = requests.get(target_url, params={"secret": sec, "source": source}, timeout=12)
+        if r.status_code in (200, 202, 204):
+            return True, f"OK ({r.status_code})"
+        return False, f"HTTP {r.status_code}: {r.text[:150]}"
+    except Exception as e:
+        return False, str(e)
 
 def build_headers(token):
     headers = {

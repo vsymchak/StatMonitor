@@ -7,27 +7,64 @@ Render.com Web Service Adapter для StatMonitor
 """
 
 import os
-import sys
+import hmac
 import threading
+from urllib.parse import urlparse, parse_qs
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from daemon import run_daemon, load_dotenv_fallback
 
 load_dotenv_fallback()
 
+PIPELINE_LOCK = threading.Lock()
+TRIGGER_SECRET = (os.environ.get("SECRET_KEY") or "").strip()
+
+
+def _run_pipeline_guarded(force: bool = True):
+    if not PIPELINE_LOCK.acquire(blocking=False):
+        print("⚠️ [Trigger] Пайплайн уже виконується — повторний виклик пропущено.")
+        return
+    try:
+        from main import run_pipeline
+        run_pipeline(force=force)
+    finally:
+        PIPELINE_LOCK.release()
+
+
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
-        if self.path in ("/", "/health", "/healthz"):
+        parsed = urlparse(self.path)
+        path = parsed.path
+
+        if path in ("/", "/health", "/healthz"):
             self.send_response(200)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.end_headers()
-            self.wfile.write(b"StatMonitor 24/7 Web Service is ACTIVE.\n")
-        elif self.path.startswith("/trigger") or self.path.startswith("/run"):
-            # Миттєвий запуск через вебхук
+            state = "RUNNING" if PIPELINE_LOCK.locked() else "IDLE"
+            self.wfile.write(f"StatMonitor 24/7 Web Service is ACTIVE ({state}).\n".encode("utf-8"))
+            return
+
+        if path in ("/trigger", "/run"):
+            qs = parse_qs(parsed.query)
+            req_secret = (qs.get("secret", [""])[0] or self.headers.get("X-Trigger-Secret", "")).strip()
+            expected_secret = (os.environ.get("SECRET_KEY") or TRIGGER_SECRET or "").strip()
+            if not expected_secret or not req_secret or not hmac.compare_digest(req_secret, expected_secret):
+                self.send_response(401)
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(b"Unauthorized: invalid secret.\n")
+                return
+
+            if PIPELINE_LOCK.locked():
+                self.send_response(409)
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(b"Pipeline is already running.\n")
+                return
+
             try:
-                from main import run_pipeline
-                t = threading.Thread(target=run_pipeline, kwargs={"force": True})
+                t = threading.Thread(target=_run_pipeline_guarded, kwargs={"force": True}, daemon=True)
                 t.start()
-                self.send_response(200)
+                self.send_response(202)
                 self.send_header("Content-Type", "text/plain; charset=utf-8")
                 self.end_headers()
                 self.wfile.write(b"Pipeline triggered successfully.\n")
@@ -36,9 +73,10 @@ class HealthHandler(BaseHTTPRequestHandler):
                 self.send_header("Content-Type", "text/plain; charset=utf-8")
                 self.end_headers()
                 self.wfile.write(f"Trigger error: {e}\n".encode("utf-8"))
-        else:
-            self.send_response(404)
-            self.end_headers()
+            return
+
+        self.send_response(404)
+        self.end_headers()
 
     def log_message(self, format, *args):
         # Приглушуємо логування звичайних пінґів

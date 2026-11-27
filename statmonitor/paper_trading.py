@@ -255,6 +255,8 @@ def get_market_median_odds(cur, event_id, pick_label, match_name="", fallback_od
                     base_params.extend([out_name, out_name])
                 elif mkt == "totals":
                     base_params.append(out_name)
+                elif mkt == "btts":
+                    base_params.extend([out_name, out_name, out_name])
                 elif mkt == "h2h" and out_name != "Draw":
                     base_params.extend([out_name, out_name])
             if pt is not None:
@@ -1109,39 +1111,6 @@ def _find_score_event(eid, match_name, scores_by_id, score_events):
 
 
 def settle_and_report(cur, conn):
-    # SPEC-Fix: Автоматичне виправлення некоректно розрахованої ставки #56 (Ben Shelton - Rafael Jodar 7:6, 7:5 -> WON)
-    try:
-        # SPEC-Fix: Автоматичне виправлення некоректно розрахованої ставки #56 (Ben Shelton - Rafael Jodar 7:6, 7:5 -> WON)
-        cur.execute("""
-            UPDATE paper_bets
-            SET status = 'WON',
-                profit_uah = ROUND(stake_uah * (odds - 1.0), 2),
-                match_score = '7:6, 7:5',
-                settled_at = COALESCE(settled_at, NOW())
-            WHERE id = 56 
-              AND status = 'LOST' 
-              AND (match_score LIKE '%7%6%' OR match_name ILIKE '%Shelton%');
-        """)
-        # SPEC-Fix: Оновлення фори та коефіцієнта для матчу Daniil Medvedev - Frances Tiafoe (Ф2 (+2) за коеф. 2.25)
-        cur.execute("""
-            UPDATE paper_bets
-            SET pick_label = 'Ф2 (+2)',
-                odds = 2.25,
-                real_odds = 2.25
-            WHERE status = 'PENDING'
-              AND ((match_name ILIKE '%Medvedev%' AND match_name ILIKE '%Tiafoe%') OR id = 76);
-        """)
-        # SPEC-Real-Rounding: Округлення копійок у реальних ставках до цілих гривень
-        cur.execute("""
-            UPDATE paper_bets
-            SET real_stake_uah = ROUND(real_stake_uah)
-            WHERE is_real_bet = TRUE AND real_stake_uah IS NOT NULL AND real_stake_uah != ROUND(real_stake_uah);
-        """)
-        conn.commit()
-    except Exception:
-        if conn:
-            conn.rollback()
-
     # SPEC-20: Спочатку фіксуємо Closing Line для ставок, де матч розпочинається або вже почався
     try:
         capture_closing_lines(cur, conn)

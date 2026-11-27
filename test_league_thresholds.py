@@ -153,7 +153,7 @@ class TestLeagueThresholds(unittest.TestCase):
         self.assertIn("min_odds", d)
         self.assertIn("max_odds", d)
         self.assertIn("min_confidence", d)
-        self.assertEqual(d["min_confidence"], 8)
+        self.assertEqual(d["min_confidence"], 7)
 
         # 2. Збереження дефолтів у БД
         ok, msg = save_global_defaults(

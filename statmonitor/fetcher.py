@@ -289,7 +289,14 @@ def get_common_supported_sports(propline_api_key=None, odds_api_keys=None):
     }
 
 
-def _parse_sports_list(data, map_propline=False):
+def _parse_sports_list(data, map_propline=False, active_targets=None):
+    if active_targets is None:
+        try:
+            from statmonitor.league_config import load_leagues_config, get_active_target_sports
+            dyn_targets = set(get_active_target_sports(load_leagues_config()))
+            active_targets = dyn_targets if dyn_targets else set(TARGET_SPORTS)
+        except Exception:
+            active_targets = set(TARGET_SPORTS)
     res = {}
     for s in _extract_api_items(data):
         if not isinstance(s, dict):
@@ -306,7 +313,7 @@ def _parse_sports_list(data, map_propline=False):
             or "atp" in s_key
             or "wta" in s_key
         )
-        if is_active and (s_key in TARGET_SPORTS or is_tennis):
+        if is_active and (s_key in active_targets or s_key in TARGET_SPORTS or is_tennis):
             title = s.get("title")
             if not title:
                 title = f"Теніс ({s_key.replace('tennis_', '').upper()})" if s_key.startswith("tennis_") else s_key
@@ -462,7 +469,24 @@ def fetch_and_save_odds(sports_map=None):
     if conn and cur:
         try:
             from statmonitor.limiter import filter_sports_to_poll, record_poll_success
-            selected_sports, mode, tiers = filter_sports_to_poll(cur, conn, sports_map, now_utc=now_utc)
+            rem_from_hb = None
+            try:
+                cur.execute(
+                    "SELECT metadata->'odds_quota' FROM system_heartbeat WHERE service_name IN ('StatMonitor', 'scheduler_run') ORDER BY last_ping_at DESC LIMIT 1;"
+                )
+                hb_r = cur.fetchone()
+                if hb_r and isinstance(hb_r[0], dict):
+                    q_meta = hb_r[0]
+                    pref = q_meta.get("preferred_source")
+                    if pref == "propline" and isinstance(q_meta.get("propline"), dict) and q_meta["propline"].get("remaining") is not None:
+                        rem_from_hb = int(float(q_meta["propline"]["remaining"]))
+                    elif q_meta.get("total_remaining") is not None:
+                        rem_from_hb = int(float(q_meta["total_remaining"]))
+            except Exception:
+                pass
+            selected_sports, mode, tiers = filter_sports_to_poll(
+                cur, conn, sports_map, remaining_credits=rem_from_hb, now_utc=now_utc
+            )
             print(f"1. Smart Rate-Limiter [{mode}]: до опитування відібрано {len(selected_sports)} з {len(sports_map)} ліг: {list(selected_sports.keys())}")
         except Exception as e:
             print(f"Rate-limiter filter err: {e}")
@@ -663,15 +687,30 @@ def fetch_and_save_odds(sports_map=None):
 
     # SPEC-39: Холодний архів Parquet (Cloudflare R2 / S3) перед 4-денною ротацією
     if time_col:
+        arch_ok = True
         try:
             from statmonitor.cold_archive import archive_cold_odds
-            res_arch = archive_cold_odds(cur, conn, min_age_days=3.5)
-            if res_arch.get("files_created", 0) > 0:
-                print(f"📦 [Cold Archive] Збережено {res_arch['total_records']} котирувань у {res_arch['files_created']} Parquet-файлів перед ротацією.")
+            total_arch_rec = 0
+            total_arch_files = 0
+            for _ in range(5):
+                res_arch = archive_cold_odds(cur, conn, min_age_days=3.5, batch_limit=50000)
+                if not res_arch.get("success"):
+                    arch_ok = False
+                    break
+                total_arch_rec += int(res_arch.get("total_records", 0) or 0)
+                total_arch_files += int(res_arch.get("files_created", 0) or 0)
+                if int(res_arch.get("total_records", 0) or 0) < 50000:
+                    break
+            if total_arch_files > 0:
+                print(f"📦 [Cold Archive] Збережено {total_arch_rec} котирувань у {total_arch_files} Parquet-файлів перед ротацією.")
         except Exception as arch_err:
+            arch_ok = False
             print(f"⚠️ [Cold Archive] Помилка архівації перед ротацією: {arch_err}")
 
-        cur.execute(f"DELETE FROM odds_history WHERE {time_col} < NOW() - INTERVAL '4 days';")
+        if arch_ok:
+            cur.execute(f"DELETE FROM odds_history WHERE {time_col} < NOW() - INTERVAL '4 days';")
+        else:
+            print("⚠️ [Cold Archive] Пропущено видалення старих котирувань через незавершену архівацію.")
     cur.execute("DELETE FROM events WHERE commence_time < NOW() - INTERVAL '4 days';")
     conn.commit()
     cur.close()

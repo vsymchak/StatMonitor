@@ -352,9 +352,10 @@ def cmd_schedule(cur):
 def cmd_run_now():
     try:
         from trigger_dispatch import trigger_via_webhook
-        ok, msg = trigger_via_webhook(secret="ALTECsrs1989_", source="telegram_bot")
+        from statmonitor.config import get_secret
+        ok, msg = trigger_via_webhook(secret=get_secret("SECRET_KEY"), source="telegram_bot")
         if ok:
-            return "🚀 <b>Запуск моніторингу ініційовано!</b>\nВоркфлоу активовано через Cloudflare Webhook. Очікуйте оновлення котирувань найближчим часом."
+            return "🚀 <b>Запуск моніторингу ініційовано!</b>\nОчікуйте оновлення котирувань найближчим часом."
         return f"⚠️ <b>Помилка активації вебхука:</b>\n<code>{esc(msg)}</code>"
     except Exception as e:
         return f"⚠️ <b>Не вдалося відправити тригер:</b> {esc(e)}"

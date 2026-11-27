@@ -59,22 +59,17 @@ class TestAIConfidenceAndValueFiltering(unittest.TestCase):
         self.assertFalse(res_no_shadow)
         cur.execute.assert_not_called()
 
-        # 2. SPEC-35 & SPEC-42: За замовчуванням ставка зберігається як Shadow-ставка (status='FILTERED')
-        # Для оцінки 7/10 при новому Золотому стандарті (поріг 8) ставка також відсікається в Shadow
+        # 2. SPEC-35 & SPEC-42: За замовчуванням ставка з нижчою оцінкою (6/10 < 7) зберігається як Shadow-ставка (status='FILTERED')
         cur.reset_mock()
-        cur.fetchone.return_value = None
-        res_shadow7 = place_paper_bet(
-            cur, conn, "ev_low7", "soccer_epl", "Team A - Team B", now,
+        cur.fetchone.side_effect = [None, (0.0, 0.0)]
+        res_ok7 = place_paper_bet(
+            cur, conn, "ev_ok7", "soccer_epl", "Team A - Team B", now,
             "П1", 2.10, drop_pct=15.0, confidence=7, risk_level="MEDIUM"
         )
-        self.assertFalse(res_shadow7)
-        self.assertTrue(cur.execute.called)
-        insert_calls7 = [c for c in cur.execute.call_args_list if "INSERT INTO paper_bets" in str(c[0][0])]
-        self.assertTrue(len(insert_calls7) > 0)
-        self.assertIn("'FILTERED'", insert_calls7[0][0][0])
-        self.assertIn("LOW_CONFIDENCE (7/10 < 8)", insert_calls7[0][0][1])
+        self.assertTrue(res_ok7)
 
         cur.reset_mock()
+        cur.fetchone.side_effect = None
         cur.fetchone.return_value = None
         res_shadow = place_paper_bet(
             cur, conn, "ev_low2", "soccer_epl", "Team A - Team B", now,
@@ -85,6 +80,7 @@ class TestAIConfidenceAndValueFiltering(unittest.TestCase):
         insert_calls = [c for c in cur.execute.call_args_list if "INSERT INTO paper_bets" in str(c[0][0])]
         self.assertTrue(len(insert_calls) > 0)
         self.assertIn("'FILTERED'", insert_calls[0][0][0])
+        self.assertIn("LOW_CONFIDENCE (6/10 < 7)", insert_calls[0][0][1])
         conn.commit.assert_called()
 
     def test_place_paper_bet_accept_high_confidence(self):

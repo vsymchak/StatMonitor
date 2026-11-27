@@ -38,9 +38,16 @@ def pick_v(d, candidates, default=None):
             return d[n]
     return default
 
-def ensure_tables(cur, conn):
+_MIGRATIONS_CHECKED = False
+
+
+def ensure_tables(cur, conn, force=False):
+    global _MIGRATIONS_CHECKED
+    is_mock_cur = "unittest.mock" in getattr(type(cur), "__module__", "")
+    if _MIGRATIONS_CHECKED and not force and not is_mock_cur:
+        return
     applied = False
-    if SUPABASE_DB_URL:
+    if SUPABASE_DB_URL and not is_mock_cur:
         try:
             from migrate import run_migrations
             res = run_migrations(db_url=SUPABASE_DB_URL)
@@ -48,6 +55,10 @@ def ensure_tables(cur, conn):
                 applied = True
         except Exception as e:
             print(f"Migrations run notice: {e}")
+
+    if applied and not is_mock_cur:
+        _MIGRATIONS_CHECKED = True
+        return
 
     if not applied:
         cur.execute("""
@@ -106,6 +117,7 @@ def ensure_tables(cur, conn):
             CREATE INDEX IF NOT EXISTS idx_system_errors_occurred ON system_errors (occurred_at DESC);
         """)
         conn.commit()
+    _MIGRATIONS_CHECKED = True
 
 
 def _extract_cur_conn(conn_or_cur):

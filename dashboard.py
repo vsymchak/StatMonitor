@@ -266,11 +266,11 @@ def get_dashboard_odds_quota(heartbeat_df=None):
 def fetch_data(db_url):
     """
     Завантажує дані з Supabase PostgreSQL з повною транзакційною ізоляцією.
-    Повертає (bets_df, ai_df, sched_df, heartbeat_df, poll_df, error_msg)
+    Повертає (bets_df, ai_df, sched_data, hb_data, poll_data, real_summary, real_ledger_data, error_msg)
     """
     conn, err = get_db_connection(db_url)
     if not conn:
-        return None, None, None, None, None, err
+        return None, None, None, None, None, {}, None, err
 
     bets_data = pd.DataFrame() if pd is not None else []
     ai_data = pd.DataFrame() if pd is not None else []
@@ -281,44 +281,6 @@ def fetch_data(db_url):
     try:
         conn.autocommit = True
         cur = conn.cursor()
-
-        # SPEC-Fix: Автоматичне виправлення результату для ставки #56 (Ben Shelton - Rafael Jodar 7:6, 7:5 -> WON)
-        try:
-            cur.execute("""
-                UPDATE paper_bets
-                SET status = 'WON',
-                    profit_uah = ROUND(stake_uah * (odds - 1.0), 2),
-                    match_score = '7:6, 7:5',
-                    settled_at = COALESCE(settled_at, NOW())
-                WHERE id = 56 
-                  AND status = 'LOST' 
-                  AND (match_score LIKE '%7%6%' OR match_name ILIKE '%Shelton%');
-            """)
-        except Exception as e_fix:
-            print("Auto-fix bet 56 err:", e_fix)
-
-        # SPEC-Real-Rounding: Округлення копійок у реальних ставках до цілих гривень
-        try:
-            cur.execute("""
-                UPDATE paper_bets
-                SET real_stake_uah = ROUND(real_stake_uah)
-                WHERE is_real_bet = TRUE AND real_stake_uah IS NOT NULL AND real_stake_uah != ROUND(real_stake_uah);
-            """)
-        except Exception as e_rnd:
-            pass
-
-        # SPEC-Fix: Оновлення фори та коефіцієнта для матчу Daniil Medvedev - Frances Tiafoe (Ф2 (+2) за коеф. 2.25)
-        try:
-            cur.execute("""
-                UPDATE paper_bets
-                SET pick_label = 'Ф2 (+2)',
-                    odds = 2.25,
-                    real_odds = 2.25
-                WHERE status = 'PENDING'
-                  AND ((match_name ILIKE '%Medvedev%' AND match_name ILIKE '%Tiafoe%') OR id = 76);
-            """)
-        except Exception as e_med:
-            print("Auto-fix Medvedev-Tiafoe err:", e_med)
 
         # SPEC-Real-AutoRecalc: Автоматичне заповнення реальних ставок без суми (real_stake_uah IS NULL) за відсотком (SPEC-34)
         try:
@@ -550,6 +512,27 @@ def get_dashboard_system_errors(db_url):
         return []
     finally:
         conn.close()
+
+
+def _make_cached(fn, ttl_sec=30):
+    try:
+        import streamlit as _st
+        if hasattr(_st, "cache_data"):
+            return _st.cache_data(ttl=ttl_sec, show_spinner=False)(fn)
+    except Exception:
+        pass
+    return fn
+
+
+def _get_quota_by_ping(hb_ping_key, _heartbeat_df=None):
+    return get_dashboard_odds_quota(_heartbeat_df)
+
+
+fetch_data_cached = _make_cached(fetch_data, ttl_sec=30)
+get_sx_data_cached = _make_cached(get_sx_bet_dashboard_data, ttl_sec=60)
+get_system_errors_cached = _make_cached(get_dashboard_system_errors, ttl_sec=30)
+get_quota_cached = _make_cached(_get_quota_by_ping, ttl_sec=120)
+
 
 def run_streamlit_app():
     import streamlit as st
@@ -1117,14 +1100,10 @@ def run_streamlit_app():
 
     # Читання Secrets та підключення
     db_url = ""
-    secret_key = ""
-    try:
-        db_url = st.secrets.get("SUPABASE_DB_URL", "")
-        secret_key = st.secrets.get("SECRET_KEY", "")
-    except Exception:
-        pass
-    db_url = db_url or os.environ.get("SUPABASE_DB_URL", "")
-    secret_key = secret_key or os.environ.get("SECRET_KEY", "") or "ALTECsrs1989_"
+    import hmac
+    from statmonitor.config import get_secret
+    db_url = get_secret("DATABASE_URL") or get_secret("SUPABASE_DB_URL") or ""
+    secret_key = get_secret("SECRET_KEY", "") or ""
     secret_key = str(secret_key).strip().strip('"').strip("'")
 
     if not db_url:
@@ -1132,12 +1111,12 @@ def run_streamlit_app():
         st.info("💡 Підказка: у правому верхньому кутку відкрийте `Settings` -> `Secrets` і збережіть `SUPABASE_DB_URL`.")
         return
 
-    bets_df, ai_df, sched_df, heartbeat_df, poll_df, real_summary, real_ledger_df, db_err = fetch_data(db_url)
+    bets_df, ai_df, sched_df, heartbeat_df, poll_df, real_summary, real_ledger_df, db_err = fetch_data_cached(db_url)
     if db_err:
         st.error(f"❌ Помилка з'єднання з базою Supabase:\n\n`{db_err}`")
         return
 
-    sys_errors_list = get_dashboard_system_errors(db_url)
+    sys_errors_list = get_system_errors_cached(db_url)
 
     if not real_summary or not isinstance(real_summary, dict):
         real_summary = {
@@ -1181,7 +1160,7 @@ def run_streamlit_app():
         except Exception:
             pass
 
-    if query_key and (query_key == secret_key or query_key == "ALTECsrs1989_" or query_key.lower() == secret_key.lower()):
+    if secret_key and query_key and hmac.compare_digest(query_key, secret_key):
         st.session_state.is_admin = True
         # SPEC-38: URL Sanitization - негайно прибираємо секретний ключ з URL, щоб він не витікав у браузері
         try:
@@ -1199,7 +1178,7 @@ def run_streamlit_app():
     is_admin = st.session_state.is_admin
 
     if is_admin:
-        sx_summary, sx_pending_df, sx_settled_df, sx_tx_df, sx_proxy_info = get_sx_bet_dashboard_data(db_url)
+        sx_summary, sx_pending_df, sx_settled_df, sx_tx_df, sx_proxy_info = get_sx_data_cached(db_url)
     else:
         empty_sx = pd.DataFrame() if pd is not None else []
         sx_summary, sx_pending_df, sx_settled_df, sx_tx_df, sx_proxy_info = {}, empty_sx, empty_sx, empty_sx, {}
@@ -1221,6 +1200,7 @@ def run_streamlit_app():
             except Exception:
                 wd_mins_diff = 0
         st_val = str(hb_row.get("last_status", "OK")).upper()
+        hb_status_clean = st_val
         if st_val not in ("OK", "ONLINE"):
             wd_state = "ERROR"
         elif wd_mins_diff > 90:
@@ -1366,6 +1346,8 @@ def run_streamlit_app():
                 _render_theme_btn("admin")
             with c_ref:
                 if st.button("🔄 Оновити", use_container_width=True):
+                    if hasattr(st, "cache_data"):
+                        st.cache_data.clear()
                     st.rerun()
             with c_run:
                 if st.button("⚡ Запуск", use_container_width=True):
@@ -1403,11 +1385,10 @@ def run_streamlit_app():
                 with login_container:
                     entered_pass = st.text_input("Ключ адміністратора:", type="password", key="admin_pwd_field")
                     if st.button("Увійти", key="btn_admin_login", use_container_width=True):
-                        if secret_key and entered_pass.strip() == str(secret_key).strip():
+                        if secret_key and hmac.compare_digest(entered_pass.strip(), str(secret_key).strip()):
                             st.session_state.is_admin = True
                             st.rerun()
                         else:
-                            st.error("Невірний ключ")
                             st.error("Невірний ключ")
 
     # 2. ДАНІ ДЛЯ РИЗИК-МЕТРИК ТА ЛІГ (SPEC-24)
@@ -1420,7 +1401,10 @@ def run_streamlit_app():
     dd_stats = calculate_drawdown(all_settled, initial_bankroll=INITIAL_BANKROLL)
     streak_stats = calculate_streaks(all_settled)
 
-    quota_data, quota_source = get_dashboard_odds_quota(heartbeat_df)
+    hb_ping_key = ""
+    if heartbeat_df is not None and not heartbeat_df.empty and "last_ping_at" in heartbeat_df.columns:
+        hb_ping_key = str(heartbeat_df.iloc[0].get("last_ping_at") or "")
+    quota_data, quota_source = get_quota_cached(hb_ping_key, _heartbeat_df=heartbeat_df)
 
     # 3. ЄДИНИЙ ЩІЛЬНИЙ РЯДОК KPI-МЕТРИК (6 КАРТОК У 1 РЯД, висота ~66px)
     kpi1, kpi2, kpi3, kpi4, kpi5, kpi6 = st.columns(6)
@@ -2235,7 +2219,7 @@ def run_streamlit_app():
         # 5. АКТИВНІ СТАВКИ У ГРІ (В стилі журналу операцій з укр. назвами та доп. колонками)
         pending_df = filtered_df[filtered_df["status"] == "PENDING"].copy() if (not filtered_df.empty and "status" in filtered_df.columns) else pd.DataFrame()
         if pending_df.empty and (bets_df is not None and not bets_df.empty and "status" in bets_df.columns):
-            if status_filter in ("Всі ставки", "⏳ Тільки активні (Pending)"):
+            if sel_status in ("Всі ставки", "В грі (Pending)"):
                 pending_df = bets_df[bets_df["status"] == "PENDING"].copy()
 
         # Сортування активних ставок за часом події у порядку зростання (найближчі події зверху)
@@ -2667,7 +2651,7 @@ def run_streamlit_app():
 
         # 6. ІСТОРІЯ СТАВОК (SPEC-33)
         history_df = filtered_df[filtered_df["status"].isin(["WON", "LOST", "VOID"])].copy() if (not filtered_df.empty and "status" in filtered_df.columns) else pd.DataFrame()
-        if history_df.empty and status_filter in ("Всі ставки", "✅ Розраховані (Settled)") and (bets_df is not None and not bets_df.empty and "status" in bets_df.columns):
+        if history_df.empty and sel_status in ("Всі ставки", "Розраховані") and (bets_df is not None and not bets_df.empty and "status" in bets_df.columns):
             history_df = bets_df[bets_df["status"].isin(["WON", "LOST", "VOID"])].copy()
 
         with st.expander(f"📜 Історія ставок ({len(history_df)})", expanded=True):
@@ -3942,7 +3926,7 @@ def run_streamlit_app():
             cur_bank_val = metrics.get('current_bank', 10000) if isinstance(metrics, dict) else 10000
             st.markdown(f"""
                 <div style="background: {ai_card_bg}; border: 1px solid {ai_card_border}; border-radius: 12px; padding: 14px; margin-bottom: 14px;">
-                    <div style="display: flex; align-items: gap: 8px; margin-bottom: 10px;">
+                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
                         <span style="font-size: 16px;">🎯</span>
                         <span style="font-size: 13px; font-weight: 700; color: {ai_title_clr};">Топ-сигнали та налаштування банку</span>
                     </div>
@@ -4688,7 +4672,15 @@ def run_streamlit_app():
         st.markdown("##### 📦 Холодний архів котирувань Parquet (Cloudflare R2 / S3 - SPEC-39)")
         try:
             from statmonitor.cold_archive import get_cold_archive_summary, archive_cold_odds
-            arch_summary = get_cold_archive_summary(cur)
+            conn_arc_view, _ = get_db_connection(db_url)
+            arch_summary = {"files_count": 0, "total_records": 0, "total_mb": 0.0, "latest_partition": None, "recent_files": []}
+            if conn_arc_view:
+                cur_arc_view = conn_arc_view.cursor()
+                try:
+                    arch_summary = get_cold_archive_summary(cur_arc_view)
+                finally:
+                    cur_arc_view.close()
+                    conn_arc_view.close()
             
             c_arc1, c_arc2, c_arc3, c_arc4 = st.columns(4)
             c_arc1.metric("📦 Файлів Parquet", f"{arch_summary['files_count']}")

@@ -61,7 +61,7 @@ class TestLeagueConfig(unittest.TestCase):
         th_nba = get_league_thresholds("basketball_nba", mock_cfg)
         self.assertEqual(th_nba["min_drop_pct"], 3.8)
         self.assertEqual(th_nba["min_odds"], 1.30)
-        self.assertEqual(th_nba["max_odds"], 4.50)
+        self.assertEqual(th_nba["max_odds"], 4.00)
         self.assertEqual(th_nba["markets"], ["h2h", "spreads"])
 
         # Невідомий турнір -> дефолт
