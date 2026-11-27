@@ -1,8 +1,8 @@
 # Дорожня карта розвитку StatMonitor (SDD Roadmap)
 
-> **Статус**: 39 з 42 кроків реалізовано (39 Shipped, 0 Planned, 3 Idea) · Хвиля 12 розпочата! 🚀  
-> **Оновлено**: 20.11.2026  
-> **Фокус**: Step 42 Quantitative Backtest Engine (Simulation Platform & Equity Curves) Shipped!
+> **Статус**: 44 з 45 кроків реалізовано (44 Shipped, 1 Planned) · Хвиля 13! 🚀  
+> **Оновлено**: 28.11.2026  
+> **Фокус**: Step 45 EU Proxy & Geo-Routing для SX Bet (`SX_BET_PROXY_URL`) Planned!
 
 ---
 
@@ -392,3 +392,18 @@
   - **Webhook Trigger (`GET /trigger` або `GET /run`)**: миттєвий позачерговий запуск пайплайну через зовнішній запит.
   - **Повна конфіденційність**: код залишається 100% приватним (Private), а Web3 приватні ключі та секрети шифруються у сховищі Render Environment Variables.
 * **Залежності**: потрібен крок 40, потрібен крок 43
+
+---
+
+## 🟧 Wave 13: Інфраструктурна надійність та Geo-Routing (Planned)
+
+### 45. EU Proxy & Geo-Routing для SX Bet Execution (`SX_BET_PROXY_URL`)
+* **Розмір**: S
+* **Статус**: 🟧 Planned (код підтримки в `SXBetClient` та `scheduler.yml` додано — залишилось прописати робочий EU-проксі у Secrets або перенести воркер в EU)
+* **Проблема**: Хмарні раннери GitHub Actions (Azure US), Streamlit Cloud (AWS US) та US-регіони Render при відправці ордерів `POST /orders-v3` отримують `403 Forbidden` через IP/гео-фільтрацію SX Bet / Cloudflare.
+* **План змін**:
+  - **Налаштувати `SX_BET_PROXY_URL` у Secrets**: орендувати або підняти виділений EU HTTP/SOCKS5-проксі (Польща/Німеччина/Україна) та прописати у **Streamlit Cloud Secrets**, **GitHub Actions Secrets** і **Render Environment**.
+  - **Повне маршрутизування SX Bet API через проксі**: за потреби передавати `_proxies` не лише в `POST /orders-v3`, а в усі запити `SXBetClient` (`get_active_markets`, `get_orderbook`, `get_user_trades`, `get_orders`, `get_user_positions`).
+  - **Health-check та fallback**: перед авто-стейкінгом перевіряти доступність проксі / регіон IP; при недоступності проксі чи Render EU — перемикатись на резервний EU-проксі або безпечно пропускати без флуду в `system_errors`.
+  - **Виділений EU-воркер (`render_service.py` у Frankfurt EU Central)**: альтернативний варіант виконання авто-стейкінгу без проксі напряму з європейського сервера.
+* **Залежності**: потрібен крок 40, потрібен крок 44

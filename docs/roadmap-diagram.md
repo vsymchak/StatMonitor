@@ -1,6 +1,6 @@
 # Візуальна діаграма дорожньої карти (Roadmap diagram)
 
-**39 з 42 кроків реалізовано (39 Shipped, 0 Planned, 3 Idea) · 195 Unit Tests** · Детальний опис: [roadmap.md](roadmap.md)
+**44 з 45 кроків реалізовано (44 Shipped, 1 Planned)** · Детальний опис: [roadmap.md](roadmap.md)
 
 > 🟩 **Реалізовано (Shipped)** · 🟧 **У розробці (In Progress)** · 🟪 **Заплановано (Idea)** · ⬜ **Концепт (Fog)**  
 > Колонки — це послідовні хвилі виконання (**Execution Waves**). Стрілка показує залежність («потрібен для»).
@@ -88,6 +88,10 @@ flowchart LR
         40["40 · SX Bet Web3 Auto-Staking<br><small>API EIP-712, нішеві ставки в USDC</small><br><b>L</b>"]:::shipped
         41["41 · Калібрування AI & Brier Score<br><small>Reliability diagram, ECE, BSS</small><br><b>S</b>"]:::shipped
         42["42 · Quantitative Backtest Engine<br><small>Симулятор сітки параметрів</small><br><b>L</b>"]:::shipped
+    end
+
+    subgraph Wave13["Хвиля 13: Інфраструктура & Geo-Routing"]
+        45["45 · EU Proxy для SX Bet<br><small>SX_BET_PROXY_URL / Frankfurt EU</small><br><b>S</b>"]:::in_progress
     end
 
     %% Залежності Хвилі 1 і 2
@@ -182,6 +186,9 @@ flowchart LR
     21 --> 41
     34 --> 42
     39 --> 42
+
+    %% Wave 13 connections
+    40 --> 45
 ```
 
 ---
@@ -232,3 +239,4 @@ flowchart LR
 | **40** | **SX Bet Web3 API & Niche Auto-Staking** | `L` | 🟩 Shipped | Автоматичне виставлення ставок на DEX SX Bet (OrderBook V3, USDC) через REST API та EIP-712 підписи, відбір плюсових ніш за даними Paper Bank. |
 | **41** | **Калібрування AI & Brier Score** | `S` | 🟩 Shipped | Інтерактивна калібрувальна крива (Reliability Diagram), розрахунок Brier Score, ECE %, BSS % та гранулярний розбір оцінок 7–10 у Web UI. |
 | **42** | **Quantitative Backtest Engine** | `L` | 🟩 Shipped | Повноцінний симулятор стратегій для оптимізації порогів просідання, часток Келлі та часових вікон на історичних даних. |
+| **45** | **EU Proxy & Geo-Routing SX Bet** | `S` | 🟧 Planned | Прописати європейський проксі (`SX_BET_PROXY_URL`) у Secrets / воркерах для обходу 403 geo-блоку США на `POST /orders-v3`. |
