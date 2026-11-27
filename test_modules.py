@@ -505,6 +505,30 @@ class TestModularDecomposition(unittest.TestCase):
         self.assertEqual(len(under_rows), 1)
         self.assertEqual(under_rows[0]["price"], 6.15)
 
+    def test_auto_enable_tennis_tournaments(self):
+        from statmonitor.league_config import auto_enable_tennis_tournaments, is_tennis_sport
+
+        self.assertTrue(is_tennis_sport("tennis"))
+        self.assertTrue(is_tennis_sport("tennis_atp_miami_open"))
+        self.assertTrue(is_tennis_sport("tennis_davis_cup"))
+        self.assertFalse(is_tennis_sport("soccer_epl", "EPL"))
+
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_cur.fetchone.side_effect = [None, (False,), (True,)]
+        res = auto_enable_tennis_tournaments(
+            mock_cur,
+            mock_conn,
+            {
+                "tennis_atp_dubai": "Теніс (ATP Dubai)",
+                "tennis_davis_cup": "Теніс (Кубок Девіса)",
+                "tennis_wta": "Теніс (WTA Tour)",
+                "soccer_epl": "EPL",
+            },
+        )
+        self.assertEqual(res, ["tennis_atp_dubai", "tennis_davis_cup"])
+        mock_conn.commit.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

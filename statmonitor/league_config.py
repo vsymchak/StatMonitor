@@ -610,3 +610,63 @@ def get_league_thresholds(sport_key, config=None, cur=None):
 
     # Якщо для ліги немає запису — повертаємо глобальні системні налаштування
     return glob
+
+
+def is_tennis_sport(sport_key, title=""):
+    """Перевіряє, чи є ключ або назва активним тенісним турніром (ATP, WTA, Davis Cup, Challenger тощо)."""
+    sk = str(sport_key or "").lower()
+    tl = str(title or "").lower()
+    return (
+        sk == "tennis"
+        or sk.startswith("tennis_")
+        or "davis" in sk
+        or "atp" in sk
+        or "wta" in sk
+        or "tennis" in tl
+        or "теніс" in tl
+    )
+
+
+def auto_enable_tennis_tournaments(cur, conn, sports_map):
+    """
+    Автоматично сканує активні тенісні турніри (ATP, WTA, Davis Cup, Challenger, Grand Slam)
+    із sports_map і додає/вмикає їх у league_thresholds та config/leagues.json.
+    """
+    if not sports_map:
+        return []
+    tennis_items = [
+        (k, v) for k, v in sports_map.items()
+        if is_tennis_sport(k, v)
+    ]
+    if not tennis_items:
+        return []
+
+    added_or_enabled = []
+    if cur and conn:
+        try:
+            for sp_key, sp_title in tennis_items:
+                cur.execute("SELECT enabled FROM league_thresholds WHERE sport_key = %s;", (sp_key,))
+                row = cur.fetchone()
+                if row is None:
+                    cur.execute(
+                        """
+                        INSERT INTO league_thresholds (sport_key, title, category, enabled, min_drop_pct, min_odds, max_odds, markets)
+                        VALUES (%s, %s, 'tennis', TRUE, 5.0, 1.35, 4.00, %s)
+                        ON CONFLICT (sport_key) DO NOTHING;
+                        """,
+                        (sp_key, str(sp_title or sp_key), json.dumps(["h2h", "totals", "spreads"])),
+                    )
+                    added_or_enabled.append(sp_key)
+                elif not bool(row[0]):
+                    cur.execute("UPDATE league_thresholds SET enabled = TRUE WHERE sport_key = %s;", (sp_key,))
+                    added_or_enabled.append(sp_key)
+            if added_or_enabled:
+                conn.commit()
+        except Exception as e:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            print(f"auto_enable_tennis_tournaments err: {e}")
+
+    return added_or_enabled

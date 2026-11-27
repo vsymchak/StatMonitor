@@ -297,11 +297,20 @@ def _parse_sports_list(data, map_propline=False):
         raw_key = s.get("key") or s.get("sport_key") or ""
         s_key = PROPLINE_TO_ODDS_CANONICAL.get(raw_key, raw_key) if map_propline else raw_key
         is_active = s.get("active", True)
-        if is_active and (s_key in TARGET_SPORTS or s.get("group") == "Tennis" or s_key.startswith("tennis_")):
+        grp_lower = str(s.get("group") or "").lower()
+        is_tennis = (
+            s_key == "tennis"
+            or s_key.startswith("tennis_")
+            or grp_lower == "tennis"
+            or "davis" in s_key
+            or "atp" in s_key
+            or "wta" in s_key
+        )
+        if is_active and (s_key in TARGET_SPORTS or is_tennis):
             title = s.get("title")
             if not title:
                 title = f"Теніс ({s_key.replace('tennis_', '').upper()})" if s_key.startswith("tennis_") else s_key
-            elif s_key.startswith("tennis_") and not title.lower().startswith("теніс") and not title.lower().startswith("tennis"):
+            elif is_tennis and not title.lower().startswith("теніс") and not title.lower().startswith("tennis"):
                 title = f"Теніс ({title})"
             res[s_key] = title
     return res
@@ -424,6 +433,13 @@ def fetch_and_save_odds(sports_map=None):
     cur = conn.cursor() if conn else None
     if conn and cur:
         ensure_tables(cur, conn)
+        try:
+            from statmonitor.league_config import auto_enable_tennis_tournaments
+            newly_enabled = auto_enable_tennis_tournaments(cur, conn, sports_map)
+            if newly_enabled:
+                print(f"🎾 Автоматично додано/увімкнено тенісні турніри: {newly_enabled}")
+        except Exception as te:
+            print(f"Tennis auto-enable err: {te}")
 
     # 1. Smart Rate-Limiter (SPEC-10)
     selected_sports = sports_map
@@ -495,12 +511,22 @@ def fetch_and_save_odds(sports_map=None):
                 if pl_rem_val is not None:
                     propline_rem = pl_rem_val
 
+                if r_pl.status_code in (400, 422) and str(sp).startswith("tennis") and mkt_str != "h2h":
+                    # Деякі провайдери для тенісу підтримують лише h2h без totals/spreads
+                    r_pl = requests.get(
+                        pl_url,
+                        headers={"X-API-Key": propline_key},
+                        params={"regions": "eu", "markets": "h2h", "oddsFormat": "decimal", "commenceTimeTo": to_str},
+                        timeout=12,
+                    )
+
                 if r_pl.status_code == 200:
                     pl_events = _extract_api_items(r_pl.json())
                     if pl_rem_val is not None and pl_rem_val <= 1:
                         propline_exhausted = True
                         print("⚠️ PropLine API: денний ліміт майже вичерпано, перемикання залишку на The Odds API...")
-                    if len(pl_events) == 0 and tiers.get(sp) in ("HOT", "WARM") and cur_key:
+                    is_tennis_sp = str(sp).startswith("tennis")
+                    if len(pl_events) == 0 and (tiers.get(sp) in ("HOT", "WARM") or is_tennis_sp) and cur_key:
                         print(f"ℹ️ PropLine API повернув 0 подій для {sp} ({tiers.get(sp)}): fallback на The Odds API...")
                     else:
                         _append_events_and_odds(pl_events, sp, now_utc, events_batch, odds_raw, max_commence_utc=max_commence_utc)
