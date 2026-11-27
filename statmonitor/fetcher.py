@@ -359,11 +359,20 @@ def _append_events_and_odds(events_list, sp, now_utc, events_batch, odds_raw, ma
             except Exception:
                 pass
         events_batch.append((ev_id, sp, ev.get("home_team", ""), ev.get("away_team", ""), commence_time))
+        seen_odds_keys = set()
         for bm in ev.get("bookmakers", []):
             bm_key = bm.get("key") or bm.get("title") or "unknown"
             for mkt in bm.get("markets", []):
                 mkt_key = mkt.get("key", "")
+                mkt_meta = " ".join(
+                    str(mkt.get(k) or "") for k in ("description", "label", "period", "name")
+                ).lower()
+                if any(w in mkt_meta for w in ("team", "half", "quarter", "period", "1h", "2h")):
+                    continue
                 for out in mkt.get("outcomes", []):
+                    out_desc = str(out.get("description") or "").lower()
+                    if any(w in out_desc for w in ("team", "half", "quarter", "period", "1h", "2h")):
+                        continue
                     raw_price = out.get("price")
                     if raw_price is not None:
                         try:
@@ -392,9 +401,14 @@ def _append_events_and_odds(events_list, sp, now_utc, events_batch, odds_raw, ma
                                 pt_val = round(pt_f, 2)
                             except (ValueError, TypeError):
                                 pt_val = None
+                        out_name = out.get("name", "")
+                        dedup_key = (ev_id, bm_key, mkt_key, out_name, pt_val)
+                        if dedup_key in seen_odds_keys:
+                            continue
+                        seen_odds_keys.add(dedup_key)
                         odds_raw.append({
                             "event_id": ev_id, "bookmaker": bm_key, "market": mkt_key,
-                            "outcome": out.get("name", ""), "point": pt_val,
+                            "outcome": out_name, "point": pt_val,
                             "price": price_val, "time": now_utc
                         })
 

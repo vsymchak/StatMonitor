@@ -463,6 +463,48 @@ class TestModularDecomposition(unittest.TestCase):
         self.assertIsNotNone(ev2)
         self.assertEqual(ev2["id"], "espn_888")
 
+    def test_fetcher_dedups_team_and_duplicate_totals(self):
+        from statmonitor.fetcher import _append_events_and_odds
+        now_utc = datetime(2026, 11, 27, 10, 0, tzinfo=timezone.utc)
+        ev_b, o_raw = [], []
+        _append_events_and_odds([
+            {
+                "id": "723566",
+                "home_team": "Espanyol",
+                "away_team": "Getafe",
+                "commence_time": "2026-11-30T20:00:00Z",
+                "bookmakers": [
+                    {
+                        "key": "eplay24",
+                        "markets": [
+                            {
+                                "key": "totals",
+                                "outcomes": [
+                                    {"name": "Over", "point": 0.5, "price": 1.09},
+                                    {"name": "Under", "point": 0.5, "price": 6.15},
+                                    {"name": "Over", "point": 0.5, "price": 1.30},
+                                    {"name": "Under", "point": 0.5, "price": 3.25},
+                                    {"name": "Over", "point": 0.5, "price": 1.60},
+                                    {"name": "Under", "point": 0.5, "price": 2.22},
+                                ],
+                            },
+                            {
+                                "key": "totals",
+                                "description": "1st Half Totals",
+                                "outcomes": [
+                                    {"name": "Under", "point": 1.5, "price": 1.45},
+                                ],
+                            },
+                        ],
+                    }
+                ],
+            }
+        ], "soccer_spain_la_liga", now_utc, ev_b, o_raw)
+        self.assertEqual(len(o_raw), 2)
+        under_rows = [r for r in o_raw if r["outcome"] == "Under"]
+        self.assertEqual(len(under_rows), 1)
+        self.assertEqual(under_rows[0]["price"], 6.15)
+
 
 if __name__ == "__main__":
     unittest.main()
