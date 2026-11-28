@@ -342,6 +342,32 @@ class TestSXBetClient(unittest.TestCase):
             self.assertIn("Geo blocked", str(ctx.exception))
             self.assertEqual(mock_post.call_args[1]["proxies"]["https"], "http://eu-proxy:8080")
 
+    def test_local_sx_worker_cycle(self):
+        from unittest.mock import patch, MagicMock
+        import scripts.sx_local_worker as worker
+
+        mock_conn = MagicMock()
+        mock_conn.server_version = 160000
+        mock_conn.closed = False
+        mock_cur = MagicMock()
+        mock_cur.fetchone.return_value = (True,)
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+
+        fake_cli = MagicMock()
+        fake_cli.api_key = "k"
+        fake_cli.private_key = "0x1"
+
+        with patch.object(worker, "SUPABASE_DB_URL", "postgresql://u:p@h:5432/db"), \
+             patch.object(worker, "SXBetClient", return_value=fake_cli), \
+             patch.object(worker, "get_db", return_value=mock_conn), \
+             patch.object(worker, "sync_sx_exchange_full", return_value={"free_balance_usdc": 63.1, "trades_fetched": 2, "updated_bets": 1, "settled_bets": 0, "expired_cleaned": 0}), \
+             patch.object(worker, "is_sx_autostake_enabled", return_value=(True, "OK")), \
+             patch.object(worker, "auto_sync_and_stake_from_paper", return_value=[{"paper_bet_id": 252, "event": "Espanyol - Getafe", "stake_usdc": 2.0, "pct": 3.0, "odds": 2.1, "mode": "MAKER", "order_id": "0xord"}]):
+            res = worker.run_sx_cycle()
+        self.assertEqual(res["status"], "ok")
+        self.assertEqual(res["placed"], 1)
+        mock_conn.close.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()
